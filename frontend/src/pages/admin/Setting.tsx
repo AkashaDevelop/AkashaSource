@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Card,
   CardHeader,
@@ -39,7 +39,6 @@ interface PricingItem {
 
 export default function SystemSettings() {
   const [settings, setSettings] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const { token } = useAuthStore();
   const [message, setMessage] = useState<{ type: 'success' | 'danger'; text: string } | null>(null);
@@ -51,7 +50,6 @@ export default function SystemSettings() {
   const [itemForm, setItemForm] = useState<PricingItem>({ model: '', ratio: 0, completion_ratio: 0 });
 
   const fetchSettings = async () => {
-    setLoading(true);
     try {
       const res = await fetch('/api/option', {
         headers: { Authorization: `Bearer ${token}` },
@@ -67,8 +65,6 @@ export default function SystemSettings() {
       }
     } catch (error) {
       console.error('Failed to fetch settings:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -306,6 +302,44 @@ export default function SystemSettings() {
             />
 
             <Divider className="my-2" />
+            <h3 className="text-lg font-semibold">Invitation Settings</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Enable Invitation</label>
+                <Switch
+                  isSelected={settings['invitation_enabled'] === 'true'}
+                  onValueChange={(val) => updateSetting('invitation_enabled', String(val))}
+                >
+                  Enable invitation code requirement for registration
+                </Switch>
+              </div>
+              <Input
+                label="Invitation Code Cost"
+                type="number"
+                placeholder="0"
+                value={settings['invitation_cost'] || ''}
+                onValueChange={(val) => updateSetting('invitation_cost', val)}
+                description="Quota cost to generate an invitation code"
+              />
+              <Input
+                label="Inviter Reward"
+                type="number"
+                placeholder="0"
+                value={settings['invitation_reward'] || ''}
+                onValueChange={(val) => updateSetting('invitation_reward', val)}
+                description="Quota reward for the inviter when invitee registers"
+              />
+              <Input
+                label="New User Reward"
+                type="number"
+                placeholder="0"
+                value={settings['new_user_reward'] || ''}
+                onValueChange={(val) => updateSetting('new_user_reward', val)}
+                description="Initial quota for new users"
+              />
+            </div>
+
+            <Divider className="my-2" />
             <h3 className="text-lg font-semibold">Security (Turnstile)</h3>
             <div className="flex items-center gap-2">
               <Switch 
@@ -377,7 +411,6 @@ export default function SystemSettings() {
             </Table>
           </CardBody>
         </Card>
-      </div>
 
       {/* Edit Pricing Modal */}
       <Modal isOpen={isOpen} onOpenChange={onOpenChange}>

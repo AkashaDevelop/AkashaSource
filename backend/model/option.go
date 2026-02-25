@@ -22,6 +22,12 @@ const (
 	OptionKeyEmailDomainRestrictionEnabled = "email_domain_restriction_enabled"
 	OptionKeyEmailDomainWhitelist          = "email_domain_whitelist"
 
+	// Invitation Options
+	OptionKeyInvitationEnabled = "invitation_enabled" // 是否开启邀请码注册（开启后必须使用邀请码）
+	OptionKeyInvitationCost    = "invitation_cost"    // 生成邀请码的成本 (Quota)
+	OptionKeyInvitationReward  = "invitation_reward"  // 邀请者奖励 (Quota)
+	OptionKeyNewUserReward     = "new_user_reward"    // 新用户奖励 (Quota)
+
 	// Pricing Options
 	OptionKeyModelRatio      = "model_ratio"
 	OptionKeyCompletionRatio = "completion_ratio"
@@ -34,6 +40,7 @@ func InitOptions() {
 	common.DB.AutoMigrate(&Channel{})
 	common.DB.AutoMigrate(&Log{})
 	common.DB.AutoMigrate(&Redemption{})
+	common.DB.AutoMigrate(&Invitation{})
 	common.DB.AutoMigrate(&MidjourneyTask{})
 
 	// Load options from DB

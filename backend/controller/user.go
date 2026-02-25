@@ -2,15 +2,14 @@ package controller
 
 import (
 	"STfreApi/common"
-	"STfreApi/common/email"
 	"STfreApi/model"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type LoginRequest struct {
@@ -62,10 +61,11 @@ func UserLogin(c *gin.Context) {
 }
 
 type RegisterRequest struct {
-	Username  string `json:"username" binding:"required"`
-	Password  string `json:"password" binding:"required"`
-	Email     string `json:"email"`
-	Turnstile string `json:"turnstile"`
+	Username       string `json:"username" binding:"required"`
+	Password       string `json:"password" binding:"required"`
+	Email          string `json:"email"`
+	Turnstile      string `json:"turnstile"`
+	InvitationCode string `json:"invitation_code"`
 }
 
 func UserRegister(c *gin.Context) {
@@ -78,6 +78,23 @@ func UserRegister(c *gin.Context) {
 	if common.TurnstileCheckEnabled && !common.VerifyTurnstile(req.Turnstile) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Turnstile verification failed"})
 		return
+	}
+
+	// Check Invitation Code if enabled
+	invitationEnabled := common.OptionMap[model.OptionKeyInvitationEnabled] == "true"
+	var invitation model.Invitation
+	if invitationEnabled {
+		if req.InvitationCode == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invitation code is required"})
+			return
+		}
+		if err := common.DB.Where("code = ? AND status = ?", req.InvitationCode, model.InvitationStatusUnused).First(&invitation).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid or used invitation code"})
+			return
+		}
+	} else if req.InvitationCode != "" {
+		// Optional invitation code logic
+		common.DB.Where("code = ? AND status = ?", req.InvitationCode, model.InvitationStatusUnused).First(&invitation)
 	}
 
 	// Check if username exists
@@ -97,32 +114,68 @@ func UserRegister(c *gin.Context) {
 		Quota:       0,
 	}
 
+	// New User Reward
+	newUserRewardStr := common.OptionMap[model.OptionKeyNewUserReward]
+	newUserReward, _ := strconv.ParseFloat(newUserRewardStr, 64)
+	user.Quota = int64(newUserReward)
+
 	// Check if this is the first user
 	var count int64
 	common.DB.Model(&model.User{}).Count(&count)
 	if count == 0 {
 		user.Role = model.RoleRoot // First user is Root
 		user.Status = model.UserStatusActive
-	} else {
-		// Email Verification Logic if enabled
-		if common.EmailVerificationEnabled {
-			user.Status = model.UserStatusBanned // Pending verification
-			// Send verification email
-			code := fmt.Sprintf("%06d", rand.New(rand.NewSource(time.Now().UnixNano())).Intn(1000000))
-			// Save code to Redis or DB (omitted for brevity, assume valid for 5 mins)
-			// For now, we just log it or skip verification implementation details
-
-			go func() {
-				err := email.SendEmail(req.Email, "Email Verification", "Your verification code is: "+code)
-				if err != nil {
-					fmt.Println("Failed to send email:", err)
-				}
-			}()
-		}
 	}
 
-	if err := user.Insert(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register user"})
+	// Transaction for registration and invitation processing
+	err := common.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+
+		// Process Invitation
+		if invitation.Id > 0 {
+			// Mark as used
+			invitation.Status = model.InvitationStatusUsed
+			invitation.InviteeId = user.Id
+			invitation.UsedAt = time.Now().Unix()
+			if err := tx.Save(&invitation).Error; err != nil {
+				return err
+			}
+
+			// Update User Inviter
+			if err := tx.Model(&user).Update("inviter_id", invitation.InviterId).Error; err != nil {
+				return err
+			}
+
+			// Reward Inviter
+			invitationRewardStr := common.OptionMap[model.OptionKeyInvitationReward]
+			invitationReward, _ := strconv.ParseFloat(invitationRewardStr, 64)
+			if invitationReward > 0 {
+				var inviter model.User
+				if err := tx.First(&inviter, invitation.InviterId).Error; err == nil {
+					if err := tx.Model(&inviter).Update("quota", gorm.Expr("quota + ?", int64(invitationReward))).Error; err != nil {
+						return err
+					}
+					// Log reward
+					log := model.Log{
+						UserId:    inviter.Id,
+						Username:  inviter.Username,
+						CreatedAt: time.Now().Unix(),
+						Type:      model.LogTypeSystem,
+						Content:   fmt.Sprintf("邀请奖励: %s", user.Username),
+						Quota:     int64(invitationReward),
+						ModelName: "system",
+					}
+					tx.Create(&log)
+				}
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register user: " + err.Error()})
 		return
 	}
 

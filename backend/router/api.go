@@ -11,11 +11,12 @@ import (
 
 func SetApiRouter(router *gin.Engine) {
 	// Relay Route (OpenAI Compatible)
-	router.POST("/v1/chat/completions", controller.Relay)
+	router.POST("/v1/chat/completions", middleware.RateLimitMiddleware(), controller.Relay)
+	router.POST("/v1/embeddings", middleware.RateLimitMiddleware(), controller.Relay)
 
 	// Midjourney Relay
-	router.POST("/mj/submit/imagine", midjourney.RelayMidjourney)
-	router.POST("/mj/submit/action", midjourney.RelayMidjourney)
+	router.POST("/mj/submit/imagine", middleware.RateLimitMiddleware(), midjourney.RelayMidjourney)
+	router.POST("/mj/submit/action", middleware.RateLimitMiddleware(), midjourney.RelayMidjourney)
 	router.POST("/mj/notify", midjourney.MidjourneyNotify)
 
 	// OAuth Routes
@@ -46,6 +47,10 @@ func SetApiRouter(router *gin.Engine) {
 
 			// 兑换码
 			authGroup.POST("/user/redemption", controller.UseRedemptionCode)
+
+			// 邀请码
+			authGroup.POST("/user/invitation", controller.GenerateInvitationCode)
+			authGroup.GET("/user/invitation", controller.GetUserInvitationCodes)
 
 			// 用户自身信息
 			authGroup.GET("/user/self", controller.GetSelf)

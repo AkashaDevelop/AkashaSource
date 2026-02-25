@@ -23,7 +23,7 @@ import {
   Tabs,
   Tab,
 } from '@heroui/react';
-import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, X, Upload } from 'lucide-react';
+import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 
 interface Channel {
@@ -119,6 +119,7 @@ export default function ChannelManagement() {
   const parseMapping = (jsonStr: string) => {
     try {
       const map = JSON.parse(jsonStr || '{}');
+      if (!map || typeof map !== 'object') return [];
       return Object.entries(map).map(([from, to]) => ({ from, to: to as string }));
     } catch {
       return [];
@@ -148,6 +149,7 @@ export default function ChannelManagement() {
       key: '',
       base_url: '',
       models: '',
+      group: 'default',
       priority: '10',
       weight: '1',
     });
@@ -163,7 +165,7 @@ export default function ChannelManagement() {
   };
 
   const handleDeleteMapping = (index: number) => {
-    setModelMapping(modelMapping.filter((_, i) => i !== index));
+    setModelMapping((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (onClose: () => void) => {

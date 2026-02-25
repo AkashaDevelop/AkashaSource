@@ -88,6 +88,7 @@ export default function Profile() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto p-6">
+      {loading && <div className="text-center">Loading...</div>}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold">个人设置</h1>

@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"STfreApi/common"
+	"STfreApi/middleware"
 	"STfreApi/model"
 	"STfreApi/router"
 
@@ -17,10 +18,12 @@ func main() {
 	var port int
 	var driver string
 	var dsn string
+	var rpm int
 
 	flag.IntVar(&port, "port", 8080, "Server port")
 	flag.StringVar(&driver, "driver", "sqlite", "Database driver (sqlite, mysql, postgres)")
 	flag.StringVar(&dsn, "dsn", "akasha.db", "Database DSN")
+	flag.IntVar(&rpm, "rpm", 60, "Rate limit (requests per minute)")
 	flag.Parse()
 
 	// Initialize Database
@@ -29,6 +32,10 @@ func main() {
 
 	// Load Options
 	model.InitOptions()
+
+	// Initialize Rate Limiter
+	log.Printf("Initializing rate limiter with %d RPM", rpm)
+	middleware.InitRateLimiter(rpm)
 
 	// Initialize Gin
 	r := gin.Default()

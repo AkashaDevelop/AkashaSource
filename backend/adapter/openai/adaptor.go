@@ -49,6 +49,8 @@ func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any)
 	targetURL := ""
 	if strings.HasPrefix(openAIReq.Model, "dall-e") {
 		targetURL = fmt.Sprintf(ImagesGenerationsURL, baseUrl)
+	} else if openAIReq.Input != nil {
+		targetURL = fmt.Sprintf(EmbeddingsURL, baseUrl)
 	} else {
 		targetURL = fmt.Sprintf(ChatCompletionsURL, baseUrl)
 	}
@@ -72,7 +74,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any)
 		// If using raw Azure, we need more logic. Let's stick to standard OpenAI for now.
 	}
 
-	client := &http.Client{}
+	client := common.NewHTTPClient(channel.Proxy)
 	return client.Do(req)
 }
 
@@ -100,6 +102,16 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 	var response dto.ChatCompletionResponse
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, nil // Error parsing response, maybe not JSON
+	}
+
+	if len(response.Choices) > 0 {
+		return &response.Usage, nil
+	}
+
+	// Try Embedding Response
+	var embeddingResp dto.EmbeddingResponse
+	if err := json.Unmarshal(body, &embeddingResp); err == nil && len(embeddingResp.Data) > 0 {
+		return &embeddingResp.Usage, nil
 	}
 
 	// If it's an image response, it might not have usage.

@@ -11,6 +11,7 @@ import (
 	"STfreApi/common"
 	"STfreApi/dto"
 	"STfreApi/model"
+	"STfreApi/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -126,14 +127,46 @@ func Relay(c *gin.Context) {
 			continue
 		}
 
-		// If 5xx or 429, try next channel
-		if resp.StatusCode >= 500 || resp.StatusCode == 429 {
+		// Error Handling & Auto-Ban
+		if resp.StatusCode >= 400 {
+			// Read body to check error details
+			responseBody, err := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			lastError = fmt.Errorf("channel %s returned status %d", channel.Name, resp.StatusCode)
-			continue
+
+			if err != nil {
+				lastError = fmt.Errorf("channel %s returned status %d and failed to read body", channel.Name, resp.StatusCode)
+				continue
+			}
+
+			var errorResponse dto.OpenAIErrorResponse
+			// Try to unmarshal, but if it fails, we still have the status code
+			json.Unmarshal(responseBody, &errorResponse)
+			
+			// Check if we should disable this channel
+			if service.ShouldDisableChannel(&errorResponse.Error, resp.StatusCode) {
+				// Use goroutine to avoid blocking
+				go service.DisableChannel(channel.Id, fmt.Sprintf("%d - %s", resp.StatusCode, errorResponse.Error.Message))
+			}
+
+			// Determine if we should retry
+			// Retry on:
+			// 1. 429 (Too Many Requests)
+			// 2. 5xx (Server Errors)
+			// 3. 401 (Unauthorized - Invalid Key) -> We disabled it, so retry next
+			// 4. 403 (Forbidden - Account issue) -> We disabled it, so retry next
+			shouldRetry := resp.StatusCode == 429 || resp.StatusCode >= 500 || service.ShouldDisableChannel(&errorResponse.Error, resp.StatusCode)
+
+			if shouldRetry {
+				lastError = fmt.Errorf("channel %s returned error: %d %s", channel.Name, resp.StatusCode, errorResponse.Error.Message)
+				continue
+			}
+
+			// If not retrying (e.g. 400 Bad Request), return error to client
+			c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), responseBody)
+			return
 		}
 
-		// Success (or 4xx client error which we shouldn't retry)
+		// Success (2xx)
 		defer resp.Body.Close()
 
 		// Do Response & Calculate Usage
@@ -175,7 +208,11 @@ func Relay(c *gin.Context) {
 		} else {
 			// Fallback: estimate from request/response if adaptor didn't return usage
 			// Simple estimation for now
-			promptTokens = common.CountToken(fmt.Sprint(openAIReq.Messages))
+			if openAIReq.Input != nil {
+				promptTokens = common.CountToken(fmt.Sprint(openAIReq.Input))
+			} else {
+				promptTokens = common.CountToken(fmt.Sprint(openAIReq.Messages))
+			}
 			// Completion tokens? Unknown for stream if not tracked.
 		}
 

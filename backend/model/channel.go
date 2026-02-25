@@ -1,5 +1,11 @@
 package model
 
+import (
+	"errors"
+
+	"STfreApi/common"
+)
+
 type Channel struct {
 	Id           int     `json:"id" gorm:"primaryKey;autoIncrement"`
 	Type         int     `json:"type" gorm:"default:1"` // 1: OpenAI, 2: API2D, 3: Azure, 等
@@ -11,6 +17,8 @@ type Channel struct {
 	ModelMapping string  `json:"model_mapping" gorm:"type:text"` // 模型映射 JSON 字符串
 	Priority     int     `json:"priority" gorm:"default:10"`     // 值越大优先级越高
 	Weight       int     `json:"weight" gorm:"default:1"`        // 用于负载均衡
+	AutoBan      int     `json:"auto_ban" gorm:"default:1"`      // 0: 不自动禁用, 1: 自动禁用
+	Proxy        string  `json:"proxy" gorm:"type:varchar(255)"` // HTTP 代理地址
 	Status       int     `json:"status" gorm:"default:1"`        // 1: 正常, 2: 禁用, 3: 自动禁用
 	TestTime     int64   `json:"test_time"`                      // 上次测试时间戳
 	ResponseTime int     `json:"response_time"`                  // 响应时间 (ms)
@@ -42,7 +50,7 @@ func GetRandomChannel(typeStr string) (*Channel, error) {
 		typeInt = ChannelTypeMidjourney
 	// Add other types as needed
 	default:
-		return nil, common.NewError("Unknown channel type: " + typeStr)
+		return nil, errors.New("Unknown channel type: " + typeStr)
 	}
 
 	var channel Channel

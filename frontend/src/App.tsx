@@ -14,6 +14,7 @@ import TokenManagement from './pages/user/Token';
 import RedemptionManagement from './pages/admin/Redemption';
 import TopupPage from './pages/user/Topup';
 import ProfilePage from './pages/user/Profile';
+import UserInvitation from './pages/user/Invitation';
 
 function PrivateRoute({ children, roleRequired }: { children: JSX.Element, roleRequired?: number }) {
   const { token, user } = useAuthStore();
@@ -48,6 +49,7 @@ function App() {
         <Route path="token" element={<TokenManagement />} />
         <Route path="log" element={<LogPage />} />
         <Route path="topup" element={<TopupPage />} />
+        <Route path="invitation" element={<UserInvitation />} />
         <Route path="profile" element={<ProfilePage />} />
       </Route>
 

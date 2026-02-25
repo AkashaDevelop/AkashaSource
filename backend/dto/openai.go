@@ -18,6 +18,20 @@ type OpenAIRequest struct {
 	// Image Generation
 	Prompt string `json:"prompt,omitempty"`
 	Size   string `json:"size,omitempty"`
+
+	// Embeddings
+	Input any `json:"input,omitempty"`
+}
+
+type EmbeddingResponse struct {
+	Object string `json:"object"`
+	Data   []struct {
+		Object    string    `json:"object"`
+		Embedding []float64 `json:"embedding"`
+		Index     int       `json:"index"`
+	} `json:"data"`
+	Model string `json:"model"`
+	Usage Usage  `json:"usage"`
 }
 
 type OpenAIError struct {

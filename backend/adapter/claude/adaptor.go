@@ -79,7 +79,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any)
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("content-type", "application/json")
 
-	client := &http.Client{}
+	client := common.NewHTTPClient(channel.Proxy)
 	return client.Do(req)
 }
 

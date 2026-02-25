@@ -38,4 +38,5 @@ const (
 	BaseURL              = "https://api.openai.com"
 	ChatCompletionsURL   = "%s/v1/chat/completions"
 	ImagesGenerationsURL = "%s/v1/images/generations"
+	EmbeddingsURL        = "%s/v1/embeddings"
 )

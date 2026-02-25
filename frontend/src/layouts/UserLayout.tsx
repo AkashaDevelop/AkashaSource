@@ -5,7 +5,7 @@ import {
   User,
   Button,
 } from '@heroui/react';
-import { LayoutDashboard, Key, LogOut, History, Wallet, User as UserIcon } from 'lucide-react';
+import { LayoutDashboard, Key, LogOut, History, Wallet, User as UserIcon, Share2 } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 
 export default function UserLayout() {
@@ -65,6 +65,13 @@ export default function UserLayout() {
               className={location.pathname === '/topup' ? "bg-primary/10 text-primary" : ""}
             >
               充值
+            </ListboxItem>
+            <ListboxItem
+              key="/invitation"
+              startContent={<Share2 size={20} />}
+              className={location.pathname === '/invitation' ? "bg-primary/10 text-primary" : ""}
+            >
+              邀请管理
             </ListboxItem>
             <ListboxItem
               key="/profile"

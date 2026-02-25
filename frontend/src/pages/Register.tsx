@@ -15,6 +15,7 @@ export default function Register() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
+  const [invitationCode, setInvitationCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -30,7 +31,7 @@ export default function Register() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ username, password, email }),
+        body: JSON.stringify({ username, password, email, invitation_code: invitationCode }),
       });
 
       const data = await res.json();
@@ -83,6 +84,12 @@ export default function Register() {
               type="password"
               value={password}
               onValueChange={setPassword}
+            />
+            <Input
+              label="Invitation Code"
+              placeholder="Enter invitation code (optional)"
+              value={invitationCode}
+              onValueChange={setInvitationCode}
             />
             <Button
               color="primary"

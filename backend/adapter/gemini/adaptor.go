@@ -150,7 +150,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any)
 
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
+	client := common.NewHTTPClient(channel.Proxy)
 	return client.Do(req)
 }
 
