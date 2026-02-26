@@ -31,6 +31,51 @@ const (
 	// Pricing Options
 	OptionKeyModelRatio      = "model_ratio"
 	OptionKeyCompletionRatio = "completion_ratio"
+
+	OptionKeyContentModerationEnabled  = "content_moderation_enabled"
+	OptionKeyContentModerationKeywords = "content_moderation_keywords"
+
+	OptionKeyContentModerationApi             = "content_moderation_api"
+	OptionKeyContentModerationTimeout         = "content_moderation_timeout"
+	OptionKeyContentModerationWhitelistUsers  = "content_moderation_whitelist_users"
+	OptionKeyContentModerationWhitelistModels = "content_moderation_whitelist_models"
+	OptionKeyContentModerationWhitelistIPs    = "content_moderation_whitelist_ips"
+
+	OptionKeyPaymentProvider     = "payment_provider"
+	OptionKeyPaymentNotifySecret = "payment_notify_secret"
+	OptionKeyEpayApiUrl          = "epay_api_url"
+	OptionKeyEpayPid             = "epay_pid"
+	OptionKeyEpayKey             = "epay_key"
+	OptionKeyEpayType            = "epay_type"
+	OptionKeyEpayNotifyUrl       = "epay_notify_url"
+	OptionKeyEpayReturnUrl       = "epay_return_url"
+
+	OptionKeyRedisAddr     = "redis_addr"
+	OptionKeyRedisPassword = "redis_password"
+	OptionKeyRedisDB       = "redis_db"
+
+	// Check-in Options
+	OptionKeyCheckinEnabled   = "checkin_enabled"
+	OptionKeyCheckinMinReward = "checkin_min_reward"
+	OptionKeyCheckinMaxReward = "checkin_max_reward"
+
+	// Model Rate Limiting
+	OptionKeyModelRPM = "model_rpm" // JSON: {"gpt-4": 10, "gpt-3.5-turbo": 60}
+
+	// Thinking-to-Content
+	OptionKeyThinkingToContent = "thinking_to_content"
+
+	// OAuth - Discord
+	OptionKeyDiscordClientId     = "discord_client_id"
+	OptionKeyDiscordClientSecret = "discord_client_secret"
+
+	// OIDC
+	OptionKeyOIDCClientId     = "oidc_client_id"
+	OptionKeyOIDCClientSecret = "oidc_client_secret"
+	OptionKeyOIDCIssuerURL    = "oidc_issuer_url"
+
+	// Telegram
+	OptionKeyTelegramBotToken = "telegram_bot_token"
 )
 
 func InitOptions() {
@@ -42,6 +87,11 @@ func InitOptions() {
 	common.DB.AutoMigrate(&Redemption{})
 	common.DB.AutoMigrate(&Invitation{})
 	common.DB.AutoMigrate(&MidjourneyTask{})
+	common.DB.AutoMigrate(&StoredFile{})
+	common.DB.AutoMigrate(&PaymentOrder{})
+	common.DB.AutoMigrate(&SunoTask{})
+	ApplyMigrations()
+	_ = ApplySQLFileMigrations()
 
 	// Load options from DB
 	var options []Option

@@ -4,6 +4,7 @@ import (
 	"STfreApi/common"
 	"STfreApi/model"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,7 +13,7 @@ import (
 func AddToken(c *gin.Context) {
 	var token model.Token
 	if err := c.ShouldBindJSON(&token); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数解析失败"})
 		return
 	}
 
@@ -20,7 +21,7 @@ func AddToken(c *gin.Context) {
 	token.UserId = userId.(int)
 
 	if token.Name == "" {
-		token.Name = "New Token"
+		token.Name = "新令牌"
 	}
 	token.CreatedTime = time.Now().Unix()
 	token.AccessedTime = 0
@@ -37,11 +38,11 @@ func AddToken(c *gin.Context) {
 	}
 
 	if err := common.DB.Create(&token).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create token"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建令牌失败"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Token created successfully", "data": token})
+	c.JSON(http.StatusOK, gin.H{"message": "令牌创建成功", "data": token})
 }
 
 func DeleteToken(c *gin.Context) {
@@ -55,20 +56,20 @@ func DeleteToken(c *gin.Context) {
 	}
 
 	if err := db.Delete(&model.Token{}).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete token"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除令牌失败"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Token deleted successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "令牌删除成功"})
 }
 
 func UpdateToken(c *gin.Context) {
 	var token model.Token
 	if err := c.ShouldBindJSON(&token); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数解析失败"})
 		return
 	}
 	if token.Id == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少ID"})
 		return
 	}
 
@@ -82,7 +83,7 @@ func UpdateToken(c *gin.Context) {
 	}
 
 	if err := db.First(&existingToken).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Token not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "令牌不存在"})
 		return
 	}
 
@@ -92,12 +93,46 @@ func UpdateToken(c *gin.Context) {
 	existingToken.ExpiredTime = token.ExpiredTime
 	existingToken.RemainQuota = token.RemainQuota
 	existingToken.UnlimitedQuota = token.UnlimitedQuota
+	existingToken.AllowedIPs = token.AllowedIPs
+	existingToken.AllowedModels = token.AllowedModels
 
 	if err := common.DB.Save(&existingToken).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update token"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新令牌失败"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Token updated successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "令牌更新成功"})
+}
+
+// GetKeyInfo returns quota info for the given API key (neko-api-key-tool compatible)
+func GetKeyInfo(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	key := strings.TrimPrefix(authHeader, "Bearer ")
+	if key == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing api key"})
+		return
+	}
+
+	token, err := GetTokenByKey(key)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid api key"})
+		return
+	}
+
+	var user model.User
+	if err := common.DB.Where("id = ?", token.UserId).First(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"key":             token.Key,
+		"name":            token.Name,
+		"status":          token.Status,
+		"quota":           user.Quota,
+		"used_quota":      user.UsedQuota,
+		"remain_quota":    token.RemainQuota,
+		"unlimited_quota": token.UnlimitedQuota,
+	})
 }
 
 func GetAllTokens(c *gin.Context) {
@@ -113,7 +148,7 @@ func GetAllTokens(c *gin.Context) {
 	}
 
 	if err := db.Find(&tokens).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch tokens"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取令牌失败"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": tokens})

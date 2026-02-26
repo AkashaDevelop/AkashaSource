@@ -5,7 +5,7 @@ import {
   User,
   Button,
 } from '@heroui/react';
-import { LayoutDashboard, Key, LogOut, History, Wallet, User as UserIcon, Share2 } from 'lucide-react';
+import { LayoutDashboard, Key, LogOut, History, Wallet, User as UserIcon, Share2, FlaskConical } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 
 export default function UserLayout() {
@@ -31,7 +31,7 @@ export default function UserLayout() {
 
         <div className="flex-1 px-4">
           <Listbox 
-            aria-label="User Menu"
+            aria-label="用户菜单"
             onAction={(key) => navigate(key as string)}
             className="p-0 gap-0 divide-y divide-default-300/50 dark:divide-default-100/80 bg-content1 max-w-[300px] overflow-visible shadow-small rounded-medium"
             itemClasses={{
@@ -79,6 +79,13 @@ export default function UserLayout() {
               className={location.pathname === '/profile' ? "bg-primary/10 text-primary" : ""}
             >
               个人设置
+            </ListboxItem>
+            <ListboxItem
+              key="/playground"
+              startContent={<FlaskConical size={20} />}
+              className={location.pathname === '/playground' ? "bg-primary/10 text-primary" : ""}
+            >
+              Playground
             </ListboxItem>
           </Listbox>
         </div>

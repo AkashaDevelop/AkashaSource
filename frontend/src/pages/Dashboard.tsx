@@ -15,7 +15,7 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
-import { Activity, CreditCard, Key, Server, RefreshCw } from 'lucide-react';
+import { Activity, CreditCard, Key, Server, RefreshCw, CalendarCheck } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 import { useNavigate } from 'react-router-dom';
 
@@ -43,6 +43,90 @@ export default function Dashboard() {
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [loading, setLoading] = useState(false);
+  const [checkedIn, setCheckedIn] = useState(false);
+  const [checkinLoading, setCheckinLoading] = useState(false);
+  const [checkinCaptcha, setCheckinCaptcha] = useState(false);
+  const [captchaProvider, setCaptchaProvider] = useState('');
+  const [geetestEnabled, setGeetestEnabled] = useState(false);
+  const [geetestId, setGeetestId] = useState('');
+  const [turnstileEnabled, setTurnstileEnabled] = useState(false);
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState('');
+
+  const fetchCheckinStatus = async () => {
+    try {
+      const res = await fetch('/api/user/checkin', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) setCheckedIn(data.checked_in);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleCheckin = async () => {
+    setCheckinLoading(true);
+    try {
+      let body: any = {};
+
+      // Handle captcha if required
+      if (checkinCaptcha) {
+        const useGeetest = captchaProvider === 'geetest' && geetestEnabled;
+        const useTurnstile = captchaProvider === 'turnstile' ? turnstileEnabled : (!captchaProvider && turnstileEnabled);
+
+        if (useGeetest) {
+          const geetestData = await new Promise<any>((resolve) => {
+            if (!(window as any).initGeetest4) { resolve(null); return; }
+            (window as any).initGeetest4({
+              captchaId: geetestId,
+              product: 'bind',
+            }, (captchaObj: any) => {
+              captchaObj.onSuccess(() => resolve(captchaObj.getValidate()));
+              captchaObj.onError(() => resolve(null));
+              captchaObj.onClose(() => resolve(null));
+              captchaObj.showCaptcha();
+            });
+          });
+          if (!geetestData) {
+            setCheckinLoading(false);
+            return;
+          }
+          body.geetest = geetestData;
+        } else if (useTurnstile) {
+          const turnstileToken = await new Promise<string>((resolve) => {
+            if (!(window as any).turnstile) { resolve(''); return; }
+            (window as any).turnstile.render('#checkin-turnstile', {
+              sitekey: turnstileSiteKey,
+              callback: (t: string) => resolve(t),
+              'error-callback': () => resolve(''),
+            });
+          });
+          if (!turnstileToken) {
+            alert('请完成人机验证');
+            setCheckinLoading(false);
+            return;
+          }
+          body.turnstile = turnstileToken;
+        }
+      }
+
+      const res = await fetch('/api/user/checkin', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCheckedIn(true);
+        alert(`签到成功！获得 $${(data.reward / 500000).toFixed(4)} 额度`);
+        fetchDashboard();
+      } else {
+        alert(data.error || '签到失败');
+      }
+    } catch (e) { console.error(e); }
+    finally { setCheckinLoading(false); }
+  };
 
   const fetchDashboard = async () => {
     setLoading(true);
@@ -64,7 +148,27 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    if (token) fetchDashboard();
+    if (token) {
+      fetchDashboard();
+      fetchCheckinStatus();
+    }
+    // Fetch captcha config for check-in
+    fetch('/api/system/status')
+      .then(res => res.json())
+      .then(data => {
+        if (data.options) {
+          if (data.options.checkin_captcha === 'true') setCheckinCaptcha(true);
+          if (data.options.captcha_provider) setCaptchaProvider(data.options.captcha_provider);
+          if (data.options.turnstile_check_enabled === 'true') {
+            setTurnstileEnabled(true);
+            setTurnstileSiteKey(data.options.turnstile_site_key || '');
+          }
+          if (data.options.geetest_enabled === 'true') {
+            setGeetestEnabled(true);
+            setGeetestId(data.options.geetest_id || '');
+          }
+        }
+      });
   }, [token]);
 
   return (
@@ -153,6 +257,32 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {/* 签到卡片 */}
+      <Card className="p-4">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-secondary/10 rounded-lg text-secondary">
+              <CalendarCheck size={24} />
+            </div>
+            <div>
+              <h3 className="font-semibold">每日签到</h3>
+              <p className="text-small text-default-500">
+                {checkedIn ? '今日已签到，明天再来吧' : '签到领取随机额度奖励'}
+              </p>
+            </div>
+          </div>
+          <Button
+            color={checkedIn ? 'default' : 'secondary'}
+            variant={checkedIn ? 'flat' : 'shadow'}
+            isDisabled={checkedIn}
+            isLoading={checkinLoading}
+            onPress={handleCheckin}
+          >
+            {checkedIn ? '已签到' : '立即签到'}
+          </Button>
+        </div>
+      </Card>
 
       {/* 图表区域 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

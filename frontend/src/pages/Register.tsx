@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Button,
   Card,
@@ -20,23 +20,107 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  const [captchaProvider, setCaptchaProvider] = useState('');
+  const [turnstileEnabled, setTurnstileEnabled] = useState(false);
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [geetestEnabled, setGeetestEnabled] = useState(false);
+  const [geetestId, setGeetestId] = useState('');
+  const [geetestResult, setGeetestResult] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('/api/system/status')
+      .then(res => res.json())
+      .then(data => {
+        if (data.options) {
+          if (data.options.captcha_provider) setCaptchaProvider(data.options.captcha_provider);
+          if (data.options.turnstile_check_enabled === 'true') {
+            setTurnstileEnabled(true);
+            setTurnstileSiteKey(data.options.turnstile_site_key || '');
+          }
+          if (data.options.geetest_enabled === 'true') {
+            setGeetestEnabled(true);
+            setGeetestId(data.options.geetest_id || '');
+          }
+        }
+      });
+  }, []);
+
+  useEffect(() => {
+    if (turnstileEnabled && turnstileSiteKey && (window as any).turnstile) {
+      (window as any).turnstile.render('#register-turnstile-widget', {
+        sitekey: turnstileSiteKey,
+        callback: (token: string) => setTurnstileToken(token),
+      });
+    }
+  }, [turnstileEnabled, turnstileSiteKey]);
+
+  useEffect(() => {
+    if (geetestEnabled && geetestId && (window as any).initGeetest4) {
+      (window as any).initGeetest4({
+        captchaId: geetestId,
+        product: 'bind',
+      }, (captchaObj: any) => {
+        (window as any)._geetestRegCaptcha = captchaObj;
+        captchaObj.onSuccess(() => {
+          setGeetestResult(captchaObj.getValidate());
+        });
+      });
+    }
+  }, [geetestEnabled, geetestId]);
+
+  const triggerGeetest = (): Promise<any> => {
+    return new Promise((resolve) => {
+      const captchaObj = (window as any)._geetestRegCaptcha;
+      if (!captchaObj) { resolve(null); return; }
+      captchaObj.onSuccess(() => {
+        resolve(captchaObj.getValidate());
+      });
+      captchaObj.showCaptcha();
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const useGeetest = captchaProvider === 'geetest' && geetestEnabled;
+    const useTurnstile = captchaProvider === 'turnstile' ? turnstileEnabled : (!captchaProvider && turnstileEnabled);
+
+    if (useTurnstile && !turnstileToken) {
+      setError("请完成人机验证");
+      return;
+    }
+
+    let geetestData = geetestResult;
+    if (useGeetest && !geetestData) {
+      geetestData = await triggerGeetest();
+      if (!geetestData) {
+        setError("请完成人机验证");
+        return;
+      }
+    }
+
     setLoading(true);
     setError('');
 
     try {
+      const body: any = { username, password, email, invitation_code: invitationCode };
+      if (useTurnstile) body.turnstile = turnstileToken;
+      if (useGeetest && geetestData) body.geetest = geetestData;
+
       const res = await fetch('/api/user/register', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password, email, invitation_code: invitationCode }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
+        if (useTurnstile && (window as any).turnstile) {
+          (window as any).turnstile.reset();
+          setTurnstileToken('');
+        }
+        setGeetestResult(null);
         throw new Error(data.error || 'Registration failed');
       }
 
@@ -91,6 +175,11 @@ export default function Register() {
               value={invitationCode}
               onValueChange={setInvitationCode}
             />
+
+            {turnstileEnabled && captchaProvider !== 'geetest' && (
+              <div id="register-turnstile-widget" className="cf-turnstile" data-sitekey={turnstileSiteKey}></div>
+            )}
+
             <Button
               color="primary"
               type="submit"

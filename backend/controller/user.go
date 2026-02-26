@@ -13,9 +13,10 @@ import (
 )
 
 type LoginRequest struct {
-	Username  string `json:"username" binding:"required"`
-	Password  string `json:"password" binding:"required"`
-	Turnstile string `json:"turnstile"`
+	Username  string                          `json:"username" binding:"required"`
+	Password  string                          `json:"password" binding:"required"`
+	Turnstile string                          `json:"turnstile"`
+	GeeTest   *common.GeeTestValidateRequest  `json:"geetest"`
 }
 
 func UserLogin(c *gin.Context) {
@@ -25,8 +26,8 @@ func UserLogin(c *gin.Context) {
 		return
 	}
 
-	if common.TurnstileCheckEnabled && !common.VerifyTurnstile(req.Turnstile) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Turnstile verification failed"})
+	if !common.VerifyCaptcha(req.Turnstile, req.GeeTest) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "人机验证失败"})
 		return
 	}
 
@@ -38,6 +39,16 @@ func UserLogin(c *gin.Context) {
 
 	if !common.ValidatePassword(req.Password, user.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
+		return
+	}
+
+	// Check if 2FA is enabled
+	if user.TOTPEnabled {
+		c.JSON(http.StatusOK, gin.H{
+			"requires_2fa": true,
+			"user_id":      user.Id,
+			"message":      "请输入两步验证码",
+		})
 		return
 	}
 
@@ -61,11 +72,12 @@ func UserLogin(c *gin.Context) {
 }
 
 type RegisterRequest struct {
-	Username       string `json:"username" binding:"required"`
-	Password       string `json:"password" binding:"required"`
-	Email          string `json:"email"`
-	Turnstile      string `json:"turnstile"`
-	InvitationCode string `json:"invitation_code"`
+	Username       string                          `json:"username" binding:"required"`
+	Password       string                          `json:"password" binding:"required"`
+	Email          string                          `json:"email"`
+	Turnstile      string                          `json:"turnstile"`
+	GeeTest        *common.GeeTestValidateRequest  `json:"geetest"`
+	InvitationCode string                          `json:"invitation_code"`
 }
 
 func UserRegister(c *gin.Context) {
@@ -75,8 +87,8 @@ func UserRegister(c *gin.Context) {
 		return
 	}
 
-	if common.TurnstileCheckEnabled && !common.VerifyTurnstile(req.Turnstile) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Turnstile verification failed"})
+	if !common.VerifyCaptcha(req.Turnstile, req.GeeTest) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "人机验证失败"})
 		return
 	}
 

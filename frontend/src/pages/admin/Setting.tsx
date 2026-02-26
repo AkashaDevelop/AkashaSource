@@ -22,8 +22,9 @@ import {
   useDisclosure,
   Tooltip,
   Switch,
+  Textarea,
 } from '@heroui/react';
-import { Save, Plus, Edit, Trash2, RotateCcw } from 'lucide-react';
+import { Save, Plus, Edit, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 
 interface Option {
@@ -64,7 +65,7 @@ export default function SystemSettings() {
         parsePricing(settingsMap);
       }
     } catch (error) {
-      console.error('Failed to fetch settings:', error);
+      console.error('获取配置失败:', error);
     }
   };
 
@@ -81,7 +82,7 @@ export default function SystemSettings() {
       }));
       setPricingItems(items.sort((a, b) => a.model.localeCompare(b.model)));
     } catch (e) {
-      console.error("Error parsing pricing JSON", e);
+      console.error("解析模型倍率失败", e);
     }
   };
 
@@ -103,30 +104,50 @@ export default function SystemSettings() {
     });
 
     const options = [
-      { key: 'system_name', value: settings['system_name'] || 'STfreApi' },
+      { key: 'system_name', value: settings['system_name'] || 'Akasha' },
+      { key: 'system_url', value: settings['system_url'] || '' },
       { key: 'logo_url', value: settings['logo_url'] || '' },
+      { key: 'notice', value: settings['notice'] || '' },
+      { key: 'footer_html', value: settings['footer_html'] || '' },
+      { key: 'topup_link', value: settings['topup_link'] || '' },
+      { key: 'chat_link', value: settings['chat_link'] || '' },
+      { key: 'price', value: settings['price'] || '' },
+      { key: 'min_topup', value: settings['min_topup'] || '' },
       { key: 'model_ratio', value: JSON.stringify(modelRatio) },
       { key: 'completion_ratio', value: JSON.stringify(completionRatio) },
-      
-      // OAuth
+      { key: 'payment_provider', value: settings['payment_provider'] || '' },
+      { key: 'epay_api_url', value: settings['epay_api_url'] || '' },
+      { key: 'epay_pid', value: settings['epay_pid'] || '' },
+      { key: 'epay_key', value: settings['epay_key'] || '' },
+      { key: 'epay_type', value: settings['epay_type'] || '' },
+      { key: 'epay_notify_url', value: settings['epay_notify_url'] || '' },
+      { key: 'epay_return_url', value: settings['epay_return_url'] || '' },
+      { key: 'content_moderation_enabled', value: settings['content_moderation_enabled'] || 'false' },
+      { key: 'content_moderation_keywords', value: settings['content_moderation_keywords'] || '' },
+      { key: 'content_moderation_api', value: settings['content_moderation_api'] || '' },
+      { key: 'content_moderation_timeout', value: settings['content_moderation_timeout'] || '5' },
+      { key: 'content_moderation_whitelist_users', value: settings['content_moderation_whitelist_users'] || '' },
+      { key: 'content_moderation_whitelist_models', value: settings['content_moderation_whitelist_models'] || '' },
+      { key: 'content_moderation_whitelist_ips', value: settings['content_moderation_whitelist_ips'] || '' },
+      { key: 'redis_addr', value: settings['redis_addr'] || '' },
+      { key: 'redis_password', value: settings['redis_password'] || '' },
+      { key: 'redis_db', value: settings['redis_db'] || '' },
       { key: 'github_client_id', value: settings['github_client_id'] || '' },
       { key: 'github_client_secret', value: settings['github_client_secret'] || '' },
       { key: 'linuxdo_client_id', value: settings['linuxdo_client_id'] || '' },
       { key: 'linuxdo_client_secret', value: settings['linuxdo_client_secret'] || '' },
-      
-      // Email
       { key: 'smtp_server', value: settings['smtp_server'] || '' },
       { key: 'smtp_port', value: settings['smtp_port'] || '587' },
       { key: 'smtp_account', value: settings['smtp_account'] || '' },
       { key: 'smtp_password', value: settings['smtp_password'] || '' },
       { key: 'smtp_from', value: settings['smtp_from'] || '' },
-
-      // Turnstile
       { key: 'turnstile_site_key', value: settings['turnstile_site_key'] || '' },
       { key: 'turnstile_secret_key', value: settings['turnstile_secret_key'] || '' },
       { key: 'turnstile_check_enabled', value: settings['turnstile_check_enabled'] || 'false' },
-
-      // LinuxDO Quota
+      { key: 'invitation_enabled', value: settings['invitation_enabled'] || 'false' },
+      { key: 'invitation_cost', value: settings['invitation_cost'] || '0' },
+      { key: 'invitation_reward', value: settings['invitation_reward'] || '0' },
+      { key: 'new_user_reward', value: settings['new_user_reward'] || '0' },
       { key: 'linuxdo_quota_level_0', value: settings['linuxdo_quota_level_0'] || '0' },
       { key: 'linuxdo_quota_level_1', value: settings['linuxdo_quota_level_1'] || '0' },
       { key: 'linuxdo_quota_level_2', value: settings['linuxdo_quota_level_2'] || '0' },
@@ -142,16 +163,17 @@ export default function SystemSettings() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}` 
         },
-        body: JSON.stringify({ options }),
+        body: JSON.stringify(options),
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: 'success', text: 'Settings saved successfully' });
+        setMessage({ type: 'success', text: '配置保存成功' });
       } else {
-        setMessage({ type: 'danger', text: data.error || 'Failed to save settings' });
+        setMessage({ type: 'danger', text: data.error || '配置保存失败' });
       }
-    } catch (error: any) {
-      setMessage({ type: 'danger', text: error.message });
+    } catch (error) {
+      const text = error instanceof Error ? error.message : '配置保存失败';
+      setMessage({ type: 'danger', text });
     } finally {
       setSaving(false);
     }
@@ -191,7 +213,7 @@ export default function SystemSettings() {
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-10">
       <Card>
-        <CardHeader className="font-bold text-xl">System Settings</CardHeader>
+        <CardHeader className="font-bold text-xl">系统设置</CardHeader>
         <CardBody>
           {message && (
             <Alert color={message.type} className="mb-4">
@@ -199,170 +221,326 @@ export default function SystemSettings() {
             </Alert>
           )}
           
-          <Form onSubmit={handleSave} className="space-y-4">
-            <h3 className="text-lg font-semibold">General</h3>
-            <Input
-              label="System Name"
-              value={settings['system_name'] || ''}
-              onValueChange={(val) => updateSetting('system_name', val)}
-            />
-            <Input
-              label="Logo URL"
-              value={settings['logo_url'] || ''}
-              onValueChange={(val) => updateSetting('logo_url', val)}
-            />
-            <Input
-              label="Notice"
-              value={settings['notice'] || ''}
-              onValueChange={(val) => updateSetting('notice', val)}
-            />
-            <Input
-              label="Topup Link"
-              value={settings['topup_link'] || ''}
-              onValueChange={(val) => updateSetting('topup_link', val)}
-            />
-            <Input
-              label="Chat Link"
-              value={settings['chat_link'] || ''}
-              onValueChange={(val) => updateSetting('chat_link', val)}
-            />
+          <Form onSubmit={handleSave} className="space-y-6">
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">基础设置</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="系统名称"
+                  value={settings['system_name'] || ''}
+                  onValueChange={(val) => updateSetting('system_name', val)}
+                />
+                <Input
+                  label="系统地址"
+                  value={settings['system_url'] || ''}
+                  onValueChange={(val) => updateSetting('system_url', val)}
+                />
+                <Input
+                  label="Logo 地址"
+                  value={settings['logo_url'] || ''}
+                  onValueChange={(val) => updateSetting('logo_url', val)}
+                />
+                <Input
+                  label="最低充值"
+                  type="number"
+                  value={settings['min_topup'] || ''}
+                  onValueChange={(val) => updateSetting('min_topup', val)}
+                />
+                <Input
+                  label="默认价格"
+                  type="number"
+                  value={settings['price'] || ''}
+                  onValueChange={(val) => updateSetting('price', val)}
+                />
+                <Input
+                  label="充值链接"
+                  value={settings['topup_link'] || ''}
+                  onValueChange={(val) => updateSetting('topup_link', val)}
+                />
+                <Input
+                  label="对话链接"
+                  value={settings['chat_link'] || ''}
+                  onValueChange={(val) => updateSetting('chat_link', val)}
+                />
+              </div>
+              <Textarea
+                label="公告内容"
+                value={settings['notice'] || ''}
+                onValueChange={(val) => updateSetting('notice', val)}
+              />
+              <Textarea
+                label="页脚内容"
+                value={settings['footer_html'] || ''}
+                onValueChange={(val) => updateSetting('footer_html', val)}
+              />
+            </div>
 
             <Divider className="my-2" />
-            <h3 className="text-lg font-semibold">GitHub OAuth</h3>
-            <Input
-              label="Client ID"
-              value={settings['github_client_id'] || ''}
-              onValueChange={(val) => updateSetting('github_client_id', val)}
-            />
-            <Input
-              label="Client Secret"
-              type="password"
-              value={settings['github_client_secret'] || ''}
-              onValueChange={(val) => updateSetting('github_client_secret', val)}
-            />
-
-            <Divider className="my-2" />
-            <h3 className="text-lg font-semibold">LinuxDO OAuth</h3>
-            <Input
-              label="Client ID"
-              value={settings['linuxdo_client_id'] || ''}
-              onValueChange={(val) => updateSetting('linuxdo_client_id', val)}
-            />
-            <Input
-              label="Client Secret"
-              type="password"
-              value={settings['linuxdo_client_secret'] || ''}
-              onValueChange={(val) => updateSetting('linuxdo_client_secret', val)}
-            />
-            
-            <div className="grid grid-cols-2 gap-4 mt-2">
-                {[0, 1, 2, 3, 4, 5].map(level => (
-                    <Input
-                        key={level}
-                        label={`Level ${level} Initial Quota`}
-                        type="number"
-                        placeholder="500000 = $1"
-                        value={settings[`linuxdo_quota_level_${level}`] || '0'}
-                        onValueChange={(val) => updateSetting(`linuxdo_quota_level_${level}`, val)}
-                    />
-                ))}
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">支付配置</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="支付渠道"
+                  value={settings['payment_provider'] || ''}
+                  onValueChange={(val) => updateSetting('payment_provider', val)}
+                  placeholder="例如：epay"
+                />
+                <Input
+                  label="易支付 API 地址"
+                  value={settings['epay_api_url'] || ''}
+                  onValueChange={(val) => updateSetting('epay_api_url', val)}
+                />
+                <Input
+                  label="易支付 PID"
+                  value={settings['epay_pid'] || ''}
+                  onValueChange={(val) => updateSetting('epay_pid', val)}
+                />
+                <Input
+                  label="易支付 KEY"
+                  type="password"
+                  value={settings['epay_key'] || ''}
+                  onValueChange={(val) => updateSetting('epay_key', val)}
+                />
+                <Input
+                  label="易支付通道类型"
+                  value={settings['epay_type'] || ''}
+                  onValueChange={(val) => updateSetting('epay_type', val)}
+                  placeholder="例如：alipay"
+                />
+                <Input
+                  label="易支付回调地址"
+                  value={settings['epay_notify_url'] || ''}
+                  onValueChange={(val) => updateSetting('epay_notify_url', val)}
+                />
+                <Input
+                  label="易支付同步返回地址"
+                  value={settings['epay_return_url'] || ''}
+                  onValueChange={(val) => updateSetting('epay_return_url', val)}
+                />
+              </div>
             </div>
 
             <Divider className="my-2" />
-            <h3 className="text-lg font-semibold">SMTP Email</h3>
-            <Input
-              label="SMTP Server"
-              value={settings['smtp_server'] || ''}
-              onValueChange={(val) => updateSetting('smtp_server', val)}
-            />
-            <div className="flex gap-4">
-              <Input
-                label="SMTP Port"
-                value={settings['smtp_port'] || ''}
-                onValueChange={(val) => updateSetting('smtp_port', val)}
-                className="w-1/3"
-              />
-              <Input
-                label="SMTP Account"
-                value={settings['smtp_account'] || ''}
-                onValueChange={(val) => updateSetting('smtp_account', val)}
-                className="w-2/3"
-              />
-            </div>
-            <Input
-              label="SMTP Password"
-              type="password"
-              value={settings['smtp_password'] || ''}
-              onValueChange={(val) => updateSetting('smtp_password', val)}
-            />
-            <Input
-              label="SMTP From Address"
-              value={settings['smtp_from'] || ''}
-              onValueChange={(val) => updateSetting('smtp_from', val)}
-            />
-
-            <Divider className="my-2" />
-            <h3 className="text-lg font-semibold">Invitation Settings</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Enable Invitation</label>
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">内容审查</h3>
+              <div className="flex items-center gap-2">
                 <Switch
-                  isSelected={settings['invitation_enabled'] === 'true'}
-                  onValueChange={(val) => updateSetting('invitation_enabled', String(val))}
+                  isSelected={settings['content_moderation_enabled'] === 'true'}
+                  onValueChange={(val) => updateSetting('content_moderation_enabled', String(val))}
                 >
-                  Enable invitation code requirement for registration
+                  启用内容审查
                 </Switch>
               </div>
-              <Input
-                label="Invitation Code Cost"
-                type="number"
-                placeholder="0"
-                value={settings['invitation_cost'] || ''}
-                onValueChange={(val) => updateSetting('invitation_cost', val)}
-                description="Quota cost to generate an invitation code"
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="审查接口地址"
+                  value={settings['content_moderation_api'] || ''}
+                  onValueChange={(val) => updateSetting('content_moderation_api', val)}
+                />
+                <Input
+                  label="审查超时（秒）"
+                  type="number"
+                  value={settings['content_moderation_timeout'] || ''}
+                  onValueChange={(val) => updateSetting('content_moderation_timeout', val)}
+                />
+              </div>
+              <Textarea
+                label="敏感词（逗号分隔）"
+                value={settings['content_moderation_keywords'] || ''}
+                onValueChange={(val) => updateSetting('content_moderation_keywords', val)}
               />
-              <Input
-                label="Inviter Reward"
-                type="number"
-                placeholder="0"
-                value={settings['invitation_reward'] || ''}
-                onValueChange={(val) => updateSetting('invitation_reward', val)}
-                description="Quota reward for the inviter when invitee registers"
+              <Textarea
+                label="白名单用户 ID（逗号分隔）"
+                value={settings['content_moderation_whitelist_users'] || ''}
+                onValueChange={(val) => updateSetting('content_moderation_whitelist_users', val)}
               />
-              <Input
-                label="New User Reward"
-                type="number"
-                placeholder="0"
-                value={settings['new_user_reward'] || ''}
-                onValueChange={(val) => updateSetting('new_user_reward', val)}
-                description="Initial quota for new users"
+              <Textarea
+                label="白名单模型（逗号分隔）"
+                value={settings['content_moderation_whitelist_models'] || ''}
+                onValueChange={(val) => updateSetting('content_moderation_whitelist_models', val)}
+              />
+              <Textarea
+                label="白名单 IP（逗号分隔）"
+                value={settings['content_moderation_whitelist_ips'] || ''}
+                onValueChange={(val) => updateSetting('content_moderation_whitelist_ips', val)}
               />
             </div>
 
             <Divider className="my-2" />
-            <h3 className="text-lg font-semibold">Security (Turnstile)</h3>
-            <div className="flex items-center gap-2">
-              <Switch 
-                isSelected={settings['turnstile_check_enabled'] === 'true'} 
-                onValueChange={(isSelected) => updateSetting('turnstile_check_enabled', String(isSelected))}
-              >
-                Enable Turnstile Check
-              </Switch>
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">Redis 缓存</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="Redis 地址"
+                  value={settings['redis_addr'] || ''}
+                  onValueChange={(val) => updateSetting('redis_addr', val)}
+                />
+                <Input
+                  label="Redis 密码"
+                  type="password"
+                  value={settings['redis_password'] || ''}
+                  onValueChange={(val) => updateSetting('redis_password', val)}
+                />
+                <Input
+                  label="Redis 数据库"
+                  type="number"
+                  value={settings['redis_db'] || ''}
+                  onValueChange={(val) => updateSetting('redis_db', val)}
+                />
+              </div>
             </div>
-            <Input
-              label="Site Key"
-              value={settings['turnstile_site_key'] || ''}
-              onValueChange={(val) => updateSetting('turnstile_site_key', val)}
-            />
-            <Input
-              label="Secret Key"
-              type="password"
-              value={settings['turnstile_secret_key'] || ''}
-              onValueChange={(val) => updateSetting('turnstile_secret_key', val)}
-            />
+
+            <Divider className="my-2" />
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">GitHub OAuth 配置</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="客户端 ID"
+                  value={settings['github_client_id'] || ''}
+                  onValueChange={(val) => updateSetting('github_client_id', val)}
+                />
+                <Input
+                  label="客户端密钥"
+                  type="password"
+                  value={settings['github_client_secret'] || ''}
+                  onValueChange={(val) => updateSetting('github_client_secret', val)}
+                />
+              </div>
+            </div>
+
+            <Divider className="my-2" />
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">LinuxDO OAuth 配置</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="客户端 ID"
+                  value={settings['linuxdo_client_id'] || ''}
+                  onValueChange={(val) => updateSetting('linuxdo_client_id', val)}
+                />
+                <Input
+                  label="客户端密钥"
+                  type="password"
+                  value={settings['linuxdo_client_secret'] || ''}
+                  onValueChange={(val) => updateSetting('linuxdo_client_secret', val)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4 mt-2">
+                {[0, 1, 2, 3, 4, 5].map(level => (
+                  <Input
+                    key={level}
+                    label={`等级 ${level} 初始额度`}
+                    type="number"
+                    placeholder="500000 = 1 美元"
+                    value={settings[`linuxdo_quota_level_${level}`] || '0'}
+                    onValueChange={(val) => updateSetting(`linuxdo_quota_level_${level}`, val)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <Divider className="my-2" />
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">SMTP 邮件</h3>
+              <Input
+                label="SMTP 服务器"
+                value={settings['smtp_server'] || ''}
+                onValueChange={(val) => updateSetting('smtp_server', val)}
+              />
+              <div className="flex gap-4">
+                <Input
+                  label="SMTP 端口"
+                  value={settings['smtp_port'] || ''}
+                  onValueChange={(val) => updateSetting('smtp_port', val)}
+                  className="w-1/3"
+                />
+                <Input
+                  label="SMTP 账号"
+                  value={settings['smtp_account'] || ''}
+                  onValueChange={(val) => updateSetting('smtp_account', val)}
+                  className="w-2/3"
+                />
+              </div>
+              <Input
+                label="SMTP 密码"
+                type="password"
+                value={settings['smtp_password'] || ''}
+                onValueChange={(val) => updateSetting('smtp_password', val)}
+              />
+              <Input
+                label="发件人地址"
+                value={settings['smtp_from'] || ''}
+                onValueChange={(val) => updateSetting('smtp_from', val)}
+              />
+            </div>
+
+            <Divider className="my-2" />
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">邀请设置</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium">邀请码开关</label>
+                  <Switch
+                    isSelected={settings['invitation_enabled'] === 'true'}
+                    onValueChange={(val) => updateSetting('invitation_enabled', String(val))}
+                  >
+                    注册必须使用邀请码
+                  </Switch>
+                </div>
+                <Input
+                  label="邀请码成本"
+                  type="number"
+                  placeholder="0"
+                  value={settings['invitation_cost'] || ''}
+                  onValueChange={(val) => updateSetting('invitation_cost', val)}
+                  description="生成邀请码时扣除额度"
+                />
+                <Input
+                  label="邀请者奖励"
+                  type="number"
+                  placeholder="0"
+                  value={settings['invitation_reward'] || ''}
+                  onValueChange={(val) => updateSetting('invitation_reward', val)}
+                  description="被邀请用户注册时奖励"
+                />
+                <Input
+                  label="新用户奖励"
+                  type="number"
+                  placeholder="0"
+                  value={settings['new_user_reward'] || ''}
+                  onValueChange={(val) => updateSetting('new_user_reward', val)}
+                  description="新用户初始额度"
+                />
+              </div>
+            </div>
+
+            <Divider className="my-2" />
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold">安全验证</h3>
+              <div className="flex items-center gap-2">
+                <Switch 
+                  isSelected={settings['turnstile_check_enabled'] === 'true'} 
+                  onValueChange={(isSelected) => updateSetting('turnstile_check_enabled', String(isSelected))}
+                >
+                  启用 Turnstile 验证
+                </Switch>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="Turnstile 站点密钥"
+                  value={settings['turnstile_site_key'] || ''}
+                  onValueChange={(val) => updateSetting('turnstile_site_key', val)}
+                />
+                <Input
+                  label="Turnstile 私钥"
+                  type="password"
+                  value={settings['turnstile_secret_key'] || ''}
+                  onValueChange={(val) => updateSetting('turnstile_secret_key', val)}
+                />
+              </div>
+            </div>
 
             <Button color="primary" type="submit" isLoading={saving} startContent={<Save size={18} />}>
-              Save All Settings
+              保存全部配置
             </Button>
           </Form>
         </CardBody>
@@ -412,7 +590,6 @@ export default function SystemSettings() {
           </CardBody>
         </Card>
 
-      {/* Edit Pricing Modal */}
       <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
         <ModalContent>
           {(onClose) => (
@@ -425,18 +602,18 @@ export default function SystemSettings() {
                     placeholder="gpt-4" 
                     value={itemForm.model}
                     onValueChange={(v) => setItemForm({...itemForm, model: v})}
-                    isDisabled={!!editingItem} // Disable model name edit to simplify logic
+                    isDisabled={!!editingItem}
                     isRequired
                   />
                   <Input 
-                    label="模型倍率 (Model Ratio)" 
+                    label="模型倍率" 
                     type="number" 
                     step="0.01"
                     value={itemForm.ratio.toString()}
                     onValueChange={(v) => setItemForm({...itemForm, ratio: parseFloat(v)})}
                   />
                   <Input 
-                    label="补全倍率 (Completion Ratio)" 
+                    label="补全倍率" 
                     type="number" 
                     step="0.01"
                     value={itemForm.completion_ratio.toString()}

@@ -35,6 +35,8 @@ interface Token {
   used_quota: number;
   created_time: number;
   expired_time: number;
+  allowed_ips: string;
+  allowed_models: string;
 }
 
 const STATUS_OPTIONS = [
@@ -56,6 +58,8 @@ export default function TokenManagement() {
   const [neverExpire, setNeverExpire] = useState(true);
   const [remainQuota, setRemainQuota] = useState('0');
   const [unlimitedQuota, setUnlimitedQuota] = useState(true);
+  const [allowedIps, setAllowedIps] = useState('');
+  const [allowedModels, setAllowedModels] = useState('');
 
   const fetchTokens = async () => {
     setLoading(true);
@@ -68,7 +72,7 @@ export default function TokenManagement() {
         setTokens(data.data || []);
       }
     } catch (error) {
-      console.error('Failed to fetch tokens:', error);
+      console.error('获取令牌失败:', error);
     } finally {
       setLoading(false);
     }
@@ -96,6 +100,8 @@ export default function TokenManagement() {
 
     setUnlimitedQuota(token.unlimited_quota);
     setRemainQuota(token.unlimited_quota ? '0' : (token.remain_quota / 500000).toString());
+    setAllowedIps(token.allowed_ips || '');
+    setAllowedModels(token.allowed_models || '');
     
     onOpen();
   };
@@ -108,6 +114,8 @@ export default function TokenManagement() {
     setExpiredTime('');
     setUnlimitedQuota(true);
     setRemainQuota('0');
+    setAllowedIps('');
+    setAllowedModels('');
     onOpen();
   };
 
@@ -127,6 +135,8 @@ export default function TokenManagement() {
       expired_time: expTime,
       unlimited_quota: unlimitedQuota,
       remain_quota: unlimitedQuota ? 0 : parseFloat(remainQuota) * 500000,
+      allowed_ips: allowedIps,
+      allowed_models: allowedModels,
     };
 
     try {
@@ -143,10 +153,10 @@ export default function TokenManagement() {
         fetchTokens();
         onClose();
       } else {
-        alert('Operation failed');
+        alert('操作失败');
       }
     } catch (error) {
-      console.error('Operation error:', error);
+      console.error('提交失败:', error);
     }
   };
 
@@ -159,7 +169,7 @@ export default function TokenManagement() {
       });
       if (res.ok) fetchTokens();
     } catch (error) {
-      console.error('Delete error:', error);
+      console.error('删除失败:', error);
     }
   };
 
@@ -177,8 +187,9 @@ export default function TokenManagement() {
             },
             body: JSON.stringify({ ...token, status: newStatus }),
         });
-      } catch (e) {
-          fetchTokens(); // Revert on error
+      } catch (error) {
+          console.error('更新状态失败:', error);
+          fetchTokens();
       }
   };
 
@@ -209,12 +220,14 @@ export default function TokenManagement() {
         </div>
       </div>
 
-      <Table aria-label="Token table">
+      <Table aria-label="令牌表格">
         <TableHeader>
           <TableColumn>名称</TableColumn>
           <TableColumn>状态</TableColumn>
           <TableColumn>已用额度</TableColumn>
           <TableColumn>剩余额度</TableColumn>
+          <TableColumn>IP 限制</TableColumn>
+          <TableColumn>模型限制</TableColumn>
           <TableColumn>过期时间</TableColumn>
           <TableColumn>创建时间</TableColumn>
           <TableColumn>密钥</TableColumn>
@@ -237,6 +250,8 @@ export default function TokenManagement() {
                   formatQuota(token.remain_quota)
                 )}
               </TableCell>
+              <TableCell className="max-w-[180px] truncate">{token.allowed_ips || '-'}</TableCell>
+              <TableCell className="max-w-[180px] truncate">{token.allowed_models || '-'}</TableCell>
               <TableCell>
                   {token.expired_time === -1 ? (
                       <Chip size="sm" variant="flat">永不过期</Chip>
@@ -284,7 +299,7 @@ export default function TokenManagement() {
                 <Form className="flex flex-col gap-4">
                   <Input
                     label="名称"
-                    placeholder="My Token"
+                    placeholder="请输入名称"
                     value={name}
                     onValueChange={setName}
                     isRequired
@@ -324,10 +339,23 @@ export default function TokenManagement() {
                             label="剩余额度 ($)" 
                             value={remainQuota}
                             onValueChange={setRemainQuota}
-                            description="1 USD = 500000 Quota"
+                            description="1 美元 = 500000 额度"
                         />
                     )}
                   </div>
+
+                  <Input
+                    label="允许的 IP（逗号分隔）"
+                    value={allowedIps}
+                    onValueChange={setAllowedIps}
+                    placeholder="例如：1.1.1.1,2.2.2.2"
+                  />
+                  <Input
+                    label="允许的模型（逗号分隔）"
+                    value={allowedModels}
+                    onValueChange={setAllowedModels}
+                    placeholder="例如：gpt-4o-mini,qwen-max"
+                  />
 
                 </Form>
               </ModalBody>

@@ -99,6 +99,11 @@ func GetModelRatio(modelName string) float64 {
 	return 1.0
 }
 
+// GetCacheRatio returns the discount ratio for cached tokens (default 0.5 = 50% discount)
+func GetCacheRatio() float64 {
+	return 0.5
+}
+
 func GetCompletionRatio(modelName string) float64 {
 	PricingLock.RLock()
 	defer PricingLock.RUnlock()

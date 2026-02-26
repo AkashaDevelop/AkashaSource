@@ -12,6 +12,7 @@ type Log struct {
 	Quota            int64  `json:"quota" gorm:"default:0"`
 	PromptTokens     int    `json:"prompt_tokens" gorm:"default:0"`
 	CompletionTokens int    `json:"completion_tokens" gorm:"default:0"`
+	CachedTokens     int    `json:"cached_tokens" gorm:"default:0"`
 	ChannelId        int    `json:"channel_id" gorm:"index"`
 }
 
@@ -19,4 +20,5 @@ const (
 	LogTypeConsume = 1
 	LogTypeTopup   = 2
 	LogTypeSystem  = 3
+	LogTypeFail    = 4
 )

@@ -5,7 +5,7 @@ import {
   User,
   Button,
 } from '@heroui/react';
-import { LayoutDashboard, Server, Settings, LogOut, Users, Gift } from 'lucide-react';
+import { LayoutDashboard, Server, Settings, LogOut, Users, Gift, ScrollText, Database, Layers, Box, Gauge } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 
 export default function AdminLayout() {
@@ -28,7 +28,7 @@ export default function AdminLayout() {
           </h1>
           <div className="flex items-center gap-2 mt-1">
             <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 text-xs border border-purple-500/30">
-              Admin
+              管理员
             </span>
             <p className="text-xs text-gray-400">管理控制台</p>
           </div>
@@ -36,7 +36,7 @@ export default function AdminLayout() {
 
         <div className="flex-1 px-4">
           <Listbox 
-            aria-label="Admin Menu"
+            aria-label="管理员菜单"
             onAction={(key) => navigate(key as string)}
             variant="flat"
             className="p-0 gap-2"
@@ -74,11 +74,46 @@ export default function AdminLayout() {
               兑换码
             </ListboxItem>
             <ListboxItem
+              key="/admin/group"
+              startContent={<Layers size={18} />}
+              className={location.pathname === '/admin/group' ? "bg-primary text-white" : ""}
+            >
+              分组管理
+            </ListboxItem>
+            <ListboxItem
+              key="/admin/model"
+              startContent={<Box size={18} />}
+              className={location.pathname === '/admin/model' ? "bg-primary text-white" : ""}
+            >
+              模型管理
+            </ListboxItem>
+            <ListboxItem
+              key="/admin/log"
+              startContent={<ScrollText size={18} />}
+              className={location.pathname === '/admin/log' ? "bg-primary text-white" : ""}
+            >
+              日志管理
+            </ListboxItem>
+            <ListboxItem
               key="/admin/setting"
               startContent={<Settings size={18} />}
               className={location.pathname === '/admin/setting' ? "bg-primary text-white" : ""}
             >
               系统设置
+            </ListboxItem>
+            <ListboxItem
+              key="/admin/migration"
+              startContent={<Database size={18} />}
+              className={location.pathname === '/admin/migration' ? "bg-primary text-white" : ""}
+            >
+              SQL 迁移
+            </ListboxItem>
+            <ListboxItem
+              key="/admin/performance"
+              startContent={<Gauge size={18} />}
+              className={location.pathname === '/admin/performance' ? "bg-primary text-white" : ""}
+            >
+              系统性能
             </ListboxItem>
           </Listbox>
         </div>

@@ -9,6 +9,7 @@ import (
 	"STfreApi/middleware"
 	"STfreApi/model"
 	"STfreApi/router"
+	"STfreApi/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -27,15 +28,25 @@ func main() {
 	flag.Parse()
 
 	// Initialize Database
-	log.Printf("Initializing database with driver: %s", driver)
+	log.Printf("初始化数据库，驱动: %s", driver)
 	common.InitDB(driver, dsn)
 
 	// Load Options
 	model.InitOptions()
 
+	// 初始化 Redis
+	common.InitRedis()
+
 	// Initialize Rate Limiter
-	log.Printf("Initializing rate limiter with %d RPM", rpm)
+	log.Printf("初始化限流器，RPM: %d", rpm)
 	middleware.InitRateLimiter(rpm)
+
+	// Start Channel Health Check
+	log.Printf("启动渠道健康检查...")
+	service.StartChannelCheck()
+
+	// 启动日志队列
+	service.InitLogQueue()
 
 	// Initialize Gin
 	r := gin.Default()
@@ -53,8 +64,8 @@ func main() {
 
 	// Start Server
 	addr := fmt.Sprintf(":%d", port)
-	log.Printf("Server starting on %s", addr)
+	log.Printf("服务启动中: %s", addr)
 	if err := r.Run(addr); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		log.Fatalf("服务启动失败: %v", err)
 	}
 }

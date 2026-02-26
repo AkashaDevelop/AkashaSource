@@ -3,6 +3,7 @@ package controller
 import (
 	"STfreApi/common"
 	"STfreApi/model"
+	"STfreApi/service"
 	"fmt"
 	"time"
 
@@ -10,28 +11,29 @@ import (
 	"gorm.io/gorm"
 )
 
-func RecordConsumeLog(c *gin.Context, token *model.Token, modelName string, promptTokens int, completionTokens int) {
-	// 计算配额
+func RecordConsumeLog(c *gin.Context, token *model.Token, modelName string, promptTokens int, completionTokens int, cachedTokens ...int) {
 	ratio := common.GetModelRatio(modelName)
 	completionRatio := common.GetCompletionRatio(modelName)
-	
-	// Quota Calculation
-	// Base: 500000 quota = $1
-	// 1 token = 1 quota (if ratio is 1)
-	
-	quota := float64(promptTokens) * ratio
+	cacheRatio := common.GetCacheRatio()
+
+	cached := 0
+	if len(cachedTokens) > 0 {
+		cached = cachedTokens[0]
+	}
+
+	// Cache billing: non-cached prompt tokens at full price, cached at discount
+	nonCachedPrompt := promptTokens - cached
+	if nonCachedPrompt < 0 {
+		nonCachedPrompt = 0
+	}
+
+	quota := float64(nonCachedPrompt) * ratio
+	quota += float64(cached) * ratio * cacheRatio
 	quota += float64(completionTokens) * ratio * completionRatio
 
-	// Special handling for DALL-E (Image Generation)
-	// If it's an image model, promptTokens already contains the estimated quota cost.
-	// We should probably just use it directly or ensure Ratio is 1.0 for DALL-E in database.
-	// Assuming Ratio is 1.0 for now.
-	
 	finalQuota := int64(quota)
-	
-	// Transaction for atomic update
+
 	common.DB.Transaction(func(tx *gorm.DB) error {
-		// 1. Update User Quota & UsedQuota
 		if err := tx.Model(&model.User{}).Where("id = ?", token.UserId).
 			Updates(map[string]interface{}{
 				"used_quota": gorm.Expr("used_quota + ?", finalQuota),
@@ -40,7 +42,6 @@ func RecordConsumeLog(c *gin.Context, token *model.Token, modelName string, prom
 			return err
 		}
 
-		// 2. Update Token Quota & AccessedTime
 		updates := map[string]interface{}{
 			"used_quota":    gorm.Expr("used_quota + ?", finalQuota),
 			"accessed_time": time.Now().Unix(),
@@ -48,14 +49,17 @@ func RecordConsumeLog(c *gin.Context, token *model.Token, modelName string, prom
 		if !token.UnlimitedQuota {
 			updates["remain_quota"] = gorm.Expr("remain_quota - ?", finalQuota)
 		}
-		
+
 		if err := tx.Model(token).Updates(updates).Error; err != nil {
 			return err
 		}
 
-		// 3. Create Log
+		var username string
+		tx.Model(&model.User{}).Select("username").Where("id = ?", token.UserId).Scan(&username)
+
 		log := model.Log{
 			UserId:           token.UserId,
+			Username:         username,
 			CreatedAt:        time.Now().Unix(),
 			Type:             model.LogTypeConsume,
 			Content:          fmt.Sprintf("使用了模型 %s", modelName),
@@ -64,7 +68,22 @@ func RecordConsumeLog(c *gin.Context, token *model.Token, modelName string, prom
 			Quota:            finalQuota,
 			PromptTokens:     promptTokens,
 			CompletionTokens: completionTokens,
+			CachedTokens:     cached,
 		}
-		return tx.Create(&log).Error
+		service.EnqueueLog(log)
+		return nil
 	})
+}
+
+func RecordFailLog(c *gin.Context, token *model.Token, modelName string, errContent string) {
+	log := model.Log{
+		UserId:    token.UserId,
+		CreatedAt: time.Now().Unix(),
+		Type:      model.LogTypeFail,
+		Content:   errContent,
+		TokenName: token.Name,
+		ModelName: modelName,
+		Quota:     0,
+	}
+	service.EnqueueLog(log)
 }

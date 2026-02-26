@@ -32,28 +32,174 @@ func (a *Adaptor) ConvertRequest(c *gin.Context, request *dto.OpenAIRequest) (an
 		Stream:    request.Stream,
 	}
 	if claudeReq.MaxTokens == 0 {
-		claudeReq.MaxTokens = 4096 // Default max tokens
+		claudeReq.MaxTokens = 4096
 	}
 
-	// Messages conversion
-	var systemPrompt string
+	// Convert tools
+	if len(request.Tools) > 0 {
+		claudeReq.Tools = convertTools(request.Tools)
+	}
+	if request.ToolChoice != nil {
+		raw, _ := json.Marshal(request.ToolChoice)
+		claudeReq.ToolChoice = raw
+	}
+
+	// Convert messages
+	var systemParts []string
 	for _, msg := range request.Messages {
-		if m, ok := msg.(map[string]interface{}); ok {
-			role := m["role"].(string)
-			content := m["content"].(string)
-			if role == "system" {
-				systemPrompt += content + "\n"
-			} else {
-				claudeReq.Messages = append(claudeReq.Messages, ClaudeMessage{
-					Role:    role,
-					Content: content,
+		m, ok := msg.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		role, _ := m["role"].(string)
+		if role == "system" {
+			systemParts = append(systemParts, extractTextContent(m["content"]))
+			continue
+		}
+		cm := ClaudeMessage{Role: role}
+		cm.Content = convertMessageContent(m["content"], role)
+		claudeReq.Messages = append(claudeReq.Messages, cm)
+	}
+
+	if len(systemParts) > 0 {
+		sysText := strings.Join(systemParts, "\n")
+		raw, _ := json.Marshal(sysText)
+		claudeReq.System = raw
+	}
+
+	// Inject thinking mode from suffix
+	if request.ThinkingMode && claudeReq.Thinking == nil {
+		claudeReq.Thinking = &ClaudeThinking{
+			Type:         "enabled",
+			BudgetTokens: 10000,
+		}
+		// Thinking mode requires stream and no temperature
+		claudeReq.Stream = true
+		claudeReq.Temperature = nil
+	}
+
+	return &claudeReq, nil
+}
+
+// extractTextContent gets plain text from message content (string or array)
+func extractTextContent(content interface{}) string {
+	if s, ok := content.(string); ok {
+		return s
+	}
+	if arr, ok := content.([]interface{}); ok {
+		var parts []string
+		for _, item := range arr {
+			if m, ok := item.(map[string]interface{}); ok {
+				if t, ok := m["text"].(string); ok {
+					parts = append(parts, t)
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return fmt.Sprint(content)
+}
+
+// convertMessageContent converts OpenAI message content to Claude format
+func convertMessageContent(content interface{}, role string) json.RawMessage {
+	// Simple string content
+	if s, ok := content.(string); ok {
+		raw, _ := json.Marshal(s)
+		return raw
+	}
+
+	// Array content (vision, tool_result, etc.)
+	if arr, ok := content.([]interface{}); ok {
+		var blocks []ContentBlock
+		for _, item := range arr {
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			typ, _ := m["type"].(string)
+			switch typ {
+			case "text":
+				text, _ := m["text"].(string)
+				blocks = append(blocks, ContentBlock{Type: "text", Text: text})
+			case "image_url":
+				if urlObj, ok := m["image_url"].(map[string]interface{}); ok {
+					url, _ := urlObj["url"].(string)
+					if strings.HasPrefix(url, "data:") {
+						// data:image/jpeg;base64,xxxx
+						parts := strings.SplitN(url, ",", 2)
+						mediaType := "image/jpeg"
+						if len(parts) == 2 {
+							meta := strings.TrimPrefix(parts[0], "data:")
+							meta = strings.TrimSuffix(meta, ";base64")
+							mediaType = meta
+							blocks = append(blocks, ContentBlock{
+								Type: "image",
+								Source: &ImageSource{
+									Type:      "base64",
+									MediaType: mediaType,
+									Data:      parts[1],
+								},
+							})
+						}
+					}
+				}
+			case "tool_use":
+				id, _ := m["id"].(string)
+				name, _ := m["name"].(string)
+				inputRaw, _ := json.Marshal(m["input"])
+				blocks = append(blocks, ContentBlock{
+					Type:  "tool_use",
+					ID:    id,
+					Name:  name,
+					Input: inputRaw,
+				})
+			case "tool_result":
+				toolUseID, _ := m["tool_use_id"].(string)
+				contentRaw, _ := json.Marshal(m["content"])
+				blocks = append(blocks, ContentBlock{
+					Type:      "tool_result",
+					ToolUseID: toolUseID,
+					Content:   contentRaw,
 				})
 			}
 		}
+		raw, _ := json.Marshal(blocks)
+		return raw
 	}
-	claudeReq.System = strings.TrimSpace(systemPrompt)
 
-	return &claudeReq, nil
+	raw, _ := json.Marshal(fmt.Sprint(content))
+	return raw
+}
+
+// convertTools converts OpenAI function tools to Claude tool format
+func convertTools(tools []any) []ClaudeTool {
+	var result []ClaudeTool
+	for _, t := range tools {
+		m, ok := t.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		fn, ok := m["function"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		ct := ClaudeTool{
+			Name:        getString(fn, "name"),
+			Description: getString(fn, "description"),
+		}
+		if params, ok := fn["parameters"]; ok {
+			ct.InputSchema, _ = json.Marshal(params)
+		}
+		result = append(result, ct)
+	}
+	return result
+}
+
+func getString(m map[string]interface{}, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any) (*http.Response, error) {
@@ -67,7 +213,6 @@ func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any)
 	if baseUrl == "" {
 		baseUrl = BaseURL
 	}
-	// Ensure no trailing slash
 	baseUrl = strings.TrimSuffix(baseUrl, "/")
 
 	req, err := http.NewRequest("POST", fmt.Sprintf("%s/v1/messages", baseUrl), bytes.NewBuffer(reqBody))
@@ -78,6 +223,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any)
 	req.Header.Set("x-api-key", channel.Key)
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("content-type", "application/json")
+	// Enable beta features for tool_use and thinking
+	req.Header.Set("anthropic-beta", "tools-2024-04-04,prompt-caching-2024-07-31")
+	common.ApplyHeaders(req, channel.Headers)
 
 	client := common.NewHTTPClient(channel.Proxy)
 	return client.Do(req)
@@ -89,21 +237,11 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *model.To
 		return nil, fmt.Errorf("provider error: %s", string(body))
 	}
 
-	// Handle Stream
-	// We need to check if the request was stream. But `DoResponse` signature doesn't have request info.
-	// We can check Content-Type or pass request info.
-	// Or we can peek the body? No.
-	// In my interface design, `ConvertRequest` returned the converted request which has `Stream` field.
-	// But `DoResponse` doesn't receive it.
-	// Let's assume we can detect stream from response header "text/event-stream"
-
 	isStream := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
-
 	if isStream {
 		return a.streamHandler(c, resp)
-	} else {
-		return a.normalHandler(c, resp)
 	}
+	return a.normalHandler(c, resp)
 }
 
 func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage, error) {
@@ -113,9 +251,35 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 		return nil, err
 	}
 
+	// Build OpenAI-format response with tool_use and thinking support
 	content := ""
-	if len(claudeResp.Content) > 0 {
-		content = claudeResp.Content[0].Text
+	var toolCalls []dto.ToolCall
+	for _, block := range claudeResp.Content {
+		switch block.Type {
+		case "thinking":
+			if common.ThinkingToContent && block.Thinking != "" {
+				content += "<thinking>\n" + block.Thinking + "\n</thinking>\n"
+			}
+		case "text":
+			content += block.Text
+		case "tool_use":
+			toolCalls = append(toolCalls, dto.ToolCall{
+				ID:   block.ID,
+				Type: "function",
+				Function: dto.FunctionCall{
+					Name:      block.Name,
+					Arguments: string(block.Input),
+				},
+			})
+		}
+	}
+
+	msg := dto.ChatMessage{
+		Role:    "assistant",
+		Content: content,
+	}
+	if len(toolCalls) > 0 {
+		msg.ToolCalls = toolCalls
 	}
 
 	openaiResp := dto.ChatCompletionResponse{
@@ -123,22 +287,9 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 		Object:  "chat.completion",
 		Created: common.GetTimestamp(),
 		Model:   claudeResp.Model,
-		Choices: []struct {
-			Message struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
-			} `json:"message"`
-			Index        int    `json:"index"`
-			FinishReason string `json:"finish_reason"`
-		}{
+		Choices: []dto.Choice{
 			{
-				Message: struct {
-					Role    string `json:"role"`
-					Content string `json:"content"`
-				}{
-					Role:    "assistant",
-					Content: content,
-				},
+				Message:      msg,
 				Index:        0,
 				FinishReason: stopReasonClaude2OpenAI(claudeResp.StopReason),
 			},
@@ -147,6 +298,7 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 			PromptTokens:     claudeResp.Usage.InputTokens,
 			CompletionTokens: claudeResp.Usage.OutputTokens,
 			TotalTokens:      claudeResp.Usage.InputTokens + claudeResp.Usage.OutputTokens,
+			CachedTokens:     claudeResp.Usage.CacheReadInputTokens,
 		},
 	}
 
@@ -161,6 +313,12 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 	usage := &dto.Usage{}
 	var id string
 	var modelName string
+
+	// Track tool_use and thinking state for streaming
+	var currentToolID string
+	var currentToolName string
+	var toolArgsBuf strings.Builder
+	var inThinkingBlock bool
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -180,13 +338,49 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 				id = event.Message.ID
 				modelName = event.Message.Model
 				usage.PromptTokens = event.Message.Usage.InputTokens
+				usage.CachedTokens = event.Message.Usage.CacheReadInputTokens
 			}
-			// Send initial empty chunk with role? OpenAI usually sends role in first chunk
-			sendStreamResponse(c, id, modelName, "", "assistant", "")
+			sendStreamChunk(c, id, modelName, "", "assistant", "")
+
+		case "content_block_start":
+			if event.ContentBlock != nil {
+				switch event.ContentBlock.Type {
+				case "tool_use":
+					currentToolID = event.ContentBlock.ID
+					currentToolName = event.ContentBlock.Name
+					toolArgsBuf.Reset()
+				case "thinking":
+					if common.ThinkingToContent {
+						sendStreamChunk(c, id, modelName, "<thinking>\n", "", "")
+						inThinkingBlock = true
+					}
+				}
+			}
 
 		case "content_block_delta":
 			if event.Delta != nil {
-				sendStreamResponse(c, id, modelName, event.Delta.Text, "", "")
+				switch event.Delta.Type {
+				case "text_delta":
+					sendStreamChunk(c, id, modelName, event.Delta.Text, "", "")
+				case "thinking_delta":
+					if common.ThinkingToContent && event.Delta.Thinking != "" {
+						sendStreamChunk(c, id, modelName, event.Delta.Thinking, "", "")
+					}
+				case "input_json_delta":
+					toolArgsBuf.WriteString(event.Delta.PartialJSON)
+				}
+			}
+
+		case "content_block_stop":
+			if inThinkingBlock && common.ThinkingToContent {
+				sendStreamChunk(c, id, modelName, "\n</thinking>\n", "", "")
+				inThinkingBlock = false
+			}
+			if currentToolID != "" {
+				sendStreamToolCall(c, id, modelName, currentToolID, currentToolName, toolArgsBuf.String())
+				currentToolID = ""
+				currentToolName = ""
+				toolArgsBuf.Reset()
 			}
 
 		case "message_delta":
@@ -194,11 +388,11 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 				usage.CompletionTokens = event.Usage.OutputTokens
 			}
 			if event.Delta != nil && event.Delta.StopReason != "" {
-				sendStreamResponse(c, id, modelName, "", "", stopReasonClaude2OpenAI(event.Delta.StopReason))
+				sendStreamChunk(c, id, modelName, "", "", stopReasonClaude2OpenAI(event.Delta.StopReason))
 			}
 
 		case "message_stop":
-			sendStreamResponse(c, id, modelName, "", "", "") // [DONE] handled by caller usually, but here we should send DONE
+			// handled below
 		}
 	}
 
@@ -209,25 +403,15 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 	return usage, nil
 }
 
-func sendStreamResponse(c *gin.Context, id, model, content, role, finishReason string) {
+func sendStreamChunk(c *gin.Context, id, model, content, role, finishReason string) {
 	resp := dto.ChatCompletionStreamResponse{
 		ID:      id,
 		Object:  "chat.completion.chunk",
 		Created: common.GetTimestamp(),
 		Model:   model,
-		Choices: []struct {
-			Delta struct {
-				Content string `json:"content"`
-				Role    string `json:"role,omitempty"`
-			} `json:"delta"`
-			Index        int    `json:"index"`
-			FinishReason string `json:"finish_reason"`
-		}{
+		Choices: []dto.StreamChoice{
 			{
-				Delta: struct {
-					Content string `json:"content"`
-					Role    string `json:"role,omitempty"`
-				}{
+				Delta: dto.StreamDelta{
 					Content: content,
 					Role:    role,
 				},
@@ -235,7 +419,34 @@ func sendStreamResponse(c *gin.Context, id, model, content, role, finishReason s
 			},
 		},
 	}
+	jsonBody, _ := json.Marshal(resp)
+	c.Writer.WriteString("data: " + string(jsonBody) + "\n\n")
+	c.Writer.Flush()
+}
 
+func sendStreamToolCall(c *gin.Context, id, model, toolID, toolName, args string) {
+	resp := dto.ChatCompletionStreamResponse{
+		ID:      id,
+		Object:  "chat.completion.chunk",
+		Created: common.GetTimestamp(),
+		Model:   model,
+		Choices: []dto.StreamChoice{
+			{
+				Delta: dto.StreamDelta{
+					ToolCalls: []dto.ToolCall{
+						{
+							ID:   toolID,
+							Type: "function",
+							Function: dto.FunctionCall{
+								Name:      toolName,
+								Arguments: args,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
 	jsonBody, _ := json.Marshal(resp)
 	c.Writer.WriteString("data: " + string(jsonBody) + "\n\n")
 	c.Writer.Flush()
@@ -247,6 +458,8 @@ func stopReasonClaude2OpenAI(reason string) string {
 		return "stop"
 	case "max_tokens":
 		return "length"
+	case "tool_use":
+		return "tool_calls"
 	default:
 		return reason
 	}

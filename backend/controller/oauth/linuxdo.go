@@ -68,7 +68,8 @@ func LinuxDOCallback(c *gin.Context) {
 	req.Header.Set("Accept", "application/json")
 
 	client := &http.Client{}
-	resp, err := client.Do(req)
+	var resp *http.Response
+	resp, err = client.Do(req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
@@ -76,7 +77,8 @@ func LinuxDOCallback(c *gin.Context) {
 	defer resp.Body.Close()
 
 	var oauthResp LinuxDOOAuthResponse
-	if err := json.NewDecoder(resp.Body).Decode(&oauthResp); err != nil {
+	err = json.NewDecoder(resp.Body).Decode(&oauthResp)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
@@ -89,7 +91,8 @@ func LinuxDOCallback(c *gin.Context) {
 	// Get User Info
 	userReq, _ := http.NewRequest("GET", "https://connect.linux.do/api/user", nil)
 	userReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", oauthResp.AccessToken))
-	userResp, err := client.Do(userReq)
+	var userResp *http.Response
+	userResp, err = client.Do(userReq)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
@@ -97,7 +100,8 @@ func LinuxDOCallback(c *gin.Context) {
 	defer userResp.Body.Close()
 
 	var linuxDOUser LinuxDOUser
-	if err := json.NewDecoder(userResp.Body).Decode(&linuxDOUser); err != nil {
+	err = json.NewDecoder(userResp.Body).Decode(&linuxDOUser)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}

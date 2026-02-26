@@ -15,7 +15,7 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
-import { Server, Activity, DollarSign, Users, RefreshCw } from 'lucide-react';
+import { Server, Activity, DollarSign, Users, RefreshCw, Cpu, MemoryStick, Clock } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 
 interface DashboardStats {
@@ -31,9 +31,18 @@ interface ChartData {
   count: number;
 }
 
+interface PerformanceData {
+  goroutines: number;
+  memory_mb: number;
+  gc_cycles: number;
+  uptime: string;
+  go_version: string;
+}
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
+  const [perf, setPerf] = useState<PerformanceData | null>(null);
   const [loading, setLoading] = useState(false);
   const { token } = useAuthStore();
 
@@ -55,8 +64,21 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchPerformance = async () => {
+    try {
+      const res = await fetch('/api/performance', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) setPerf(data);
+    } catch (e) { console.error(e); }
+  };
+
   useEffect(() => {
-    if (token) fetchDashboard();
+    if (token) {
+      fetchDashboard();
+      fetchPerformance();
+    }
   }, [token]);
 
   return (
@@ -181,6 +203,54 @@ export default function AdminDashboard() {
           </ResponsiveContainer>
         </CardBody>
       </Card>
+
+      {/* 系统性能 */}
+      {perf && (
+        <Card className="p-4">
+          <CardHeader>
+            <h3 className="text-lg font-semibold">系统性能</h3>
+          </CardHeader>
+          <CardBody>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary/10 rounded-lg text-primary"><Cpu size={20} /></div>
+                <div>
+                  <p className="text-xs text-default-500">Goroutines</p>
+                  <p className="font-bold">{perf.goroutines}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-warning/10 rounded-lg text-warning"><MemoryStick size={20} /></div>
+                <div>
+                  <p className="text-xs text-default-500">内存使用</p>
+                  <p className="font-bold">{perf.memory_mb.toFixed(1)} MB</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-success/10 rounded-lg text-success"><RefreshCw size={20} /></div>
+                <div>
+                  <p className="text-xs text-default-500">GC 次数</p>
+                  <p className="font-bold">{perf.gc_cycles}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-secondary/10 rounded-lg text-secondary"><Clock size={20} /></div>
+                <div>
+                  <p className="text-xs text-default-500">运行时间</p>
+                  <p className="font-bold">{perf.uptime}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-default/10 rounded-lg"><Server size={20} /></div>
+                <div>
+                  <p className="text-xs text-default-500">Go 版本</p>
+                  <p className="font-bold text-sm">{perf.go_version}</p>
+                </div>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+      )}
     </div>
   );
 }

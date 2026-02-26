@@ -24,7 +24,7 @@ func VerifyTurnstile(token string) bool {
 		return true
 	}
 	if TurnstileSecretKey == "" {
-		return true // Skip check if not configured
+		return true
 	}
 
 	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", url.Values{
@@ -42,6 +42,76 @@ func VerifyTurnstile(token string) bool {
 		return false
 	}
 	return result.Success
+}
+
+// GeeTest (极验) Verification
+type GeeTestValidateRequest struct {
+	LotNumber     string `json:"lot_number"`
+	CaptchaOutput string `json:"captcha_output"`
+	PassToken     string `json:"pass_token"`
+	GenTime       string `json:"gen_time"`
+}
+
+type GeeTestResponse struct {
+	Result string `json:"result"`
+	Reason string `json:"reason"`
+}
+
+func VerifyGeeTest(req *GeeTestValidateRequest) bool {
+	if !GeeTestEnabled || GeeTestId == "" || GeeTestKey == "" {
+		return true
+	}
+	if req == nil || req.LotNumber == "" {
+		return false
+	}
+
+	// Generate sign_token = hmac_sha256(lot_number, geetest_key)
+	signToken := HmacSha256(req.LotNumber, GeeTestKey)
+
+	formData := url.Values{
+		"lot_number":     {req.LotNumber},
+		"captcha_output": {req.CaptchaOutput},
+		"pass_token":     {req.PassToken},
+		"gen_time":       {req.GenTime},
+		"sign_token":     {signToken},
+		"captcha_id":     {GeeTestId},
+	}
+
+	resp, err := http.PostForm("https://gcaptcha4.geetest.com/validate", formData)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	body, _ := ioutil.ReadAll(resp.Body)
+	var result GeeTestResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return false
+	}
+	return result.Result == "success"
+}
+
+// VerifyCaptcha is a unified captcha verification function
+// It checks the configured provider (turnstile or geetest)
+func VerifyCaptcha(turnstileToken string, geetest *GeeTestValidateRequest) bool {
+	switch CaptchaProvider {
+	case "turnstile":
+		if !TurnstileCheckEnabled {
+			return true
+		}
+		return VerifyTurnstile(turnstileToken)
+	case "geetest":
+		if !GeeTestEnabled {
+			return true
+		}
+		return VerifyGeeTest(geetest)
+	default:
+		// Fallback: check turnstile if enabled
+		if TurnstileCheckEnabled {
+			return VerifyTurnstile(turnstileToken)
+		}
+		return true
+	}
 }
 
 // Password hashing
@@ -73,4 +143,10 @@ func HmacSha256(data string, secret string) string {
 	h := hmac.New(sha256.New, []byte(secret))
 	h.Write([]byte(data))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// MapToJSON converts a map to JSON string
+func MapToJSON(m map[string]float64) (string, error) {
+	b, err := json.Marshal(m)
+	return string(b), err
 }

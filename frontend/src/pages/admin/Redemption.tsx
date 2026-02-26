@@ -16,6 +16,8 @@ import {
   useDisclosure,
   Input,
   Pagination,
+  Select,
+  SelectItem,
 } from '@heroui/react';
 import { Plus, RefreshCw, Copy } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
@@ -37,17 +39,23 @@ export default function RedemptionManagement() {
   const [total, setTotal] = useState(0);
   const { token } = useAuthStore();
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
+  const [statusFilter, setStatusFilter] = useState('');
   
   const [formData, setFormData] = useState({
     name: '',
-    quota: '1', // Quota in USD (will convert to int64)
+    quota: '1',
     count: '1',
   });
 
   const fetchCodes = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/redemption?p=${page}&size=10`, {
+      const params = new URLSearchParams({
+        p: page.toString(),
+        size: '10',
+      });
+      if (statusFilter) params.set('status', statusFilter);
+      const res = await fetch(`/api/redemption?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -56,7 +64,7 @@ export default function RedemptionManagement() {
         setTotal(data.total || 0);
       }
     } catch (error) {
-      console.error('Failed to fetch codes:', error);
+      console.error('获取兑换码失败:', error);
     } finally {
       setLoading(false);
     }
@@ -64,7 +72,7 @@ export default function RedemptionManagement() {
 
   useEffect(() => {
     if (token) fetchCodes();
-  }, [page, token]);
+  }, [page, token, statusFilter]);
 
   const handleGenerate = async (onClose: () => void) => {
     try {
@@ -85,16 +93,34 @@ export default function RedemptionManagement() {
         fetchCodes();
         onClose();
       } else {
-        alert('Failed to generate codes');
+        alert('生成兑换码失败');
       }
     } catch (error) {
-      console.error('Generate error:', error);
+      console.error('生成失败:', error);
     }
   };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     // Could show toast
+  };
+
+  const handleExport = async () => {
+    const params = new URLSearchParams();
+    if (statusFilter) params.set('status', statusFilter);
+    const res = await fetch(`/api/export/redemption?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'redemptions.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
   };
 
   return (
@@ -105,8 +131,21 @@ export default function RedemptionManagement() {
           <p className="text-default-500">生成和管理额度兑换码</p>
         </div>
         <div className="flex gap-2">
+          <Select
+            label="状态筛选"
+            selectedKeys={statusFilter ? [statusFilter] : []}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="w-40"
+            placeholder="全部"
+          >
+          <SelectItem key="0">未使用</SelectItem>
+          <SelectItem key="1">已使用</SelectItem>
+          </Select>
           <Button startContent={<RefreshCw size={18} />} onPress={fetchCodes} variant="flat">
             刷新
+          </Button>
+          <Button variant="flat" onPress={handleExport}>
+            导出 CSV
           </Button>
           <Button startContent={<Plus size={18} />} color="primary" onPress={onOpen}>
             生成兑换码
@@ -115,7 +154,7 @@ export default function RedemptionManagement() {
       </div>
 
       <Table 
-        aria-label="Redemption table"
+        aria-label="兑换码表格"
         bottomContent={
           <div className="flex w-full justify-center">
             <Pagination
@@ -171,7 +210,7 @@ export default function RedemptionManagement() {
               <ModalBody>
                 <Input
                   label="名称"
-                  placeholder="例如: 活动赠送"
+                  placeholder="例如：活动赠送"
                   value={formData.name}
                   onValueChange={(v) => setFormData({...formData, name: v})}
                 />
@@ -181,7 +220,7 @@ export default function RedemptionManagement() {
                   placeholder="1"
                   value={formData.quota}
                   onValueChange={(v) => setFormData({...formData, quota: v})}
-                  description="1 USD = 500000 Quota"
+                  description="1 美元 = 500000 额度"
                 />
                 <Input
                   label="生成数量"

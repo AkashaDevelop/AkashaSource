@@ -26,16 +26,24 @@ func (a *Adaptor) GetModelList() []string {
 }
 
 func (a *Adaptor) ConvertRequest(c *gin.Context, request *dto.OpenAIRequest) (any, error) {
-	// OpenAI to OpenAI is just a passthrough, but we might need to handle specific logic if needed.
-	// For now, just return the request as is (pointer or value? interface{} handles both)
+	// Inject reasoning_effort if set via suffix
+	// The field is already in the JSON struct, so it will be marshaled automatically.
+	// No additional work needed for OpenAI — the field is sent as-is.
 	return request, nil
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any) (*http.Response, error) {
 	openAIReq := request.(*dto.OpenAIRequest)
-	reqBody, err := json.Marshal(request)
-	if err != nil {
-		return nil, err
+	var reqBody []byte
+	var err error
+
+	if len(openAIReq.RawBody) > 0 {
+		reqBody = openAIReq.RawBody
+	} else {
+		reqBody, err = json.Marshal(request)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	baseUrl := channel.BaseURL
@@ -49,6 +57,16 @@ func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any)
 	targetURL := ""
 	if strings.HasPrefix(openAIReq.Model, "dall-e") {
 		targetURL = fmt.Sprintf(ImagesGenerationsURL, baseUrl)
+	} else if strings.HasPrefix(openAIReq.Model, "tts") {
+		targetURL = fmt.Sprintf("%s/v1/audio/speech", baseUrl)
+	} else if strings.HasPrefix(openAIReq.Model, "whisper") {
+		targetURL = fmt.Sprintf("%s/v1/audio/transcriptions", baseUrl)
+	} else if strings.HasPrefix(openAIReq.Model, "text-moderation") {
+		targetURL = fmt.Sprintf(ModerationsURL, baseUrl)
+	} else if openAIReq.Query != "" {
+		targetURL = fmt.Sprintf(RerankURL, baseUrl)
+	} else if openAIReq.Prompt != "" && openAIReq.Input == nil && len(openAIReq.Messages) == 0 {
+		targetURL = fmt.Sprintf(CompletionsURL, baseUrl)
 	} else if openAIReq.Input != nil {
 		targetURL = fmt.Sprintf(EmbeddingsURL, baseUrl)
 	} else {
@@ -61,7 +79,12 @@ func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any)
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.Key))
-	req.Header.Set("Content-Type", "application/json")
+	if openAIReq.ContentType != "" {
+		req.Header.Set("Content-Type", openAIReq.ContentType)
+	} else {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	common.ApplyHeaders(req, channel.Headers)
 
 	// Azure needs special headers (api-key), handled in separate Azure adaptor or here with checks
 	if channel.Type == model.ChannelTypeAzure {
@@ -101,10 +124,17 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 
 	var response dto.ChatCompletionResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, nil // Error parsing response, maybe not JSON
+		return nil, nil
 	}
 
 	if len(response.Choices) > 0 {
+		// Extract cached tokens from prompt_tokens_details
+		var detailed struct {
+			Usage dto.UsageWithDetails `json:"usage"`
+		}
+		if json.Unmarshal(body, &detailed) == nil && detailed.Usage.PromptTokensDetail != nil {
+			response.Usage.CachedTokens = detailed.Usage.PromptTokensDetail.CachedTokens
+		}
 		return &response.Usage, nil
 	}
 

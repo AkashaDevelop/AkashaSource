@@ -15,6 +15,7 @@ type Channel struct {
 	Group        string  `json:"group" gorm:"default:'default'"` // 支持多组
 	Models       string  `json:"models" gorm:"type:text"`        // 支持的模型 (逗号分隔)
 	ModelMapping string  `json:"model_mapping" gorm:"type:text"` // 模型映射 JSON 字符串
+	Headers      string  `json:"headers" gorm:"type:text"`
 	Priority     int     `json:"priority" gorm:"default:10"`     // 值越大优先级越高
 	Weight       int     `json:"weight" gorm:"default:1"`        // 用于负载均衡
 	AutoBan      int     `json:"auto_ban" gorm:"default:1"`      // 0: 不自动禁用, 1: 自动禁用
@@ -24,6 +25,7 @@ type Channel struct {
 	ResponseTime int     `json:"response_time"`                  // 响应时间 (ms)
 	Balance      float64 `json:"balance"`                        // 渠道余额
 	UsedQuota    int64   `json:"used_quota" gorm:"default:0"`
+	Tags         string  `json:"tags" gorm:"type:varchar(500);default:''"` // 逗号分隔标签
 }
 
 const (
@@ -33,6 +35,16 @@ const (
 	ChannelTypeAnthropic  = 14
 	ChannelTypeGemini     = 18
 	ChannelTypeMidjourney = 30 // Midjourney
+	ChannelTypeQwen       = 40
+	ChannelTypeHunyuan    = 41
+	ChannelTypeWenxin     = 42
+	ChannelTypeSpark      = 43
+	ChannelTypeDeepseek   = 44
+	ChannelTypeZhipu      = 45
+	ChannelTypeMoonshot   = 46
+	ChannelTypeOllama     = 47
+	ChannelTypeSuno      = 50
+	ChannelTypeDify      = 51
 )
 
 const (

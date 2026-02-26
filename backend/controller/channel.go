@@ -3,6 +3,7 @@ package controller
 import (
 	"STfreApi/common"
 	"STfreApi/model"
+	"STfreApi/service"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -10,8 +11,14 @@ import (
 
 func GetAllChannels(c *gin.Context) {
 	var channels []model.Channel
-	// Simple fetching, in production you should add pagination and filtering
-	if err := common.DB.Order("priority desc").Find(&channels).Error; err != nil {
+	db := common.DB.Order("priority desc")
+
+	// Tag filtering
+	if tag := c.Query("tag"); tag != "" {
+		db = db.Where("tags LIKE ?", "%"+tag+"%")
+	}
+
+	if err := db.Find(&channels).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch channels"})
 		return
 	}
@@ -98,13 +105,31 @@ func UpdateChannel(c *gin.Context) {
 }
 
 func TestChannel(c *gin.Context) {
-	// Simple mock test
 	id := c.Param("id")
-	// In production, we should actually test the connection
-	// For now, let's just pretend it works
+	var channel model.Channel
+	if err := common.DB.First(&channel, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+		return
+	}
+
+	responseTime, err := service.CheckChannel(&channel)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+			"time":    0,
+		})
+		return
+	}
+
+	// Update test info
+	channel.ResponseTime = responseTime
+	channel.TestTime = common.GetTimestamp()
+	common.DB.Save(&channel)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"time":    100 + (len(id) * 10), // Mock latency
+		"time":    responseTime,
 		"message": "Test passed",
 	})
 }

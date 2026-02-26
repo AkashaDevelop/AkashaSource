@@ -30,6 +30,8 @@ var (
 	EmailVerificationEnabled = false
 	TurnstileSiteKey         = ""
 	TurnstileSecretKey       = ""
+	ContentModerationApi     = ""
+	ContentModerationTimeout = 5
 	// LinuxDO Level Quota (Map level 0-5 to quota)
 	LinuxDOLevelQuota = map[int]int64{
 		0: 0,
@@ -47,6 +49,44 @@ var (
 
 	// Turnstile
 	TurnstileCheckEnabled = false
+
+	// GeeTest (极验)
+	GeeTestEnabled   = false
+	GeeTestId        = ""
+	GeeTestKey       = ""
+	CaptchaProvider  = "" // "turnstile" or "geetest"
+	CheckinCaptcha   = false // 签到是否需要人机验证
+
+	// Redis
+	RedisAddr     = ""
+	RedisPassword = ""
+	RedisDB       = 0
+
+	// Thinking-to-Content
+	ThinkingToContent = false
+
+	// OAuth - Discord
+	DiscordClientId     = ""
+	DiscordClientSecret = ""
+
+	// OIDC
+	OIDCClientId     = ""
+	OIDCClientSecret = ""
+	OIDCIssuerURL    = ""
+
+	// Telegram
+	TelegramBotToken = ""
+
+	// Suno
+	QuotaSunoGenerate = 50000 // $0.1
+
+	// 易支付
+	EpayApiUrl    = ""
+	EpayPid       = ""
+	EpayKey       = ""
+	EpayType      = ""
+	EpayNotifyUrl = ""
+	EpayReturnUrl = ""
 )
 
 // Request Constants

@@ -12,6 +12,8 @@ type Token struct {
 	RemainQuota    int64  `json:"remain_quota" gorm:"default:0"`  // 0: 无限 (如果 UnlimitedQuota 为 true)
 	UnlimitedQuota bool   `json:"unlimited_quota" gorm:"default:false"`
 	UsedQuota      int64  `json:"used_quota" gorm:"default:0"` // 该令牌的用量
+	AllowedIPs     string `json:"allowed_ips" gorm:"type:text"`
+	AllowedModels  string `json:"allowed_models" gorm:"type:text"`
 }
 
 const (

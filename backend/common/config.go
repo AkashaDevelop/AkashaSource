@@ -38,11 +38,10 @@ func UpdateOptionMap(key string, value string) {
 		SMTPServer = value
 	}
 	if key == "smtp_port" {
-		// handle int conversion if needed, but constants are usually typed?
-		// Actually SMTPPort is int in constants.go. We need to convert string to int.
-		// For simplicity, let's keep constants as variables in constants.go
-		// But Go constants cannot be changed. They must be variables.
-		// In constants.go: var SMTPPort = 587
+		port, err := strconv.Atoi(value)
+		if err == nil {
+			SMTPPort = port
+		}
 	}
 	if key == "smtp_account" {
 		SMTPAccount = value
@@ -63,6 +62,60 @@ func UpdateOptionMap(key string, value string) {
 	if key == "turnstile_check_enabled" {
 		TurnstileCheckEnabled = (value == "true")
 	}
+	if key == "geetest_enabled" {
+		GeeTestEnabled = (value == "true")
+	}
+	if key == "geetest_id" {
+		GeeTestId = value
+	}
+	if key == "geetest_key" {
+		GeeTestKey = value
+	}
+	if key == "captcha_provider" {
+		CaptchaProvider = value
+	}
+	if key == "checkin_captcha" {
+		CheckinCaptcha = (value == "true")
+	}
+	if key == "content_moderation_api" {
+		ContentModerationApi = value
+	}
+	if key == "content_moderation_timeout" {
+		timeout, err := strconv.Atoi(value)
+		if err == nil && timeout > 0 {
+			ContentModerationTimeout = timeout
+		}
+	}
+	if key == "redis_addr" {
+		RedisAddr = value
+	}
+	if key == "redis_password" {
+		RedisPassword = value
+	}
+	if key == "redis_db" {
+		db, err := strconv.Atoi(value)
+		if err == nil {
+			RedisDB = db
+		}
+	}
+	if key == "epay_api_url" {
+		EpayApiUrl = value
+	}
+	if key == "epay_pid" {
+		EpayPid = value
+	}
+	if key == "epay_key" {
+		EpayKey = value
+	}
+	if key == "epay_type" {
+		EpayType = value
+	}
+	if key == "epay_notify_url" {
+		EpayNotifyUrl = value
+	}
+	if key == "epay_return_url" {
+		EpayReturnUrl = value
+	}
 
 	if strings.HasPrefix(key, "linuxdo_quota_level_") {
 		levelStr := strings.TrimPrefix(key, "linuxdo_quota_level_")
@@ -73,6 +126,31 @@ func UpdateOptionMap(key string, value string) {
 				LinuxDOLevelQuota[level] = quota
 			}
 		}
+	}
+
+	if key == "thinking_to_content" {
+		ThinkingToContent = (value == "true")
+	}
+
+	if key == "discord_client_id" {
+		DiscordClientId = value
+	}
+	if key == "discord_client_secret" {
+		DiscordClientSecret = value
+	}
+
+	if key == "oidc_client_id" {
+		OIDCClientId = value
+	}
+	if key == "oidc_client_secret" {
+		OIDCClientSecret = value
+	}
+	if key == "oidc_issuer_url" {
+		OIDCIssuerURL = value
+	}
+
+	if key == "telegram_bot_token" {
+		TelegramBotToken = value
 	}
 
 	if key == "model_ratio" || key == "completion_ratio" {

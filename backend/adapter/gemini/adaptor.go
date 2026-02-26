@@ -25,9 +25,12 @@ func (a *Adaptor) GetModelList() []string {
 }
 
 type GeminiChatRequest struct {
-	Contents         []GeminiContent  `json:"contents"`
-	SafetySettings   []SafetySetting  `json:"safetySettings,omitempty"`
-	GenerationConfig GenerationConfig `json:"generationConfig,omitempty"`
+	Contents          []GeminiContent   `json:"contents"`
+	SystemInstruction *GeminiContent    `json:"systemInstruction,omitempty"`
+	SafetySettings    []SafetySetting   `json:"safetySettings,omitempty"`
+	GenerationConfig  GenerationConfig  `json:"generationConfig,omitempty"`
+	Tools             []GeminiTool      `json:"tools,omitempty"`
+	ThinkingConfig    *ThinkingConfig   `json:"thinkingConfig,omitempty"`
 
 	// Internal fields
 	Model  string `json:"-"`
@@ -54,6 +57,22 @@ type GenerationConfig struct {
 	TopK            int      `json:"topK,omitempty"`
 	MaxOutputTokens int      `json:"maxOutputTokens,omitempty"`
 	StopSequences   []string `json:"stopSequences,omitempty"`
+}
+
+// Gemini tool types
+type GeminiTool struct {
+	FunctionDeclarations []GeminiFunctionDeclaration `json:"functionDeclarations,omitempty"`
+}
+
+type GeminiFunctionDeclaration struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+}
+
+// ThinkingConfig for Gemini thinking mode
+type ThinkingConfig struct {
+	ThinkingBudget int `json:"thinkingBudget,omitempty"`
 }
 
 type GeminiChatResponse struct {
@@ -97,28 +116,90 @@ func (a *Adaptor) ConvertRequest(c *gin.Context, request *dto.OpenAIRequest) (an
 		{Category: "HARM_CATEGORY_DANGEROUS_CONTENT", Threshold: "BLOCK_NONE"},
 	}
 
+	// Convert messages with safe type assertions
+	var systemParts []string
 	for _, msg := range request.Messages {
-		if m, ok := msg.(map[string]interface{}); ok {
-			role := m["role"].(string)
-			content := m["content"].(string)
+		m, ok := msg.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		role, _ := m["role"].(string)
+		content := extractGeminiContent(m["content"])
 
-			geminiRole := "user"
-			if role == "assistant" {
-				geminiRole = "model"
-			}
-			// System prompt handling: merged into user or separate if supported?
-			// For simplicity, treating system as user message for now.
+		if role == "system" {
+			systemParts = append(systemParts, content)
+			continue
+		}
 
-			geminiReq.Contents = append(geminiReq.Contents, GeminiContent{
-				Role: geminiRole,
-				Parts: []GeminiPart{
-					{Text: content},
-				},
-			})
+		geminiRole := "user"
+		if role == "assistant" {
+			geminiRole = "model"
+		}
+
+		geminiReq.Contents = append(geminiReq.Contents, GeminiContent{
+			Role:  geminiRole,
+			Parts: []GeminiPart{{Text: content}},
+		})
+	}
+
+	// System instruction support
+	if len(systemParts) > 0 {
+		sysText := strings.Join(systemParts, "\n")
+		geminiReq.SystemInstruction = &GeminiContent{
+			Parts: []GeminiPart{{Text: sysText}},
 		}
 	}
 
+	// Convert tools
+	if len(request.Tools) > 0 {
+		var decls []GeminiFunctionDeclaration
+		for _, t := range request.Tools {
+			tm, ok := t.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			fn, ok := tm["function"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			decl := GeminiFunctionDeclaration{}
+			decl.Name, _ = fn["name"].(string)
+			decl.Description, _ = fn["description"].(string)
+			if params, ok := fn["parameters"]; ok {
+				decl.Parameters, _ = json.Marshal(params)
+			}
+			decls = append(decls, decl)
+		}
+		if len(decls) > 0 {
+			geminiReq.Tools = []GeminiTool{{FunctionDeclarations: decls}}
+		}
+	}
+
+	// Thinking mode support
+	if request.ThinkingMode {
+		geminiReq.ThinkingConfig = &ThinkingConfig{ThinkingBudget: 10000}
+	}
+
 	return &geminiReq, nil
+}
+
+// extractGeminiContent safely extracts text from message content (string or array)
+func extractGeminiContent(content interface{}) string {
+	if s, ok := content.(string); ok {
+		return s
+	}
+	if arr, ok := content.([]interface{}); ok {
+		var parts []string
+		for _, item := range arr {
+			if m, ok := item.(map[string]interface{}); ok {
+				if t, ok := m["text"].(string); ok {
+					parts = append(parts, t)
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return fmt.Sprint(content)
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any) (*http.Response, error) {
@@ -149,6 +230,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	common.ApplyHeaders(req, channel.Headers)
 
 	client := common.NewHTTPClient(channel.Proxy)
 	return client.Do(req)
@@ -214,20 +296,10 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 		ID:      fmt.Sprintf("chatcmpl-%s", common.GetUUID()),
 		Object:  "chat.completion",
 		Created: common.GetTimestamp(),
-		Model:   "gemini", // Or original model
-		Choices: []struct {
-			Message struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
-			} `json:"message"`
-			Index        int    `json:"index"`
-			FinishReason string `json:"finish_reason"`
-		}{
+		Model:   "gemini",
+		Choices: []dto.Choice{
 			{
-				Message: struct {
-					Role    string `json:"role"`
-					Content string `json:"content"`
-				}{
+				Message: dto.ChatMessage{
 					Role:    "assistant",
 					Content: content,
 				},
@@ -299,19 +371,9 @@ func sendStreamResponse(c *gin.Context, id, model, content, role, finishReason s
 		Object:  "chat.completion.chunk",
 		Created: common.GetTimestamp(),
 		Model:   model,
-		Choices: []struct {
-			Delta struct {
-				Content string `json:"content"`
-				Role    string `json:"role,omitempty"`
-			} `json:"delta"`
-			Index        int    `json:"index"`
-			FinishReason string `json:"finish_reason"`
-		}{
+		Choices: []dto.StreamChoice{
 			{
-				Delta: struct {
-					Content string `json:"content"`
-					Role    string `json:"role,omitempty"`
-				}{
+				Delta: dto.StreamDelta{
 					Content: content,
 					Role:    role,
 				},

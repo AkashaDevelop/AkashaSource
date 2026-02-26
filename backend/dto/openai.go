@@ -21,17 +21,44 @@ type OpenAIRequest struct {
 
 	// Embeddings
 	Input any `json:"input,omitempty"`
+
+	// Audio (TTS & Whisper)
+	Voice          string  `json:"voice,omitempty"`
+	ResponseFormat string  `json:"response_format,omitempty"`
+	Speed          float64 `json:"speed,omitempty"`
+
+	// Rerank
+	Query     string   `json:"query,omitempty"`
+	Documents []string `json:"documents,omitempty"`
+	TopN      int      `json:"top_n,omitempty"`
+
+	// Reasoning
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+
+	// Internal
+	RawBody      []byte `json:"-"`
+	ContentType  string `json:"-"`
+	ThinkingMode bool   `json:"-"` // Parsed from -thinking suffix
 }
 
-type EmbeddingResponse struct {
-	Object string `json:"object"`
-	Data   []struct {
-		Object    string    `json:"object"`
-		Embedding []float64 `json:"embedding"`
-		Index     int       `json:"index"`
-	} `json:"data"`
-	Model string `json:"model"`
-	Usage Usage  `json:"usage"`
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	CachedTokens     int `json:"cached_tokens,omitempty"` // OpenAI cached_tokens or Claude cache_read_input_tokens
+}
+
+// PromptTokensDetails for OpenAI's detailed token breakdown
+type PromptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens,omitempty"`
+}
+
+// UsageWithDetails extends Usage with OpenAI's prompt_tokens_details
+type UsageWithDetails struct {
+	PromptTokens        int                  `json:"prompt_tokens"`
+	CompletionTokens    int                  `json:"completion_tokens"`
+	TotalTokens         int                  `json:"total_tokens"`
+	PromptTokensDetail  *PromptTokensDetails `json:"prompt_tokens_details,omitempty"`
 }
 
 type OpenAIError struct {
@@ -43,50 +70,4 @@ type OpenAIError struct {
 
 type OpenAIErrorResponse struct {
 	Error OpenAIError `json:"error"`
-}
-
-type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
-}
-
-type ChatCompletionResponse struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	Model   string `json:"model"`
-	Choices []struct {
-		Message struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"message"`
-		Index        int    `json:"index"`
-		FinishReason string `json:"finish_reason"`
-	} `json:"choices"`
-	Usage Usage `json:"usage"`
-}
-
-type ChatCompletionStreamResponse struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	Model   string `json:"model"`
-	Choices []struct {
-		Delta struct {
-			Content string `json:"content"`
-			Role    string `json:"role,omitempty"`
-		} `json:"delta"`
-		Index        int    `json:"index"`
-		FinishReason string `json:"finish_reason"`
-	} `json:"choices"`
-}
-
-type ImageGenerationResponse struct {
-	Created int64 `json:"created"`
-	Data    []struct {
-		Url           string `json:"url,omitempty"`
-		B64Json       string `json:"b64_json,omitempty"`
-		RevisedPrompt string `json:"revised_prompt,omitempty"`
-	} `json:"data"`
 }

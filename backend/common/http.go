@@ -1,17 +1,18 @@
 package common
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"time"
 )
 
-// HTTPClient 全局 HTTP 客户端，设置超时
+// 全局 HTTP 客户端
 var HTTPClient = &http.Client{
 	Timeout: 30 * time.Second,
 }
 
-// NewHTTPClient 创建一个新的 HTTP 客户端，支持代理
+// 创建新的 HTTP 客户端并支持代理
 func NewHTTPClient(proxy string) *http.Client {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
@@ -27,4 +28,20 @@ func NewHTTPClient(proxy string) *http.Client {
 	}
 
 	return client
+}
+
+func ApplyHeaders(req *http.Request, headers string) {
+	if headers == "" {
+		return
+	}
+	var headerMap map[string]string
+	if err := json.Unmarshal([]byte(headers), &headerMap); err != nil {
+		return
+	}
+	for k, v := range headerMap {
+		if k == "" {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
 }

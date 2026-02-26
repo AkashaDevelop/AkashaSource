@@ -68,7 +68,8 @@ func GitHubCallback(c *gin.Context) {
 	req.Header.Set("Accept", "application/json")
 
 	client := &http.Client{}
-	resp, err := client.Do(req)
+	var resp *http.Response
+	resp, err = client.Do(req)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
@@ -76,7 +77,8 @@ func GitHubCallback(c *gin.Context) {
 	defer resp.Body.Close()
 
 	var oauthResp GitHubOAuthResponse
-	if err := json.NewDecoder(resp.Body).Decode(&oauthResp); err != nil {
+	err = json.NewDecoder(resp.Body).Decode(&oauthResp)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
@@ -89,7 +91,8 @@ func GitHubCallback(c *gin.Context) {
 	// Get User Info
 	userReq, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
 	userReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", oauthResp.AccessToken))
-	userResp, err := client.Do(userReq)
+	var userResp *http.Response
+	userResp, err = client.Do(userReq)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
@@ -97,7 +100,8 @@ func GitHubCallback(c *gin.Context) {
 	defer userResp.Body.Close()
 
 	var githubUser GitHubUser
-	if err := json.NewDecoder(userResp.Body).Decode(&githubUser); err != nil {
+	err = json.NewDecoder(userResp.Body).Decode(&githubUser)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}

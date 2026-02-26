@@ -37,6 +37,9 @@ var ModelList = []string{
 const (
 	BaseURL              = "https://api.openai.com"
 	ChatCompletionsURL   = "%s/v1/chat/completions"
+	CompletionsURL       = "%s/v1/completions"
 	ImagesGenerationsURL = "%s/v1/images/generations"
 	EmbeddingsURL        = "%s/v1/embeddings"
+	ModerationsURL       = "%s/v1/moderations"
+	RerankURL            = "%s/v1/rerank"
 )

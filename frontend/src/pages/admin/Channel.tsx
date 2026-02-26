@@ -23,7 +23,7 @@ import {
   Tabs,
   Tab,
 } from '@heroui/react';
-import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload } from 'lucide-react';
+import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap, Download } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 
 interface Channel {
@@ -35,6 +35,7 @@ interface Channel {
   models: string;
   group: string;
   model_mapping: string;
+  tags: string;
   priority: number;
   weight: number;
   status: number;
@@ -46,6 +47,19 @@ const CHANNEL_TYPES = [
   { key: '1', label: 'OpenAI' },
   { key: '3', label: 'Azure' },
   { key: '8', label: 'Custom' },
+  { key: '14', label: 'Claude' },
+  { key: '18', label: 'Gemini' },
+  { key: '30', label: 'Midjourney' },
+  { key: '40', label: '通义千问' },
+  { key: '41', label: '混元' },
+  { key: '42', label: '文心一言' },
+  { key: '43', label: '讯飞星火' },
+  { key: '44', label: 'Deepseek' },
+  { key: '45', label: '智谱 ChatGLM' },
+  { key: '46', label: 'Moonshot' },
+  { key: '47', label: 'Ollama' },
+  { key: '50', label: 'Suno' },
+  { key: '51', label: 'Dify' },
 ];
 
 export default function ChannelManagement() {
@@ -57,6 +71,9 @@ export default function ChannelManagement() {
   const { isOpen: isBatchOpen, onOpen: onBatchOpen, onOpenChange: onBatchOpenChange } = useDisclosure();
   const [editingChannel, setEditingChannel] = useState<Partial<Channel> | null>(null);
   const [batchText, setBatchText] = useState('');
+  const [tagFilter, setTagFilter] = useState('');
+  const [batchTesting, setBatchTesting] = useState(false);
+  const [fetchingModels, setFetchingModels] = useState<number | null>(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -68,6 +85,7 @@ export default function ChannelManagement() {
     group: 'default',
     priority: '10',
     weight: '1',
+    tags: '',
   });
   
   // Model Mapping State (Visual)
@@ -77,7 +95,8 @@ export default function ChannelManagement() {
   const fetchChannels = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/channel', {
+      const params = tagFilter ? `?tag=${encodeURIComponent(tagFilter)}` : '';
+      const res = await fetch(`/api/channel${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -134,8 +153,10 @@ export default function ChannelManagement() {
       key: channel.key,
       base_url: channel.base_url,
       models: channel.models,
+      group: channel.group || 'default',
       priority: channel.priority.toString(),
       weight: channel.weight.toString(),
+      tags: channel.tags || '',
     });
     setModelMapping(parseMapping(channel.model_mapping));
     onOpen();
@@ -152,6 +173,7 @@ export default function ChannelManagement() {
       group: 'default',
       priority: '10',
       weight: '1',
+      tags: '',
     });
     setModelMapping([]);
     onOpen();
@@ -286,6 +308,48 @@ export default function ChannelManagement() {
     return "danger";
   };
 
+  const handleBatchTest = async () => {
+    setBatchTesting(true);
+    try {
+      const res = await fetch('/api/channel/test-all', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`测试完成: ${data.success}/${data.total} 成功`);
+        fetchChannels();
+      }
+    } catch (error) {
+      console.error('Batch test error:', error);
+    } finally {
+      setBatchTesting(false);
+    }
+  };
+
+  const handleFetchModels = async (channelId: number) => {
+    setFetchingModels(channelId);
+    try {
+      const res = await fetch(`/api/channel/models/${channelId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && data.models) {
+        const modelStr = data.models.join(',');
+        if (editingChannel) {
+          setFormData(prev => ({ ...prev, models: modelStr }));
+        }
+        alert(`获取到 ${data.models.length} 个模型:\n${modelStr}`);
+      } else {
+        alert(data.error || '获取模型失败');
+      }
+    } catch (error) {
+      console.error('Fetch models error:', error);
+    } finally {
+      setFetchingModels(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -294,8 +358,19 @@ export default function ChannelManagement() {
           <p className="text-default-500">管理所有模型上游渠道</p>
         </div>
         <div className="flex gap-2">
+          <Input
+            placeholder="按标签筛选"
+            size="sm"
+            value={tagFilter}
+            onValueChange={setTagFilter}
+            className="w-32"
+            onKeyDown={(e) => e.key === 'Enter' && fetchChannels()}
+          />
           <Button startContent={<RefreshCw size={18} />} onPress={fetchChannels} variant="flat">
             刷新
+          </Button>
+          <Button startContent={<Zap size={18} />} onPress={handleBatchTest} variant="flat" color="warning" isLoading={batchTesting}>
+            全部测试
           </Button>
           <Button startContent={<Upload size={18} />} onPress={onBatchOpen} variant="flat" color="secondary">
             批量导入
@@ -430,16 +505,44 @@ export default function ChannelManagement() {
                     className="col-span-2"
                   />
                   <Input
-                    label="密钥 (Key)"
-                    placeholder="sk-..."
-                    value={formData.key}
-                    onValueChange={(v) => setFormData({...formData, key: v})}
-                    isRequired
-                    className="col-span-2"
+                    label="权重"
+                    type="number"
+                    value={formData.weight}
+                    onValueChange={(v) => setFormData({...formData, weight: v})}
                   />
+                  <Input
+                    label="标签"
+                    placeholder="逗号分隔，如: gpt,claude"
+                    value={formData.tags}
+                    onValueChange={(v) => setFormData({...formData, tags: v})}
+                  />
+                  <div className="col-span-2 space-y-2">
+                    <span className="text-small font-medium">密钥 (Key)</span>
+                    <Textarea
+                      placeholder="sk-... (多个Key每行一个)"
+                      value={formData.key}
+                      onValueChange={(v) => setFormData({...formData, key: v})}
+                      minRows={2}
+                      description="支持多Key轮换，每行一个"
+                    />
+                  </div>
                   
                   <div className="col-span-2 space-y-2">
-                    <span className="text-small font-medium">模型列表 (逗号分隔)</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-small font-medium">模型列表 (逗号分隔)</span>
+                      {editingChannel?.id && (
+                        <Button
+                          size="sm"
+                          variant="flat"
+                          color="secondary"
+                          startContent={<Download size={14} />}
+                          isLoading={fetchingModels === editingChannel.id}
+                          onPress={() => handleFetchModels(editingChannel.id!)}
+                        >
+                          拉取模型
+                        </Button>
+                      )}
+                    </div>
                     <Textarea
                       placeholder="gpt-3.5-turbo,gpt-4"
                       value={formData.models}
