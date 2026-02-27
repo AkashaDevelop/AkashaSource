@@ -1,14 +1,21 @@
 import { useState, useEffect } from 'react';
-import {
-  Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
-  Card, CardBody, Input, Chip,
-} from '@heroui/react';
+import PageHeader from '../components/PageHeader';
+import EmptyState from '../components/EmptyState';
+import LoadingRows from '../components/LoadingRows';
+import { Card, CardBody, Input, Chip } from '../components/ui';
 import { Search } from 'lucide-react';
 
 interface ModelPrice {
   model: string;
   input_ratio: number;
   output_ratio: number;
+}
+
+function getRatioColor(ratio: number): string {
+  if (ratio <= 1) return '#34d399';
+  if (ratio <= 5) return 'var(--accent-cosmic)';
+  if (ratio <= 15) return '#fbbf24';
+  return '#f87171';
 }
 
 export default function Pricing() {
@@ -19,10 +26,8 @@ export default function Pricing() {
   useEffect(() => {
     setLoading(true);
     fetch('/api/pricing')
-      .then(res => res.json())
-      .then(data => {
-        if (data.models) setModels(data.models);
-      })
+      .then(r => r.json())
+      .then(d => { if (d.models) setModels(d.models); })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -32,39 +37,86 @@ export default function Pricing() {
   );
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold">模型定价</h1>
-        <p className="text-default-500">所有可用模型的倍率一览</p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader title="模型定价" description="所有可用模型的计费倍率一览" />
 
       <Card>
-        <CardBody>
-          <Input
-            placeholder="搜索模型..."
-            value={search}
-            onValueChange={setSearch}
-            startContent={<Search size={18} className="text-default-400" />}
-            className="mb-4"
-          />
-          <Table aria-label="Pricing table" removeWrapper>
-            <TableHeader>
-              <TableColumn>模型</TableColumn>
-              <TableColumn>输入倍率</TableColumn>
-              <TableColumn>输出倍率</TableColumn>
-            </TableHeader>
-            <TableBody emptyContent="暂无定价数据" isLoading={loading}>
-              {filtered.map((m) => (
-                <TableRow key={m.model}>
-                  <TableCell>
-                    <Chip size="sm" variant="flat">{m.model}</Chip>
-                  </TableCell>
-                  <TableCell>{m.input_ratio}</TableCell>
-                  <TableCell>{m.output_ratio}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <CardBody className="p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <Input
+              placeholder="搜索模型名称..."
+              value={search}
+              onValueChange={setSearch}
+              startContent={<Search size={16} className="text-default-400" />}
+              style={{ maxWidth: '320px' }}
+            />
+            {!loading && (
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                共 {filtered.length} 个模型
+              </span>
+            )}
+          </div>
+
+          {/* 倍率说明 */}
+          <div style={{
+            display: 'flex', gap: '16px', flexWrap: 'wrap',
+            padding: '10px 14px', borderRadius: '10px',
+            background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+            marginBottom: '16px', fontSize: '12px', color: 'var(--text-muted)',
+          }}>
+            <span>倍率说明：</span>
+            {[
+              { label: '≤1x 极低', color: '#34d399' },
+              { label: '≤5x 低', color: 'var(--accent-cosmic)' },
+              { label: '≤15x 中', color: '#fbbf24' },
+              { label: '>15x 高', color: '#f87171' },
+            ].map(item => (
+              <span key={item.label} style={{ color: item.color, fontWeight: 600 }}>{item.label}</span>
+            ))}
+          </div>
+
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>模型名称</th>
+                  <th>输入倍率</th>
+                  <th>输出倍率</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <LoadingRows cols={3} rows={8} />
+                ) : filtered.length === 0 ? (
+                  <tr><td colSpan={3}><EmptyState icon="🤖" title="暂无定价数据" description={search ? `未找到包含「${search}」的模型` : '暂时没有可用的模型定价'} /></td></tr>
+                ) : filtered.map((m) => (
+                  <tr key={m.model}>
+                    <td>
+                      <span style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 500 }}>{m.model}</span>
+                    </td>
+                    <td>
+                      <Chip
+                        size="sm"
+                        variant="flat"
+                        style={{ color: getRatioColor(m.input_ratio), background: `${getRatioColor(m.input_ratio)}18`, fontWeight: 600 }}
+                      >
+                        {m.input_ratio}x
+                      </Chip>
+                    </td>
+                    <td>
+                      <Chip
+                        size="sm"
+                        variant="flat"
+                        style={{ color: getRatioColor(m.output_ratio), background: `${getRatioColor(m.output_ratio)}18`, fontWeight: 600 }}
+                      >
+                        {m.output_ratio}x
+                      </Chip>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </CardBody>
       </Card>
     </div>

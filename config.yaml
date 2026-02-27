@@ -1,0 +1,12 @@
+# Akasha 开发环境配置
+
+server:
+  port: 8080
+  mode: debug
+
+database:
+  driver: sqlite
+  file: akasha.db
+
+security:
+  jwt_secret: "arkljsbwjklagfbvjhzbfdjklgsajklesauifgiu"

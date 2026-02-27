@@ -36,11 +36,17 @@ func RelayGeminiNative(c *gin.Context) {
 		return
 	}
 
-	// 2. Extract model from URL path
-	modelName := c.Param("model")
+	// 2. Extract model and action from URL path (*path = "/gemini-pro:generateContent")
+	rawPath := strings.TrimPrefix(c.Param("path"), "/")
+	parts := strings.SplitN(rawPath, ":", 2)
+	modelName := parts[0]
 	if modelName == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "model required"})
 		return
+	}
+	action := "generateContent"
+	if len(parts) == 2 && parts[1] != "" {
+		action = parts[1]
 	}
 
 	// 3. Get user
@@ -79,13 +85,7 @@ func RelayGeminiNative(c *gin.Context) {
 		return
 	}
 
-	// 6. Determine action from URL
-	action := c.Param("action")
-	if action == "" {
-		action = "generateContent"
-	}
-
-	// 7. Forward to upstream Gemini
+	// 6. Forward to upstream Gemini
 	baseURL := channel.BaseURL
 	if baseURL == "" {
 		baseURL = "https://generativelanguage.googleapis.com"

@@ -46,8 +46,8 @@ func SetApiRouter(router *gin.Engine) {
 	// OpenAI Realtime WebSocket
 	router.GET("/v1/realtime", controller.RelayRealtime)
 
-	// Gemini Native Format
-	router.POST("/gemini/v1beta/models/:model::action", controller.RelayGeminiNative)
+	// Gemini Native Format (:model::action is invalid in Gin; use wildcard and parse in controller)
+	router.POST("/gemini/v1beta/models/*path", controller.RelayGeminiNative)
 
 	// OAuth Routes
 	router.GET("/oauth/github", oauth.GitHubLogin)
@@ -60,6 +60,7 @@ func SetApiRouter(router *gin.Engine) {
 	router.GET("/oauth/oidc/callback", oauth.OIDCCallback)
 	router.GET("/oauth/telegram/callback", oauth.TelegramCallback)
 	router.POST("/api/payment/notify", controller.PaymentNotify)
+	router.GET("/api/payment/notify", controller.PaymentNotify)
 
 	apiRouter := router.Group("/api")
 	{
@@ -147,6 +148,8 @@ func SetApiRouter(router *gin.Engine) {
 			// 兑换码管理
 			adminGroup.GET("/redemption", controller.GetAllRedemptions)
 			adminGroup.POST("/redemption", controller.GenerateRedemptionCodes)
+			adminGroup.PATCH("/redemption/:id/status", controller.UpdateRedemptionStatus)
+			adminGroup.POST("/redemption/batch", controller.BatchRedemptionAction)
 			adminGroup.GET("/export/redemption", controller.ExportRedemptionsCSV)
 
 			// SQL 迁移

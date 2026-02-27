@@ -1,11 +1,8 @@
 import { useState, useEffect } from 'react';
+import PageHeader from '../../components/PageHeader';
+import EmptyState from '../../components/EmptyState';
+import LoadingRows from '../../components/LoadingRows';
 import {
-  Table,
-  TableHeader,
-  TableColumn,
-  TableBody,
-  TableRow,
-  TableCell,
   Chip,
   Tooltip,
   Button,
@@ -20,9 +17,11 @@ import {
   SelectItem,
   Form,
   Pagination,
-} from '@heroui/react';
+} from '../../components/ui';
 import { Edit, Trash2, Plus, RefreshCw, Power, Key } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
+import { toast } from '../../store/toast';
+import { confirm } from '../../store/confirm';
 
 interface User {
   id: number;
@@ -74,9 +73,9 @@ export default function UserManagement() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) {
-        setUsers(data.data);
-        setTotal(data.total);
+      if (data.code === 0) {
+        setUsers(data.data.data);
+        setTotal(data.data.total);
       }
     } catch (error) {
       console.error('Failed to fetch users:', error);
@@ -141,11 +140,12 @@ export default function UserManagement() {
         body: JSON.stringify(body),
       });
 
-      if (res.ok) {
+      const data = await res.json();
+      if (data.code === 0) {
         fetchUsers();
         onClose();
       } else {
-        alert('Operation failed');
+        toast.error('操作失败');
       }
     } catch (error) {
       console.error('Operation error:', error);
@@ -153,13 +153,14 @@ export default function UserManagement() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确定要删除这个用户吗?')) return;
+    if (!await confirm({ title: '删除用户', message: '确定要删除这个用户吗？此操作不可撤销。', danger: true })) return;
     try {
       const res = await fetch(`/api/user/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) fetchUsers();
+      const data = await res.json();
+      if (data.code === 0) fetchUsers();
     } catch (error) {
       console.error('Delete error:', error);
     }
@@ -171,97 +172,58 @@ export default function UserManagement() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold">用户管理</h1>
-          <p className="text-default-500">管理系统所有用户账户</p>
-        </div>
-        <div className="flex gap-2">
-          <Button startContent={<RefreshCw size={18} />} onPress={fetchUsers} variant="flat">
-            刷新
-          </Button>
-          <Button startContent={<Plus size={18} />} color="primary" onPress={handleAdd}>
-            添加用户
-          </Button>
-        </div>
-      </div>
-
-      <Table 
-        aria-label="User table"
-        bottomContent={
-          <div className="flex w-full justify-center">
-            <Pagination
-              isCompact
-              showControls
-              showShadow
-              color="primary"
-              page={page}
-              total={Math.ceil(total / 10) || 1}
-              onChange={(page) => setPage(page)}
-            />
+      <PageHeader
+        title="用户管理"
+        description="管理系统所有用户账户"
+        actions={
+          <div className="flex gap-2">
+            <Button startContent={<RefreshCw size={18} />} onPress={fetchUsers} variant="flat">
+              刷新
+            </Button>
+            <Button startContent={<Plus size={18} />} color="primary" onPress={handleAdd}>
+              添加用户
+            </Button>
           </div>
         }
-      >
-        <TableHeader>
-          <TableColumn>ID</TableColumn>
-          <TableColumn>用户名</TableColumn>
-          <TableColumn>显示名称</TableColumn>
-          <TableColumn>角色</TableColumn>
-          <TableColumn>状态</TableColumn>
-          <TableColumn>额度</TableColumn>
-          <TableColumn>已用额度</TableColumn>
-          <TableColumn>分组</TableColumn>
-          <TableColumn>操作</TableColumn>
-        </TableHeader>
-        <TableBody emptyContent="暂无用户" isLoading={loading}>
-          {users.map((user) => (
-            <TableRow key={user.id}>
-              <TableCell>{user.id}</TableCell>
-              <TableCell className="font-medium">{user.username}</TableCell>
-              <TableCell>{user.display_name}</TableCell>
-              <TableCell>
-                <Chip size="sm" variant="flat" color={user.role >= 10 ? "secondary" : "default"}>
-                  {ROLES.find(r => r.key === user.role.toString())?.label || 'Unknown'}
-                </Chip>
-              </TableCell>
-              <TableCell>
-                <Chip 
-                  size="sm" 
-                  color={user.status === 1 ? "success" : "danger"}
-                  startContent={<Power size={12} />}
-                >
-                  {user.status === 1 ? "正常" : "封禁"}
-                </Chip>
-              </TableCell>
-              <TableCell>{renderQuota(user.quota)}</TableCell>
-              <TableCell>{renderQuota(user.used_quota)}</TableCell>
-              <TableCell>
-                <Chip size="sm" variant="dot">{user.group}</Chip>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <Tooltip content="编辑">
-                    <span 
-                      className="text-lg text-default-400 cursor-pointer active:opacity-50"
-                      onClick={() => handleEdit(user)}
-                    >
-                      <Edit size={18} />
-                    </span>
-                  </Tooltip>
-                  <Tooltip color="danger" content="删除">
-                    <span 
-                      className="text-lg text-danger cursor-pointer active:opacity-50"
-                      onClick={() => handleDelete(user.id)}
-                    >
-                      <Trash2 size={18} />
-                    </span>
-                  </Tooltip>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      />
+
+      <div className="data-table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>ID</th><th>用户名</th><th>显示名称</th><th>角色</th><th>状态</th><th>额度</th><th>已用额度</th><th>分组</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <LoadingRows cols={9} rows={5} />
+            ) : users.length === 0 ? (
+              <tr><td colSpan={9}><EmptyState icon="👤" title="暂无用户" /></td></tr>
+            ) : users.map((user) => (
+              <tr key={user.id}>
+                <td>{user.id}</td>
+                <td className="font-medium">{user.username}</td>
+                <td>{user.display_name}</td>
+                <td><Chip size="sm" variant="flat" color={user.role >= 10 ? "secondary" : "default"}>{ROLES.find(r => r.key === user.role.toString())?.label || 'Unknown'}</Chip></td>
+                <td><Chip size="sm" color={user.status === 1 ? "success" : "danger"} startContent={<Power size={12} />}>{user.status === 1 ? "正常" : "封禁"}</Chip></td>
+                <td>{renderQuota(user.quota)}</td>
+                <td>{renderQuota(user.used_quota)}</td>
+                <td><Chip size="sm" variant="dot">{user.group}</Chip></td>
+                <td>
+                  <div className="flex items-center gap-2">
+                    <Tooltip content="编辑"><span className="text-lg text-default-400 cursor-pointer active:opacity-50" onClick={() => handleEdit(user)}><Edit size={18} /></span></Tooltip>
+                    <Tooltip color="danger" content="删除"><span className="text-lg text-danger cursor-pointer active:opacity-50" onClick={() => handleDelete(user.id)}><Trash2 size={18} /></span></Tooltip>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex justify-center mt-4">
+        <Pagination isCompact showControls showShadow color="primary"
+          page={page} total={Math.ceil(total / 10) || 1} onChange={(p) => setPage(p)} />
+      </div>
 
       <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="2xl">
         <ModalContent>

@@ -7,14 +7,14 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"net/http"
-	"net/url"
-	"sort"
+	"fmt"
+	"io"
+	"log"
 	"strconv"
 	"strings"
 	"time"
 
+	epay "github.com/liuscraft/epay-sdk-go"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -26,11 +26,15 @@ type PaymentCreateRequest struct {
 func CreatePayment(c *gin.Context) {
 	var req PaymentCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数解析失败"})
+		common.Fail(c, common.CodeParamError, "参数解析失败")
 		return
 	}
 	if req.Amount <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "充值金额必须大于0"})
+		common.Fail(c, common.CodeParamError, "充值金额必须大于0")
+		return
+	}
+	if common.OptionMap[model.OptionKeyEnableTopup] != "true" {
+		common.Fail(c, common.CodeForbidden, "充值功能未开启")
 		return
 	}
 
@@ -38,7 +42,7 @@ func CreatePayment(c *gin.Context) {
 	if minTopupStr != "" {
 		if minTopup, err := strconv.ParseFloat(minTopupStr, 64); err == nil {
 			if req.Amount < minTopup {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "充值金额低于最低限制"})
+				common.Failf(c, common.CodeParamError, "充值金额不能低于 %.2f", minTopup)
 				return
 			}
 		}
@@ -46,7 +50,6 @@ func CreatePayment(c *gin.Context) {
 
 	userId := c.GetInt("id")
 	provider := common.OptionMap[model.OptionKeyPaymentProvider]
-	payLink := common.OptionMap[model.OptionKeyTopupLink]
 
 	order := model.PaymentOrder{
 		UserId:    userId,
@@ -56,48 +59,62 @@ func CreatePayment(c *gin.Context) {
 		CreatedAt: time.Now().Unix(),
 	}
 	if err := common.DB.Create(&order).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建订单失败"})
+		common.Fail(c, common.CodeServerError, "创建订单失败")
 		return
 	}
 	if provider == "epay" {
 		payUrl, err := buildEpayUrl(order, req.Amount)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			common.Fail(c, common.CodeParamError, err.Error())
 			return
 		}
 		order.PayUrl = payUrl
 		common.DB.Model(&order).Update("pay_url", payUrl)
-	} else if payLink != "" {
-		payUrl := strings.ReplaceAll(payLink, "{order_id}", strconv.Itoa(order.Id))
-		payUrl = strings.ReplaceAll(payUrl, "{amount}", strconv.FormatFloat(req.Amount, 'f', 2, 64))
-		order.PayUrl = payUrl
-		common.DB.Model(&order).Update("pay_url", payUrl)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": order})
+	common.OK(c, order)
 }
 
 func ListPayments(c *gin.Context) {
 	userId := c.GetInt("id")
 	var orders []model.PaymentOrder
 	if err := common.DB.Where("user_id = ?", userId).Order("id desc").Find(&orders).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取订单失败"})
+		common.Fail(c, common.CodeServerError, "获取订单失败")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": orders})
+	common.OK(c, orders)
 }
 
 func PaymentNotify(c *gin.Context) {
+	// DEBUG: log raw request info
+	bodyBytes, _ := io.ReadAll(c.Request.Body)
+	log.Printf("[PaymentNotify] method=%s url=%s query=%s body=%s headers=%v",
+		c.Request.Method,
+		c.Request.URL.String(),
+		c.Request.URL.RawQuery,
+		string(bodyBytes),
+		c.Request.Header,
+	)
+
+	// Epay/CodePay/VPay callbacks: GET with query params (sign is always present)
+	if c.Query("sign") != "" {
+		handleEpayNotify(c)
+		return
+	}
+	// POST form-encoded variant
 	if err := c.Request.ParseForm(); err == nil {
-		if c.Request.FormValue("out_trade_no") != "" {
+		if c.Request.PostFormValue("sign") != "" {
 			handleEpayNotify(c)
 			return
 		}
 	}
 
+	log.Printf("[PaymentNotify] no epay sign found, falling through to JSON parse. query keys: %v", c.Request.URL.Query())
+
 	var payload map[string]interface{}
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数解析失败"})
+		log.Printf("[PaymentNotify] JSON parse failed: %v", err)
+		common.Fail(c, common.CodeParamError, "参数解析失败")
 		return
 	}
 
@@ -110,7 +127,7 @@ func PaymentNotify(c *gin.Context) {
 		hash := md5.Sum([]byte(raw))
 		expect := hex.EncodeToString(hash[:])
 		if sign != expect {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "签名校验失败"})
+			common.Fail(c, common.CodeParamError, "签名校验失败")
 			return
 		}
 	}
@@ -119,17 +136,17 @@ func PaymentNotify(c *gin.Context) {
 	status := strings.ToLower(toString(payload["status"]))
 	amount, _ := strconv.ParseFloat(toString(payload["amount"]), 64)
 	if orderId == 0 || amount <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "订单参数错误"})
+		common.Fail(c, common.CodeParamError, "订单参数错误")
 		return
 	}
 
 	var order model.PaymentOrder
 	if err := common.DB.First(&order, orderId).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "订单不存在"})
+		common.Fail(c, common.CodeNotFound, "订单不存在")
 		return
 	}
 	if order.Status == model.PaymentStatusPaid {
-		c.JSON(http.StatusOK, gin.H{"message": "已处理"})
+		common.OKMsg(c, "已处理", nil)
 		return
 	}
 
@@ -139,7 +156,7 @@ func PaymentNotify(c *gin.Context) {
 			"status":      order.Status,
 			"notify_data": toJSON(payload),
 		})
-		c.JSON(http.StatusOK, gin.H{"message": "已记录"})
+		common.OKMsg(c, "已记录", nil)
 		return
 	}
 
@@ -168,11 +185,11 @@ func PaymentNotify(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "订单更新失败"})
+		common.Fail(c, common.CodeServerError, "订单更新失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "处理成功"})
+	common.OKMsg(c, "处理成功", nil)
 }
 
 func buildEpayUrl(order model.PaymentOrder, amount float64) (string, error) {
@@ -184,10 +201,7 @@ func buildEpayUrl(order model.PaymentOrder, amount float64) (string, error) {
 	returnUrl := strings.TrimSpace(common.OptionMap[model.OptionKeyEpayReturnUrl])
 
 	if api == "" || pid == "" || key == "" {
-		return "", errors.New("易支付配置不完整")
-	}
-	if payType == "" {
-		payType = "alipay"
+		return "", fmt.Errorf("易支付配置不完整")
 	}
 	if notifyUrl == "" {
 		notifyUrl = common.OptionMap[model.OptionKeySystemUrl] + "/api/payment/notify"
@@ -198,46 +212,49 @@ func buildEpayUrl(order model.PaymentOrder, amount float64) (string, error) {
 
 	params := map[string]string{
 		"pid":          pid,
-		"type":         payType,
 		"out_trade_no": strconv.Itoa(order.Id),
 		"notify_url":   notifyUrl,
 		"return_url":   returnUrl,
 		"name":         "Akasha 账户充值",
-		"money":        strconv.FormatFloat(amount, 'f', 2, 64),
+		"money":        fmt.Sprintf("%.2f", amount),
 	}
-	sign := epaySign(params, key)
-	values := url.Values{}
-	for k, v := range params {
-		values.Set(k, v)
+	if payType != "" {
+		params["type"] = payType
 	}
-	values.Set("sign", sign)
-	values.Set("sign_type", "MD5")
 
-	api = strings.TrimRight(api, "/")
-	return api + "/submit.php?" + values.Encode(), nil
+	signed := epay.NewSigner(key).SignWithParams(params)
+	query := epay.BuildURLQuery(signed)
+	return strings.TrimRight(api, "/") + "/pay/submit.php?" + query, nil
 }
 
 func handleEpayNotify(c *gin.Context) {
 	params := map[string]string{}
-	for k, v := range c.Request.Form {
-		if len(v) == 0 {
-			continue
+	// Collect from URL query string (GET callbacks)
+	for k, v := range c.Request.URL.Query() {
+		if len(v) > 0 {
+			params[k] = v[0]
 		}
-		params[k] = v[0]
+	}
+	// Merge POST form body (POST callbacks)
+	if err := c.Request.ParseForm(); err == nil {
+		for k, v := range c.Request.PostForm {
+			if len(v) > 0 {
+				params[k] = v[0]
+			}
+		}
 	}
 	key := strings.TrimSpace(common.OptionMap[model.OptionKeyEpayKey])
 	sign := params["sign"]
+	if sign == "" || key == "" {
+		c.String(400, "fail")
+		return
+	}
+	if !epay.NewSigner(key).Verify(params, sign) {
+		c.String(400, "fail")
+		return
+	}
 	delete(params, "sign")
 	delete(params, "sign_type")
-	if sign == "" || key == "" {
-		c.String(http.StatusBadRequest, "fail")
-		return
-	}
-	expect := epaySign(params, key)
-	if !strings.EqualFold(sign, expect) {
-		c.String(http.StatusBadRequest, "fail")
-		return
-	}
 
 	orderId, _ := strconv.Atoi(params["out_trade_no"])
 	amount, _ := strconv.ParseFloat(params["money"], 64)
@@ -246,17 +263,17 @@ func handleEpayNotify(c *gin.Context) {
 		status = strings.ToLower(params["status"])
 	}
 	if orderId == 0 || amount <= 0 {
-		c.String(http.StatusBadRequest, "fail")
+		c.String(400, "fail")
 		return
 	}
 
 	var order model.PaymentOrder
 	if err := common.DB.First(&order, orderId).Error; err != nil {
-		c.String(http.StatusOK, "success")
+		c.String(200, "success")
 		return
 	}
 	if order.Status == model.PaymentStatusPaid {
-		c.String(http.StatusOK, "success")
+		c.String(200, "success")
 		return
 	}
 	if status != "trade_success" && status != "success" && status != "paid" {
@@ -265,7 +282,7 @@ func handleEpayNotify(c *gin.Context) {
 			"status":      order.Status,
 			"notify_data": toJSON(params),
 		})
-		c.String(http.StatusOK, "success")
+		c.String(200, "success")
 		return
 	}
 
@@ -294,33 +311,10 @@ func handleEpayNotify(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		c.String(http.StatusOK, "success")
+		c.String(200, "success")
 		return
 	}
-	c.String(http.StatusOK, "success")
-}
-
-func epaySign(params map[string]string, key string) string {
-	keys := make([]string, 0, len(params))
-	for k := range params {
-		if params[k] == "" {
-			continue
-		}
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	builder := strings.Builder{}
-	for i, k := range keys {
-		if i > 0 {
-			builder.WriteString("&")
-		}
-		builder.WriteString(k)
-		builder.WriteString("=")
-		builder.WriteString(params[k])
-	}
-	builder.WriteString(key)
-	hash := md5.Sum([]byte(builder.String()))
-	return hex.EncodeToString(hash[:])
+	c.String(200, "success")
 }
 
 func toString(v interface{}) string {

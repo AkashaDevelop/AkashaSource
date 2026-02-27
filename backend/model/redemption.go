@@ -5,8 +5,10 @@ type Redemption struct {
 	Name      string `json:"name" gorm:"index"`
 	Code      string `json:"code" gorm:"unique;index"`
 	Quota     int64  `json:"quota"`
+	MaxUses   int    `json:"max_uses" gorm:"default:1"`   // 0 = unlimited
+	UsedCount int    `json:"used_count" gorm:"default:0"` // how many times used
 	CreatedBy int    `json:"created_by"`
-	UsedBy    int    `json:"used_by" gorm:"index"`    // 0 if unused
+	UsedBy    int    `json:"used_by" gorm:"index"` // last user who used it
 	Status    int    `json:"status" gorm:"default:1"` // 1: unused, 2: used, 3: disabled
 	CreatedAt int64  `json:"created_at" gorm:"autoCreateTime"`
 	UsedAt    int64  `json:"used_at"`

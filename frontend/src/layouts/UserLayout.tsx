@@ -1,12 +1,19 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import {
-  Listbox,
-  ListboxItem,
-  User,
-  Button,
-} from '@heroui/react';
-import { LayoutDashboard, Key, LogOut, History, Wallet, User as UserIcon, Share2, FlaskConical } from 'lucide-react';
+import { Button } from '../components/ui';
+import { LayoutDashboard, Key, LogOut, History, Wallet, User as UserIcon, Share2, FlaskConical, Tag, Shield } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
+import ThemeToggle from '../components/ThemeToggle';
+
+const navItems = [
+  { key: '/', icon: LayoutDashboard, label: '仪表盘' },
+  { key: '/token', icon: Key, label: '令牌管理' },
+  { key: '/log', icon: History, label: '调用日志' },
+  { key: '/topup', icon: Wallet, label: '充值' },
+  { key: '/invitation', icon: Share2, label: '邀请管理' },
+  { key: '/pricing', icon: Tag, label: '模型定价' },
+  { key: '/profile', icon: UserIcon, label: '个人设置' },
+  { key: '/playground', icon: FlaskConical, label: 'Playground' },
+];
 
 export default function UserLayout() {
   const navigate = useNavigate();
@@ -19,92 +26,126 @@ export default function UserLayout() {
   };
 
   return (
-    <div className="flex min-h-screen w-full bg-gray-50 dark:bg-gray-950">
+    <div className="flex min-h-screen w-full" style={{ background: 'var(--bg-base)' }}>
       {/* 侧边栏 */}
-      <div className="w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col">
-        <div className="p-6">
-          <h1 className="text-xl font-bold bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent">
-            Akasha
-          </h1>
-          <p className="text-xs text-default-400">用户控制台</p>
-        </div>
-
-        <div className="flex-1 px-4">
-          <Listbox 
-            aria-label="用户菜单"
-            onAction={(key) => navigate(key as string)}
-            className="p-0 gap-0 divide-y divide-default-300/50 dark:divide-default-100/80 bg-content1 max-w-[300px] overflow-visible shadow-small rounded-medium"
-            itemClasses={{
-              base: "px-3 first:rounded-t-medium last:rounded-b-medium rounded-none gap-3 h-12 data-[hover=true]:bg-default-100/80",
-            }}
-          >
-            <ListboxItem
-              key="/"
-              startContent={<LayoutDashboard size={20} />}
-              className={location.pathname === '/' ? "bg-primary/10 text-primary" : ""}
-            >
-              仪表盘
-            </ListboxItem>
-            <ListboxItem
-              key="/token"
-              startContent={<Key size={20} />}
-              className={location.pathname === '/token' ? "bg-primary/10 text-primary" : ""}
-            >
-              令牌管理
-            </ListboxItem>
-            <ListboxItem
-              key="/log"
-              startContent={<History size={20} />}
-              className={location.pathname === '/log' ? "bg-primary/10 text-primary" : ""}
-            >
-              调用日志
-            </ListboxItem>
-            <ListboxItem
-              key="/topup"
-              startContent={<Wallet size={20} />}
-              className={location.pathname === '/topup' ? "bg-primary/10 text-primary" : ""}
-            >
-              充值
-            </ListboxItem>
-            <ListboxItem
-              key="/invitation"
-              startContent={<Share2 size={20} />}
-              className={location.pathname === '/invitation' ? "bg-primary/10 text-primary" : ""}
-            >
-              邀请管理
-            </ListboxItem>
-            <ListboxItem
-              key="/profile"
-              startContent={<UserIcon size={20} />}
-              className={location.pathname === '/profile' ? "bg-primary/10 text-primary" : ""}
-            >
-              个人设置
-            </ListboxItem>
-            <ListboxItem
-              key="/playground"
-              startContent={<FlaskConical size={20} />}
-              className={location.pathname === '/playground' ? "bg-primary/10 text-primary" : ""}
-            >
-              Playground
-            </ListboxItem>
-          </Listbox>
-        </div>
-
-        <div className="p-4 border-t border-gray-200 dark:border-gray-800">
-          <div className="flex items-center gap-4 mb-4">
-            <User   
-              name={user?.username}
-              description="普通用户"
-              avatarProps={{
-                src: "https://i.pravatar.cc/150?u=a042581f4e29026024d"
-              }}
-            />
+      <div
+        className="w-64 flex flex-col flex-shrink-0"
+        style={{
+          background: 'var(--bg-sidebar)',
+          borderRight: '1px solid var(--border-color)',
+          backdropFilter: 'blur(12px)',
+        }}
+      >
+        {/* Logo */}
+        <div className="p-6 pb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-2xl" style={{ color: 'var(--accent-primary)' }}>✿</span>
+            <h1 className="text-xl font-bold gradient-text">Akasha</h1>
           </div>
-          <Button 
-            color="danger" 
-            variant="flat" 
-            startContent={<LogOut size={18} />}
+          <p className="text-xs ml-8" style={{ color: 'var(--text-secondary)' }}>用户控制台</p>
+        </div>
+
+        {/* 用户信息 */}
+        <div
+          className="mx-4 mb-4 p-3 rounded-2xl cursor-pointer transition-all duration-200"
+          style={{
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-color)',
+          }}
+          onClick={() => navigate('/profile')}
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <div
+              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+              style={{ background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))' }}
+            >
+              {user?.username?.[0]?.toUpperCase() || 'U'}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{user?.username}</p>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>普通用户</p>
+            </div>
+          </div>
+          {/* 余额显示 */}
+          <div style={{
+            padding: '6px 10px', borderRadius: '8px',
+            background: 'var(--bg-base)', border: '1px solid var(--border-color)',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>余额</span>
+            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--accent-cosmic)' }}>
+              ${((user?.quota ?? 0) / 500000).toFixed(4)}
+            </span>
+          </div>
+        </div>
+
+        {/* 导航 */}
+        <nav className="flex-1 px-3 space-y-1">
+          {navItems.map(({ key, icon: Icon, label }) => {
+            const isActive = location.pathname === key;
+            return (
+              <button
+                key={key}
+                onClick={() => navigate(key)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200"
+                style={isActive ? {
+                  background: 'var(--nav-active-bg)',
+                  color: 'var(--accent-primary)',
+                  boxShadow: 'var(--shadow-card)',
+                } : {
+                  color: 'var(--text-secondary)',
+                }}
+                onMouseEnter={e => {
+                  if (!isActive) {
+                    (e.currentTarget as HTMLElement).style.background = 'var(--nav-hover-bg)';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)';
+                  }
+                }}
+                onMouseLeave={e => {
+                  if (!isActive) {
+                    (e.currentTarget as HTMLElement).style.background = 'transparent';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)';
+                  }
+                }}
+              >
+                <Icon size={18} />
+                <span>{label}</span>
+                {isActive && <span className="ml-auto text-xs" style={{ color: 'var(--accent-primary)' }}>✦</span>}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* 底部 */}
+        <div className="p-4 space-y-2" style={{ borderTop: '1px solid var(--border-color)' }}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>主题切换</span>
+            <ThemeToggle />
+          </div>
+          {user && user.role >= 10 && (
+            <Button
+              variant="flat"
+              startContent={<Shield size={16} />}
+              className="w-full"
+              style={{
+                background: 'rgba(124,58,237,0.12)',
+                color: 'var(--accent-primary)',
+                borderRadius: '12px',
+              }}
+              onPress={() => navigate('/admin')}
+            >
+              管理后台
+            </Button>
+          )}
+          <Button
+            variant="flat"
+            startContent={<LogOut size={16} />}
             className="w-full"
+            style={{
+              background: 'rgba(248,113,113,0.12)',
+              color: '#f87171',
+              borderRadius: '12px',
+            }}
             onPress={handleLogout}
           >
             退出登录
@@ -113,7 +154,7 @@ export default function UserLayout() {
       </div>
 
       {/* 主内容区 */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto p-6 animate-fade-in-up">
         <Outlet />
       </div>
     </div>

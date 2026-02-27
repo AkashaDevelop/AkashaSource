@@ -1,11 +1,8 @@
 import { useState, useEffect } from 'react';
+import PageHeader from '../../components/PageHeader';
+import EmptyState from '../../components/EmptyState';
+import LoadingRows from '../../components/LoadingRows';
 import {
-  Table,
-  TableHeader,
-  TableColumn,
-  TableBody,
-  TableRow,
-  TableCell,
   Chip,
   Tooltip,
   Button,
@@ -21,9 +18,11 @@ import {
   Select,
   SelectItem,
   Checkbox,
-} from '@heroui/react';
+} from '../../components/ui';
 import { Edit, Trash2, Plus, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
+import { toast } from '../../store/toast';
+import { confirm } from '../../store/confirm';
 
 interface Token {
   id: number;
@@ -68,7 +67,7 @@ export default function TokenManagement() {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       const data = await res.json();
-      if (res.ok) {
+      if (data.code === 0) {
         setTokens(data.data || []);
       }
     } catch (error) {
@@ -149,11 +148,12 @@ export default function TokenManagement() {
         body: JSON.stringify(body),
       });
 
-      if (res.ok) {
+      const data = await res.json();
+      if (data.code === 0) {
         fetchTokens();
         onClose();
       } else {
-        alert('操作失败');
+        toast.error('操作失败');
       }
     } catch (error) {
       console.error('提交失败:', error);
@@ -161,13 +161,14 @@ export default function TokenManagement() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确定要删除这个令牌吗?')) return;
+    if (!await confirm({ title: '删除令牌', message: '确定要删除这个令牌吗？删除后无法恢复。', danger: true })) return;
     try {
       const res = await fetch(`/api/token/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${authToken}` },
       });
-      if (res.ok) fetchTokens();
+      const data = await res.json();
+      if (data.code === 0) fetchTokens();
     } catch (error) {
       console.error('删除失败:', error);
     }
@@ -204,91 +205,60 @@ export default function TokenManagement() {
   };
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold">令牌管理</h1>
-          <p className="text-default-500">管理您的 API 访问密钥</p>
-        </div>
-        <div className="flex gap-2">
-          <Button startContent={<RefreshCw size={18} />} onPress={fetchTokens} variant="flat">
-            刷新
-          </Button>
-          <Button startContent={<Plus size={18} />} color="primary" onPress={handleAdd}>
-            添加令牌
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="令牌管理"
+        description="管理您的 API 访问密钥"
+        actions={
+          <div className="flex gap-2">
+            <Button startContent={<RefreshCw size={18} />} onPress={fetchTokens} variant="flat">
+              刷新
+            </Button>
+            <Button startContent={<Plus size={18} />} color="primary" onPress={handleAdd}>
+              添加令牌
+            </Button>
+          </div>
+        }
+      />
 
-      <Table aria-label="令牌表格">
-        <TableHeader>
-          <TableColumn>名称</TableColumn>
-          <TableColumn>状态</TableColumn>
-          <TableColumn>已用额度</TableColumn>
-          <TableColumn>剩余额度</TableColumn>
-          <TableColumn>IP 限制</TableColumn>
-          <TableColumn>模型限制</TableColumn>
-          <TableColumn>过期时间</TableColumn>
-          <TableColumn>创建时间</TableColumn>
-          <TableColumn>密钥</TableColumn>
-          <TableColumn>操作</TableColumn>
-        </TableHeader>
-        <TableBody emptyContent="暂无令牌" isLoading={loading}>
-          {tokens.map((token) => (
-            <TableRow key={token.id}>
-              <TableCell className="font-medium">{token.name}</TableCell>
-              <TableCell>
-                  <div className="cursor-pointer" onClick={() => handleStatusToggle(token)}>
-                    {renderStatus(token.status)}
+      <div className="data-table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>名称</th><th>状态</th><th>已用额度</th><th>剩余额度</th><th>IP限制</th><th>模型限制</th><th>过期时间</th><th>创建时间</th><th>密钥</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <LoadingRows cols={10} rows={5} />
+            ) : tokens.length === 0 ? (
+              <tr><td colSpan={10}><EmptyState icon="🔑" title="暂无令牌" description="创建您的第一个 API 令牌" /></td></tr>
+            ) : tokens.map((token) => (
+              <tr key={token.id}>
+                <td className="font-medium">{token.name}</td>
+                <td><div className="cursor-pointer" onClick={() => handleStatusToggle(token)}>{renderStatus(token.status)}</div></td>
+                <td>{formatQuota(token.used_quota)}</td>
+                <td>{token.unlimited_quota ? <Chip size="sm" variant="dot" color="success">无限</Chip> : formatQuota(token.remain_quota)}</td>
+                <td style={{maxWidth:'140px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{token.allowed_ips || '-'}</td>
+                <td style={{maxWidth:'140px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{token.allowed_models || '-'}</td>
+                <td>{token.expired_time === -1 ? <Chip size="sm" variant="flat">永不过期</Chip> : new Date(token.expired_time * 1000).toLocaleString()}</td>
+                <td style={{whiteSpace:'nowrap'}}>{new Date(token.created_time * 1000).toLocaleString()}</td>
+                <td>
+                  <Snippet symbol="" codeString={token.key} color="default" size="sm">
+                    {token.key.substring(0, 8) + '***' + token.key.substring(token.key.length - 4)}
+                  </Snippet>
+                </td>
+                <td>
+                  <div className="flex items-center gap-2">
+                    <Tooltip content="编辑"><span className="text-lg text-default-400 cursor-pointer active:opacity-50" onClick={() => handleEdit(token)}><Edit size={18} /></span></Tooltip>
+                    <Tooltip color="danger" content="删除"><span className="text-lg text-danger cursor-pointer active:opacity-50" onClick={() => handleDelete(token.id)}><Trash2 size={18} /></span></Tooltip>
                   </div>
-              </TableCell>
-              <TableCell>{formatQuota(token.used_quota)}</TableCell>
-              <TableCell>
-                {token.unlimited_quota ? (
-                  <Chip size="sm" variant="dot" color="success">无限</Chip>
-                ) : (
-                  formatQuota(token.remain_quota)
-                )}
-              </TableCell>
-              <TableCell className="max-w-[180px] truncate">{token.allowed_ips || '-'}</TableCell>
-              <TableCell className="max-w-[180px] truncate">{token.allowed_models || '-'}</TableCell>
-              <TableCell>
-                  {token.expired_time === -1 ? (
-                      <Chip size="sm" variant="flat">永不过期</Chip>
-                  ) : (
-                      new Date(token.expired_time * 1000).toLocaleString()
-                  )}
-              </TableCell>
-              <TableCell>{new Date(token.created_time * 1000).toLocaleString()}</TableCell>
-              <TableCell>
-                <Snippet symbol="" codeString={token.key} color="default" size="sm">
-                  {token.key.substring(0, 8) + '***' + token.key.substring(token.key.length - 4)}
-                </Snippet>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <Tooltip content="编辑">
-                    <span 
-                      className="text-lg text-default-400 cursor-pointer active:opacity-50"
-                      onClick={() => handleEdit(token)}
-                    >
-                      <Edit size={18} />
-                    </span>
-                  </Tooltip>
-                  <Tooltip color="danger" content="删除">
-                    <span 
-                      className="text-lg text-danger cursor-pointer active:opacity-50"
-                      onClick={() => handleDelete(token.id)}
-                    >
-                      <Trash2 size={18} />
-                    </span>
-                  </Tooltip>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
         <ModalContent>
@@ -315,7 +285,7 @@ export default function TokenManagement() {
                     ))}
                   </Select>
 
-                  <div className="flex flex-col gap-2 p-2 border rounded-lg border-default-200">
+                  <div style={{ display:'flex', flexDirection:'column', gap:'8px', padding:'12px', borderRadius:'12px', border:'1px solid var(--border-color)', background:'var(--bg-elevated)' }}>
                     <Checkbox isSelected={neverExpire} onValueChange={setNeverExpire}>
                         永不过期
                     </Checkbox>
@@ -329,7 +299,7 @@ export default function TokenManagement() {
                     )}
                   </div>
 
-                  <div className="flex flex-col gap-2 p-2 border rounded-lg border-default-200">
+                  <div style={{ display:'flex', flexDirection:'column', gap:'8px', padding:'12px', borderRadius:'12px', border:'1px solid var(--border-color)', background:'var(--bg-elevated)' }}>
                     <Checkbox isSelected={unlimitedQuota} onValueChange={setUnlimitedQuota}>
                         无限额度
                     </Checkbox>

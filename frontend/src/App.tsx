@@ -6,12 +6,10 @@ import AdminDashboard from './pages/admin/Dashboard';
 import ChannelManagement from './pages/admin/Channel';
 import UserManagement from './pages/admin/User';
 import SystemSettings from './pages/admin/Setting';
-import MigrationPage from './pages/admin/Migration';
 import GroupManagement from './pages/admin/Group';
 import ModelManagement from './pages/admin/Model';
 import Pricing from './pages/Pricing';
 import Playground from './pages/Playground';
-import Performance from './pages/admin/Performance';
 import { useAuthStore } from './store/auth';
 import UserLayout from './layouts/UserLayout';
 import AdminLayout from './layouts/AdminLayout';
@@ -44,14 +42,7 @@ function App() {
       <Route path="/pricing" element={<Pricing />} />
 
       {/* 用户路由 */}
-      <Route
-        path="/"
-        element={
-          <PrivateRoute>
-            <UserLayout />
-          </PrivateRoute>
-        }
-      >
+      <Route path="/" element={<PrivateRoute><UserLayout /></PrivateRoute>}>
         <Route index element={<UserDashboard />} />
         <Route path="token" element={<TokenManagement />} />
         <Route path="log" element={<LogPage />} />
@@ -59,6 +50,7 @@ function App() {
         <Route path="invitation" element={<UserInvitation />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="playground" element={<Playground />} />
+        <Route path="pricing" element={<Pricing />} />
       </Route>
 
       {/* 管理员路由 */}
@@ -78,8 +70,6 @@ function App() {
         <Route path="model" element={<ModelManagement />} />
         <Route path="setting" element={<SystemSettings />} />
         <Route path="log" element={<LogPage />} />
-        <Route path="migration" element={<MigrationPage />} />
-        <Route path="performance" element={<Performance />} />
       </Route>
     </Routes>
   );

@@ -1,11 +1,7 @@
 import { useState, useEffect } from 'react';
+import EmptyState from '../../components/EmptyState';
+import LoadingRows from '../../components/LoadingRows';
 import {
-  Table,
-  TableHeader,
-  TableColumn,
-  TableBody,
-  TableRow,
-  TableCell,
   Chip,
   Tooltip,
   Button,
@@ -22,9 +18,11 @@ import {
   Textarea,
   Tabs,
   Tab,
-} from '@heroui/react';
+} from '../../components/ui';
 import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap, Download } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
+import { toast } from '../../store/toast';
+import { confirm } from '../../store/confirm';
 
 interface Channel {
   id: number;
@@ -100,7 +98,7 @@ export default function ChannelManagement() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) {
+      if (data.code === 0) {
         setChannels(data.data);
       }
     } catch (error) {
@@ -117,12 +115,12 @@ export default function ChannelManagement() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok && data.success) {
-        setChannels(prev => prev.map(c => 
-          c.id === id ? { ...c, response_time: data.time } : c
+      if (data.code === 0 && data.data.success) {
+        setChannels(prev => prev.map(c =>
+          c.id === id ? { ...c, response_time: data.data.time } : c
         ));
       } else {
-        alert(data.message || '测试失败');
+        toast.error(data.data?.msg || data.msg || '测试失败');
       }
     } catch (error) {
       console.error('Test error:', error);
@@ -217,11 +215,12 @@ export default function ChannelManagement() {
         body: JSON.stringify(body),
       });
 
-      if (res.ok) {
+      const data = await res.json();
+      if (data.code === 0) {
         fetchChannels();
         onClose();
       } else {
-        alert('Operation failed');
+        toast.error('操作失败');
       }
     } catch (error) {
       console.error('Operation error:', error);
@@ -229,13 +228,14 @@ export default function ChannelManagement() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确定要删除这个渠道吗?')) return;
+    if (!await confirm({ title: '删除渠道', message: '确定要删除这个渠道吗？此操作不可撤销。', danger: true })) return;
     try {
       const res = await fetch(`/api/channel/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) fetchChannels();
+      const data = await res.json();
+      if (data.code === 0) fetchChannels();
     } catch (error) {
       console.error('Delete error:', error);
     }
@@ -273,7 +273,7 @@ export default function ChannelManagement() {
     }
 
     if (channels.length === 0) {
-        alert("未能解析出有效的渠道数据");
+        toast.error('未能解析出有效的渠道数据');
         return;
     }
 
@@ -287,17 +287,17 @@ export default function ChannelManagement() {
             body: JSON.stringify(channels),
         });
         const data = await res.json();
-        if (res.ok) {
-            alert(`成功导入 ${data.count} 个渠道`);
+        if (data.code === 0) {
+            toast.success(`成功导入 ${data.data?.count ?? data.count} 个渠道`);
             fetchChannels();
             setBatchText('');
             onClose();
         } else {
-            alert(data.error || '导入失败');
+            toast.error(data.msg || '导入失败');
         }
     } catch (error) {
         console.error(error);
-        alert('请求失败');
+        toast.error('请求失败');
     }
   };
 
@@ -316,8 +316,8 @@ export default function ChannelManagement() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) {
-        alert(`测试完成: ${data.success}/${data.total} 成功`);
+      if (data.code === 0) {
+        toast.success(`测试完成: ${data.data?.success ?? data.success}/${data.data?.total ?? data.total} 成功`);
         fetchChannels();
       }
     } catch (error) {
@@ -334,14 +334,14 @@ export default function ChannelManagement() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok && data.models) {
-        const modelStr = data.models.join(',');
+      if (data.code === 0 && data.data?.models) {
+        const modelStr = data.data.models.join(',');
         if (editingChannel) {
           setFormData(prev => ({ ...prev, models: modelStr }));
         }
-        alert(`获取到 ${data.models.length} 个模型:\n${modelStr}`);
+        toast.info(`获取到 ${data.data.models.length} 个模型`);
       } else {
-        alert(data.error || '获取模型失败');
+        toast.error(data.msg || '获取模型失败');
       }
     } catch (error) {
       console.error('Fetch models error:', error);
@@ -381,83 +381,40 @@ export default function ChannelManagement() {
         </div>
       </div>
 
-      <Table aria-label="Channel table">
-        <TableHeader>
-          <TableColumn>ID</TableColumn>
-          <TableColumn>名称</TableColumn>
-          <TableColumn>类型</TableColumn>
-          <TableColumn>分组</TableColumn>
-          <TableColumn>状态</TableColumn>
-          <TableColumn>响应时间</TableColumn>
-          <TableColumn>余额</TableColumn>
-          <TableColumn>优先级</TableColumn>
-          <TableColumn>操作</TableColumn>
-        </TableHeader>
-        <TableBody emptyContent="暂无渠道" isLoading={loading}>
-          {channels.map((channel) => (
-            <TableRow key={channel.id}>
-              <TableCell>{channel.id}</TableCell>
-              <TableCell className="font-medium">{channel.name}</TableCell>
-              <TableCell>
-                <Chip size="sm" variant="flat" color="primary">
-                  {CHANNEL_TYPES.find(t => t.key === channel.type.toString())?.label || 'Unknown'}
-                </Chip>
-              </TableCell>
-              <TableCell>
-                <Chip size="sm" variant="dot">{channel.group || 'default'}</Chip>
-              </TableCell>
-              <TableCell>
-                <Chip 
-                  size="sm" 
-                  color={channel.status === 1 ? "success" : "danger"}
-                  startContent={<Power size={12} />}
-                >
-                  {channel.status === 1 ? "已启用" : "已禁用"}
-                </Chip>
-              </TableCell>
-              <TableCell>
-                <Chip 
-                  size="sm" 
-                  variant="flat" 
-                  color={getResponseTimeColor(channel.response_time)}
-                >
-                  {channel.response_time > 0 ? `${channel.response_time}ms` : '未测试'}
-                </Chip>
-              </TableCell>
-              <TableCell>${channel.balance.toFixed(2)}</TableCell>
-              <TableCell>{channel.priority}</TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <Tooltip content="测试">
-                    <span 
-                      className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${testingId === channel.id ? 'animate-spin' : ''}`}
-                      onClick={() => handleTest(channel.id)}
-                    >
-                      <Activity size={18} />
-                    </span>
-                  </Tooltip>
-                  <Tooltip content="编辑">
-                    <span 
-                      className="text-lg text-default-400 cursor-pointer active:opacity-50"
-                      onClick={() => handleEdit(channel)}
-                    >
-                      <Edit size={18} />
-                    </span>
-                  </Tooltip>
-                  <Tooltip color="danger" content="删除">
-                    <span 
-                      className="text-lg text-danger cursor-pointer active:opacity-50"
-                      onClick={() => handleDelete(channel.id)}
-                    >
-                      <Trash2 size={18} />
-                    </span>
-                  </Tooltip>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <div className="data-table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>ID</th><th>名称</th><th>类型</th><th>分组</th><th>状态</th><th>响应时间</th><th>余额</th><th>优先级</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <LoadingRows cols={9} rows={5} />
+            ) : channels.length === 0 ? (
+              <tr><td colSpan={9}><EmptyState icon="📡" title="暂无渠道" description="添加您的第一个 AI 渠道" /></td></tr>
+            ) : channels.map((channel) => (
+              <tr key={channel.id}>
+                <td>{channel.id}</td>
+                <td className="font-medium">{channel.name}</td>
+                <td><Chip size="sm" variant="flat" color="primary">{CHANNEL_TYPES.find(t => t.key === channel.type.toString())?.label || 'Unknown'}</Chip></td>
+                <td><Chip size="sm" variant="dot">{channel.group || 'default'}</Chip></td>
+                <td><Chip size="sm" color={channel.status === 1 ? "success" : "danger"} startContent={<Power size={12} />}>{channel.status === 1 ? "已启用" : "已禁用"}</Chip></td>
+                <td><Chip size="sm" variant="flat" color={getResponseTimeColor(channel.response_time)}>{channel.response_time > 0 ? `${channel.response_time}ms` : '未测试'}</Chip></td>
+                <td>${channel.balance.toFixed(2)}</td>
+                <td>{channel.priority}</td>
+                <td>
+                  <div className="flex items-center gap-2">
+                    <Tooltip content="测试"><span className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${testingId === channel.id ? 'animate-spin' : ''}`} onClick={() => handleTest(channel.id)}><Activity size={18} /></span></Tooltip>
+                    <Tooltip content="编辑"><span className="text-lg text-default-400 cursor-pointer active:opacity-50" onClick={() => handleEdit(channel)}><Edit size={18} /></span></Tooltip>
+                    <Tooltip color="danger" content="删除"><span className="text-lg text-danger cursor-pointer active:opacity-50" onClick={() => handleDelete(channel.id)}><Trash2 size={18} /></span></Tooltip>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="3xl" scrollBehavior="inside">
         <ModalContent>

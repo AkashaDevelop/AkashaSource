@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@heroui/react": "^2.8.9",
     "@tanstack/react-query": "^5.90.21",
     "framer-motion": "^12.34.3",
     "lucide-react": "^0.575.0",

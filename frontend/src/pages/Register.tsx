@@ -1,14 +1,5 @@
 import { useState, useEffect } from 'react';
-import {
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  Input,
-  Link,
-  Form,
-  Alert,
-} from '@heroui/react';
+import { Button, Card, CardBody, CardHeader, Input, Link, Form, Alert } from '../components/ui';
 import { useNavigate } from 'react-router-dom';
 
 export default function Register() {
@@ -32,15 +23,16 @@ export default function Register() {
     fetch('/api/system/status')
       .then(res => res.json())
       .then(data => {
-        if (data.options) {
-          if (data.options.captcha_provider) setCaptchaProvider(data.options.captcha_provider);
-          if (data.options.turnstile_check_enabled === 'true') {
+        const payload = data.code === 0 ? data.data : data;
+        if (payload.options) {
+          if (payload.options.captcha_provider) setCaptchaProvider(payload.options.captcha_provider);
+          if (payload.options.turnstile_check_enabled === 'true') {
             setTurnstileEnabled(true);
-            setTurnstileSiteKey(data.options.turnstile_site_key || '');
+            setTurnstileSiteKey(payload.options.turnstile_site_key || '');
           }
-          if (data.options.geetest_enabled === 'true') {
+          if (payload.options.geetest_enabled === 'true') {
             setGeetestEnabled(true);
-            setGeetestId(data.options.geetest_id || '');
+            setGeetestId(payload.options.geetest_id || '');
           }
         }
       });
@@ -115,13 +107,13 @@ export default function Register() {
 
       const data = await res.json();
 
-      if (!res.ok) {
+      if (data.code !== 0) {
         if (useTurnstile && (window as any).turnstile) {
           (window as any).turnstile.reset();
           setTurnstileToken('');
         }
         setGeetestResult(null);
-        throw new Error(data.error || 'Registration failed');
+        throw new Error(data.msg || 'Registration failed');
       }
 
       navigate('/login');
@@ -133,70 +125,52 @@ export default function Register() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="flex flex-col gap-1 items-center pb-0">
-          <h1 className="text-2xl font-bold">Create Account</h1>
-          <p className="text-small text-default-500">Sign up for a new account</p>
-        </CardHeader>
-        <CardBody className="overflow-visible py-4">
-          {error && (
-            <Alert color="danger" className="mb-4">
-              {error}
-            </Alert>
-          )}
-          <Form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-            <Input
-              isRequired
-              label="Username"
-              placeholder="Choose a username"
-              value={username}
-              onValueChange={setUsername}
-            />
-            <Input
-              isRequired
-              label="Email"
-              placeholder="Enter your email"
-              type="email"
-              value={email}
-              onValueChange={setEmail}
-            />
-            <Input
-              isRequired
-              label="Password"
-              placeholder="Choose a password"
-              type="password"
-              value={password}
-              onValueChange={setPassword}
-            />
-            <Input
-              label="Invitation Code"
-              placeholder="Enter invitation code (optional)"
-              value={invitationCode}
-              onValueChange={setInvitationCode}
-            />
+    <div className="flex items-center justify-center min-h-screen p-4 relative overflow-hidden star-bg" style={{ background: 'var(--bg-base)' }}>
+      <span className="auth-deco-1">✿</span>
+      <span className="auth-deco-2">✦</span>
+      <span className="auth-deco-3">❋</span>
 
-            {turnstileEnabled && captchaProvider !== 'geetest' && (
-              <div id="register-turnstile-widget" className="cf-turnstile" data-sitekey={turnstileSiteKey}></div>
-            )}
+      <div className="animate-fade-in-up w-full max-w-md">
+        <Card className="w-full" style={{
+          background: 'var(--bg-surface)',
+          backdropFilter: 'blur(16px)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '24px',
+          boxShadow: 'var(--shadow-card)',
+        }}>
+          <CardHeader className="flex flex-col gap-1 items-center pb-0 pt-8">
+            <div className="text-4xl mb-2">🌸</div>
+            <h1 className="text-2xl font-bold gradient-text">创建账号</h1>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>注册新账号，开始使用</p>
+          </CardHeader>
+          <CardBody className="overflow-visible py-6 px-8">
+            {error && <Alert color="danger" className="mb-4">{error}</Alert>}
+            <Form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+              <Input isRequired label="用户名" placeholder="请输入用户名" value={username} onValueChange={setUsername} />
+              <Input isRequired label="邮箱" placeholder="请输入邮箱" type="email" value={email} onValueChange={setEmail} />
+              <Input isRequired label="密码" placeholder="请设置密码" type="password" value={password} onValueChange={setPassword} />
+              <Input label="邀请码" placeholder="邀请码（选填）" value={invitationCode} onValueChange={setInvitationCode} />
 
-            <Button
-              color="primary"
-              type="submit"
-              isLoading={loading}
-              className="w-full font-bold"
-            >
-              Sign Up
-            </Button>
-          </Form>
-          <div className="mt-4 text-center text-small">
-            Already have an account?{' '}
-            <Link href="/login" size="sm">
-              Log in
-            </Link>
-          </div>
-        </CardBody>
-      </Card>
+              {turnstileEnabled && captchaProvider !== 'geetest' && (
+                <div id="register-turnstile-widget" className="cf-turnstile" data-sitekey={turnstileSiteKey} />
+              )}
+
+              <Button
+                type="submit"
+                isLoading={loading}
+                className="w-full font-bold h-11 mt-1"
+                style={{ background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))', color: 'white', borderRadius: '12px' }}
+              >
+                注册
+              </Button>
+            </Form>
+            <div className="mt-5 text-center">
+              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>已有账号？</span>
+              <Link href="/login" size="sm" style={{ color: 'var(--accent-primary)' }}> 立即登录 ✦</Link>
+            </div>
+          </CardBody>
+        </Card>
+      </div>
     </div>
   );
 }

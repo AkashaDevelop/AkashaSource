@@ -1,12 +1,19 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import {
-  Listbox,
-  ListboxItem,
-  User,
-  Button,
-} from '@heroui/react';
-import { LayoutDashboard, Server, Settings, LogOut, Users, Gift, ScrollText, Database, Layers, Box, Gauge } from 'lucide-react';
+import { Button } from '../components/ui';
+import { LayoutDashboard, Server, Settings, LogOut, Users, Gift, ScrollText, Layers, Box, ArrowLeft } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
+import ThemeToggle from '../components/ThemeToggle';
+
+const navItems = [
+  { key: '/admin', icon: LayoutDashboard, label: '系统概览' },
+  { key: '/admin/channel', icon: Server, label: '渠道管理' },
+  { key: '/admin/user', icon: Users, label: '用户管理' },
+  { key: '/admin/redemption', icon: Gift, label: '兑换码' },
+  { key: '/admin/group', icon: Layers, label: '分组管理' },
+  { key: '/admin/model', icon: Box, label: '模型管理' },
+  { key: '/admin/log', icon: ScrollText, label: '日志管理' },
+  { key: '/admin/setting', icon: Settings, label: '系统设置' },
+];
 
 export default function AdminLayout() {
   const navigate = useNavigate();
@@ -19,127 +26,121 @@ export default function AdminLayout() {
   };
 
   return (
-    <div className="flex min-h-screen w-full bg-gray-50 dark:bg-gray-950">
-      {/* 管理员侧边栏 */}
-      <div className="w-64 bg-gray-900 text-white flex flex-col">
-        <div className="p-6">
-          <h1 className="text-xl font-bold text-white">
-            Akasha
-          </h1>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 text-xs border border-purple-500/30">
+    <div className="flex min-h-screen w-full" style={{ background: 'var(--bg-base)' }}>
+      {/* 侧边栏 */}
+      <div
+        className="w-64 flex flex-col flex-shrink-0"
+        style={{
+          background: 'var(--bg-sidebar)',
+          borderRight: '1px solid var(--border-color)',
+          backdropFilter: 'blur(12px)',
+        }}
+      >
+        {/* Logo */}
+        <div className="p-6 pb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xl" style={{ color: 'var(--accent-star)' }}>✦</span>
+            <h1 className="text-xl font-bold gradient-text">Akasha</h1>
+          </div>
+          <div className="flex items-center gap-2 ml-7 mt-1">
+            <span
+              className="px-2 py-0.5 text-xs font-semibold rounded-full"
+              style={{
+                background: 'rgba(251,191,36,0.15)',
+                border: '1px solid rgba(251,191,36,0.3)',
+                color: 'var(--accent-star)',
+              }}
+            >
               管理员
             </span>
-            <p className="text-xs text-gray-400">管理控制台</p>
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>控制台</p>
           </div>
         </div>
 
-        <div className="flex-1 px-4">
-          <Listbox 
-            aria-label="管理员菜单"
-            onAction={(key) => navigate(key as string)}
+        {/* 用户信息 */}
+        <div
+          className="mx-4 mb-4 p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all duration-200"
+          style={{
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-color)',
+          }}
+          onClick={() => navigate('/profile')}
+        >
+          <div
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+            style={{ background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))' }}
+          >
+            {user?.username?.[0]?.toUpperCase() || 'A'}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{user?.username}</p>
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>超级管理员</p>
+          </div>
+        </div>
+
+        {/* 导航 */}
+        <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
+          {navItems.map(({ key, icon: Icon, label }) => {
+            const isActive = location.pathname === key;
+            return (
+              <button
+                key={key}
+                onClick={() => navigate(key)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200"
+                style={isActive ? {
+                  background: 'var(--nav-active-bg)',
+                  color: 'var(--accent-primary)',
+                  boxShadow: 'var(--shadow-card)',
+                } : {
+                  color: 'var(--text-secondary)',
+                }}
+                onMouseEnter={e => {
+                  if (!isActive) {
+                    (e.currentTarget as HTMLElement).style.background = 'var(--nav-hover-bg)';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)';
+                  }
+                }}
+                onMouseLeave={e => {
+                  if (!isActive) {
+                    (e.currentTarget as HTMLElement).style.background = 'transparent';
+                    (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)';
+                  }
+                }}
+              >
+                <Icon size={17} />
+                <span>{label}</span>
+                {isActive && <span className="ml-auto text-xs" style={{ color: 'var(--accent-primary)' }}>◆</span>}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* 底部 */}
+        <div className="p-4 space-y-2" style={{ borderTop: '1px solid var(--border-color)' }}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>主题切换</span>
+            <ThemeToggle />
+          </div>
+          <Button
             variant="flat"
-            className="p-0 gap-2"
-            itemClasses={{
-              base: "px-3 rounded-lg gap-3 h-10 text-gray-300 data-[hover=true]:bg-gray-800 data-[hover=true]:text-white",
-              title: "text-sm",
-            }}
-          >
-            <ListboxItem
-              key="/admin"
-              startContent={<LayoutDashboard size={18} />}
-              className={location.pathname === '/admin' ? "bg-primary text-white" : ""}
-            >
-              系统概览
-            </ListboxItem>
-            <ListboxItem
-              key="/admin/channel"
-              startContent={<Server size={18} />}
-              className={location.pathname === '/admin/channel' ? "bg-primary text-white" : ""}
-            >
-              渠道管理
-            </ListboxItem>
-            <ListboxItem
-              key="/admin/user"
-              startContent={<Users size={18} />}
-              className={location.pathname === '/admin/user' ? "bg-primary text-white" : ""}
-            >
-              用户管理
-            </ListboxItem>
-            <ListboxItem
-              key="/admin/redemption"
-              startContent={<Gift size={18} />}
-              className={location.pathname === '/admin/redemption' ? "bg-primary text-white" : ""}
-            >
-              兑换码
-            </ListboxItem>
-            <ListboxItem
-              key="/admin/group"
-              startContent={<Layers size={18} />}
-              className={location.pathname === '/admin/group' ? "bg-primary text-white" : ""}
-            >
-              分组管理
-            </ListboxItem>
-            <ListboxItem
-              key="/admin/model"
-              startContent={<Box size={18} />}
-              className={location.pathname === '/admin/model' ? "bg-primary text-white" : ""}
-            >
-              模型管理
-            </ListboxItem>
-            <ListboxItem
-              key="/admin/log"
-              startContent={<ScrollText size={18} />}
-              className={location.pathname === '/admin/log' ? "bg-primary text-white" : ""}
-            >
-              日志管理
-            </ListboxItem>
-            <ListboxItem
-              key="/admin/setting"
-              startContent={<Settings size={18} />}
-              className={location.pathname === '/admin/setting' ? "bg-primary text-white" : ""}
-            >
-              系统设置
-            </ListboxItem>
-            <ListboxItem
-              key="/admin/migration"
-              startContent={<Database size={18} />}
-              className={location.pathname === '/admin/migration' ? "bg-primary text-white" : ""}
-            >
-              SQL 迁移
-            </ListboxItem>
-            <ListboxItem
-              key="/admin/performance"
-              startContent={<Gauge size={18} />}
-              className={location.pathname === '/admin/performance' ? "bg-primary text-white" : ""}
-            >
-              系统性能
-            </ListboxItem>
-          </Listbox>
-        </div>
-
-        <div className="p-4 border-t border-gray-800 bg-gray-900">
-          <div 
-            className="flex items-center gap-3 mb-4 px-2 cursor-pointer hover:bg-gray-800 rounded-lg p-2 transition-colors"
-            onClick={() => navigate('/profile')}
-          >
-            <User   
-              name={user?.username}
-              description="超级管理员"
-              classNames={{
-                name: "text-white",
-                description: "text-gray-400"
-              }}
-              avatarProps={{
-                src: "https://i.pravatar.cc/150?u=a04258114e29026708c"
-              }}
-            />
-          </div>
-          <Button 
-            color="danger" 
-            variant="flat" 
-            startContent={<LogOut size={18} />}
+            startContent={<ArrowLeft size={16} />}
             className="w-full"
+            style={{
+              background: 'rgba(124,58,237,0.12)',
+              color: 'var(--accent-primary)',
+              borderRadius: '12px',
+            }}
+            onPress={() => navigate('/')}
+          >
+            用户控制台
+          </Button>
+          <Button
+            className="w-full"
+            style={{
+              background: 'rgba(248,113,113,0.12)',
+              color: '#f87171',
+              borderRadius: '12px',
+            }}
             onPress={handleLogout}
           >
             退出登录
@@ -148,7 +149,7 @@ export default function AdminLayout() {
       </div>
 
       {/* 主内容区 */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-6 animate-fade-in-up">
         <Outlet />
       </div>
     </div>

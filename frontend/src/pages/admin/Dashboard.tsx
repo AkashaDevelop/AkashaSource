@@ -1,22 +1,10 @@
 import { useState, useEffect } from 'react';
-import {
-  Card,
-  CardBody,
-  CardHeader,
-  Progress,
-  Button,
-} from '@heroui/react';
-import {
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-} from 'recharts';
+import { Card, CardBody, CardHeader, Progress, Button } from '../../components/ui';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Server, Activity, DollarSign, Users, RefreshCw, Cpu, MemoryStick, Clock } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
+import PageHeader from '../../components/PageHeader';
+import StatCard from '../../components/StatCard';
 
 interface DashboardStats {
   user_count: number;
@@ -53,9 +41,9 @@ export default function AdminDashboard() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) {
-        setStats(data.stats);
-        setChartData(data.chart || []);
+      if (data.code === 0) {
+        setStats(data.data.stats);
+        setChartData(data.data.chart || []);
       }
     } catch (error) {
       console.error('Failed to fetch dashboard:', error);
@@ -70,7 +58,7 @@ export default function AdminDashboard() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) setPerf(data);
+      if (data.code === 0) setPerf(data.data);
     } catch (e) { console.error(e); }
   };
 
@@ -81,124 +69,74 @@ export default function AdminDashboard() {
     }
   }, [token]);
 
+  const channelHealthPct = stats?.channel_count ? (stats.active_channels / stats.channel_count) * 100 : 0;
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold">系统概览</h1>
-          <p className="text-default-500">监控系统运行状态与核心指标</p>
-        </div>
-        <Button 
-            isIconOnly 
-            variant="flat" 
-            onPress={fetchDashboard} 
-            isLoading={loading}
-        >
+      <PageHeader
+        title="系统概览"
+        description="监控系统运行状态与核心指标"
+        actions={
+          <Button isIconOnly variant="flat" onPress={fetchDashboard} isLoading={loading}
+            style={{ background: 'var(--bg-elevated)', color: 'var(--accent-primary)', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
             <RefreshCw size={20} />
-        </Button>
-      </div>
+          </Button>
+        }
+      />
 
       {/* 核心指标 */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="p-4 bg-primary text-primary-foreground">
-          <div className="flex justify-between items-start">
-            <div className="flex flex-col gap-1">
-              <span className="text-small opacity-80">总请求数</span>
-              <span className="text-2xl font-bold">{stats?.request_count || 0}</span>
-            </div>
-            <Activity className="opacity-80" />
-          </div>
-          <div className="mt-4 text-small opacity-80">
-            总调用次数
-          </div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex justify-between items-start">
-            <div className="flex flex-col gap-1">
-              <span className="text-small text-default-500">总消耗金额</span>
-              <span className="text-2xl font-bold text-success">
-                ${(stats?.total_quota_used || 0).toFixed(2)}
-              </span>
-            </div>
-            <div className="p-2 bg-success/10 rounded-lg text-success">
-              <DollarSign size={24} />
-            </div>
-          </div>
-          <div className="mt-4 text-small text-default-400">
-            平台累计消耗
-          </div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex justify-between items-start">
-            <div className="flex flex-col gap-1">
-              <span className="text-small text-default-500">渠道状态</span>
-              <span className="text-2xl font-bold">
-                {stats?.active_channels || 0}/{stats?.channel_count || 0}
-              </span>
-            </div>
-            <div className="p-2 bg-warning/10 rounded-lg text-warning">
-              <Server size={24} />
-            </div>
-          </div>
-          <Progress 
-            size="sm" 
-            value={stats?.channel_count ? (stats.active_channels / stats.channel_count) * 100 : 0} 
-            color="warning" 
-            className="mt-4"
-          />
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex justify-between items-start">
-            <div className="flex flex-col gap-1">
-              <span className="text-small text-default-500">总用户数</span>
-              <span className="text-2xl font-bold text-secondary">
-                {stats?.user_count || 0}
-              </span>
-            </div>
-            <div className="p-2 bg-secondary/10 rounded-lg text-secondary">
-              <Users size={24} />
-            </div>
-          </div>
-          <div className="mt-4 text-small text-secondary">
-             Active Users
-          </div>
-        </Card>
+        <StatCard
+          title="总请求数"
+          value={stats?.request_count || 0}
+          icon={<Activity size={24} style={{ color: 'var(--accent-primary)' }} />}
+          iconBg="rgba(124,58,237,0.15)"
+          footer="总调用次数"
+        />
+        <StatCard
+          title="总消耗金额"
+          value={<span style={{ color: 'var(--accent-cosmic)' }}>${(stats?.total_quota_used || 0).toFixed(2)}</span>}
+          icon={<DollarSign size={24} style={{ color: 'var(--accent-cosmic)' }} />}
+          iconBg="rgba(8,145,178,0.12)"
+          footer="平台累计消耗"
+        />
+        <StatCard
+          title="渠道状态"
+          value={`${stats?.active_channels || 0}/${stats?.channel_count || 0}`}
+          icon={<Server size={24} style={{ color: 'var(--accent-star)' }} />}
+          iconBg="rgba(217,119,6,0.12)"
+          footer={
+            <Progress aria-label="渠道健康度" size="sm" value={channelHealthPct} color="warning" />
+          }
+        />
+        <StatCard
+          title="总用户数"
+          value={<span style={{ color: 'var(--accent-cosmic)' }}>{stats?.user_count || 0}</span>}
+          icon={<Users size={24} style={{ color: 'var(--accent-cosmic)' }} />}
+          iconBg="rgba(8,145,178,0.12)"
+          footer="Active Users"
+        />
       </div>
 
       {/* 流量趋势图 */}
-      <Card className="p-4">
+      <Card style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
         <CardHeader>
-          <h3 className="text-lg font-semibold">近7日调用趋势</h3>
+          <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>近7日调用趋势</h3>
         </CardHeader>
         <CardBody className="h-[350px]">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="colorRequests" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#006FEE" stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor="#006FEE" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="var(--accent-primary)" stopOpacity={0.8}/>
+                  <stop offset="95%" stopColor="var(--accent-primary)" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#333" opacity={0.1} />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: 'var(--heroui-content1)', 
-                  borderRadius: '12px',
-                  border: 'none',
-                }} 
-              />
-              <Area 
-                type="monotone" 
-                dataKey="count" 
-                stroke="#006FEE" 
-                fillOpacity={1} 
-                fill="url(#colorRequests)" 
-              />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
+              <XAxis dataKey="date" tick={{ fill: 'var(--text-secondary)' }} />
+              <YAxis tick={{ fill: 'var(--text-secondary)' }} />
+              <Tooltip contentStyle={{ backgroundColor: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-color)' }} />
+              <Area type="monotone" dataKey="count" stroke="var(--accent-primary)" fillOpacity={1} fill="url(#colorRequests)" />
             </AreaChart>
           </ResponsiveContainer>
         </CardBody>
@@ -206,45 +144,45 @@ export default function AdminDashboard() {
 
       {/* 系统性能 */}
       {perf && (
-        <Card className="p-4">
+        <Card style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
           <CardHeader>
-            <h3 className="text-lg font-semibold">系统性能</h3>
+            <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>系统性能</h3>
           </CardHeader>
           <CardBody>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-primary/10 rounded-lg text-primary"><Cpu size={20} /></div>
+                <div className="p-2 rounded-lg" style={{ background: 'rgba(124,58,237,0.12)', color: 'var(--accent-primary)' }}><Cpu size={20} /></div>
                 <div>
-                  <p className="text-xs text-default-500">Goroutines</p>
-                  <p className="font-bold">{perf.goroutines}</p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Goroutines</p>
+                  <p className="font-bold" style={{ color: 'var(--text-primary)' }}>{perf.goroutines}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-warning/10 rounded-lg text-warning"><MemoryStick size={20} /></div>
+                <div className="p-2 rounded-lg" style={{ background: 'rgba(217,119,6,0.12)', color: 'var(--accent-star)' }}><MemoryStick size={20} /></div>
                 <div>
-                  <p className="text-xs text-default-500">内存使用</p>
-                  <p className="font-bold">{perf.memory_mb.toFixed(1)} MB</p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>内存使用</p>
+                  <p className="font-bold" style={{ color: 'var(--text-primary)' }}>{(perf.memory_mb ?? 0).toFixed(1)} MB</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-success/10 rounded-lg text-success"><RefreshCw size={20} /></div>
+                <div className="p-2 rounded-lg" style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399' }}><RefreshCw size={20} /></div>
                 <div>
-                  <p className="text-xs text-default-500">GC 次数</p>
-                  <p className="font-bold">{perf.gc_cycles}</p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>GC 次数</p>
+                  <p className="font-bold" style={{ color: 'var(--text-primary)' }}>{perf.gc_cycles}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-secondary/10 rounded-lg text-secondary"><Clock size={20} /></div>
+                <div className="p-2 rounded-lg" style={{ background: 'rgba(8,145,178,0.12)', color: 'var(--accent-cosmic)' }}><Clock size={20} /></div>
                 <div>
-                  <p className="text-xs text-default-500">运行时间</p>
-                  <p className="font-bold">{perf.uptime}</p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>运行时间</p>
+                  <p className="font-bold" style={{ color: 'var(--text-primary)' }}>{perf.uptime}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-default/10 rounded-lg"><Server size={20} /></div>
+                <div className="p-2 rounded-lg" style={{ background: 'var(--bg-elevated)' }}><Server size={20} style={{ color: 'var(--text-secondary)' }} /></div>
                 <div>
-                  <p className="text-xs text-default-500">Go 版本</p>
-                  <p className="font-bold text-sm">{perf.go_version}</p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Go 版本</p>
+                  <p className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{perf.go_version}</p>
                 </div>
               </div>
             </div>

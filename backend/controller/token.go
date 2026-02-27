@@ -13,143 +13,114 @@ import (
 func AddToken(c *gin.Context) {
 	var token model.Token
 	if err := c.ShouldBindJSON(&token); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数解析失败"})
+		common.Fail(c, common.CodeParamError, "参数解析失败")
 		return
 	}
-
 	userId, _ := c.Get("id")
 	token.UserId = userId.(int)
-
 	if token.Name == "" {
 		token.Name = "新令牌"
 	}
 	token.CreatedTime = time.Now().Unix()
 	token.AccessedTime = 0
 	token.Key = common.GenerateKey()
-
-	// Default status
 	if token.Status == 0 {
 		token.Status = model.TokenStatusActive
 	}
-
-	// Default expiration
 	if token.ExpiredTime == 0 {
-		token.ExpiredTime = -1 // Never expire by default
+		token.ExpiredTime = -1
 	}
-
 	if err := common.DB.Create(&token).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建令牌失败"})
+		common.Fail(c, common.CodeServerError, "创建令牌失败")
 		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "令牌创建成功", "data": token})
+	common.OKMsg(c, "令牌创建成功", token)
 }
 
 func DeleteToken(c *gin.Context) {
 	id := c.Param("id")
 	userId, _ := c.Get("id")
 	role, _ := c.Get("role")
-
 	db := common.DB.Where("id = ?", id)
 	if role.(int) < model.RoleAdmin {
 		db = db.Where("user_id = ?", userId)
 	}
-
 	if err := db.Delete(&model.Token{}).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除令牌失败"})
+		common.Fail(c, common.CodeServerError, "删除令牌失败")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "令牌删除成功"})
+	common.OKMsg(c, "令牌删除成功", nil)
 }
 
 func UpdateToken(c *gin.Context) {
 	var token model.Token
 	if err := c.ShouldBindJSON(&token); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数解析失败"})
+		common.Fail(c, common.CodeParamError, "参数解析失败")
 		return
 	}
 	if token.Id == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少ID"})
+		common.Fail(c, common.CodeParamError, "缺少令牌 ID")
 		return
 	}
-
 	userId, _ := c.Get("id")
 	role, _ := c.Get("role")
-
-	var existingToken model.Token
 	db := common.DB.Where("id = ?", token.Id)
 	if role.(int) < model.RoleAdmin {
 		db = db.Where("user_id = ?", userId)
 	}
-
-	if err := db.First(&existingToken).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "令牌不存在"})
+	var existing model.Token
+	if err := db.First(&existing).Error; err != nil {
+		c.JSON(http.StatusNotFound, common.R{Code: common.CodeNotFound, Msg: "令牌不存在"})
 		return
 	}
-
-	// Allow updating specific fields
-	existingToken.Name = token.Name
-	existingToken.Status = token.Status
-	existingToken.ExpiredTime = token.ExpiredTime
-	existingToken.RemainQuota = token.RemainQuota
-	existingToken.UnlimitedQuota = token.UnlimitedQuota
-	existingToken.AllowedIPs = token.AllowedIPs
-	existingToken.AllowedModels = token.AllowedModels
-
-	if err := common.DB.Save(&existingToken).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新令牌失败"})
+	existing.Name = token.Name
+	existing.Status = token.Status
+	existing.ExpiredTime = token.ExpiredTime
+	existing.RemainQuota = token.RemainQuota
+	existing.UnlimitedQuota = token.UnlimitedQuota
+	existing.AllowedIPs = token.AllowedIPs
+	existing.AllowedModels = token.AllowedModels
+	if err := common.DB.Save(&existing).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "更新令牌失败")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "令牌更新成功"})
+	common.OKMsg(c, "令牌更新成功", nil)
 }
 
-// GetKeyInfo returns quota info for the given API key (neko-api-key-tool compatible)
 func GetKeyInfo(c *gin.Context) {
-	authHeader := c.GetHeader("Authorization")
-	key := strings.TrimPrefix(authHeader, "Bearer ")
+	key := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
 	if key == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing api key"})
+		common.Fail(c, common.CodeUnauthorized, "缺少 API Key")
 		return
 	}
-
 	token, err := GetTokenByKey(key)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid api key"})
+		common.Fail(c, common.CodeUnauthorized, "无效的 API Key")
 		return
 	}
-
 	var user model.User
 	if err := common.DB.Where("id = ?", token.UserId).First(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		common.Fail(c, common.CodeServerError, "内部错误")
 		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"key":             token.Key,
-		"name":            token.Name,
-		"status":          token.Status,
-		"quota":           user.Quota,
-		"used_quota":      user.UsedQuota,
-		"remain_quota":    token.RemainQuota,
-		"unlimited_quota": token.UnlimitedQuota,
+	common.OK(c, gin.H{
+		"key": token.Key, "name": token.Name, "status": token.Status,
+		"quota": user.Quota, "used_quota": user.UsedQuota,
+		"remain_quota": token.RemainQuota, "unlimited_quota": token.UnlimitedQuota,
 	})
 }
 
 func GetAllTokens(c *gin.Context) {
-	var tokens []model.Token
 	userId, _ := c.Get("id")
 	role, _ := c.Get("role")
-
 	db := common.DB.Order("id desc")
-
-	// If not admin, only show own tokens
 	if role.(int) < model.RoleAdmin {
 		db = db.Where("user_id = ?", userId)
 	}
-
+	var tokens []model.Token
 	if err := db.Find(&tokens).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取令牌失败"})
+		common.Fail(c, common.CodeServerError, "获取令牌失败")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": tokens})
+	common.OK(c, tokens)
 }

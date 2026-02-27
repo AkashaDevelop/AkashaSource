@@ -49,6 +49,7 @@ const (
 	OptionKeyEpayType            = "epay_type"
 	OptionKeyEpayNotifyUrl       = "epay_notify_url"
 	OptionKeyEpayReturnUrl       = "epay_return_url"
+	OptionKeyEnableTopup         = "enable_topup"
 
 	OptionKeyRedisAddr     = "redis_addr"
 	OptionKeyRedisPassword = "redis_password"

@@ -1,19 +1,12 @@
 import { useState, useEffect } from 'react';
+import PageHeader from '../../components/PageHeader';
+import EmptyState from '../../components/EmptyState';
 import {
   Card,
-  CardHeader,
   CardBody,
   Input,
   Button,
-  Form,
   Divider,
-  Alert,
-  Table,
-  TableHeader,
-  TableColumn,
-  TableBody,
-  TableRow,
-  TableCell,
   Modal,
   ModalContent,
   ModalHeader,
@@ -23,572 +16,391 @@ import {
   Tooltip,
   Switch,
   Textarea,
-} from '@heroui/react';
+  Tabs,
+  Tab,
+} from '../../components/ui';
 import { Save, Plus, Edit, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
+import { toast } from '../../store/toast';
 
-interface Option {
-  key: string;
-  value: string;
-}
-
-interface PricingItem {
-  model: string;
-  ratio: number;
-  completion_ratio: number;
-}
+interface Option { key: string; value: string; }
+interface PricingItem { model: string; ratio: number; completion_ratio: number; }
 
 export default function SystemSettings() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const { token } = useAuthStore();
-  const [message, setMessage] = useState<{ type: 'success' | 'danger'; text: string } | null>(null);
 
-  // Pricing State
   const [pricingItems, setPricingItems] = useState<PricingItem[]>([]);
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
   const [editingItem, setEditingItem] = useState<PricingItem | null>(null);
-  const [itemForm, setItemForm] = useState<PricingItem>({ model: '', ratio: 0, completion_ratio: 0 });
+  const [itemForm, setItemForm] = useState<PricingItem>({ model: '', ratio: 1, completion_ratio: 1 });
 
   const fetchSettings = async () => {
     try {
-      const res = await fetch('/api/option', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch('/api/option', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
-      if (res.ok) {
-        const settingsMap: Record<string, string> = {};
-        data.data.forEach((opt: Option) => {
-          settingsMap[opt.key] = opt.value;
-        });
-        setSettings(settingsMap);
-        parsePricing(settingsMap);
+      if (data.code === 0) {
+        const map: Record<string, string> = {};
+        data.data.forEach((opt: Option) => { map[opt.key] = opt.value; });
+        // auto-fill system_url from browser origin if not set
+        if (!map['system_url']) map['system_url'] = window.location.origin;
+        setSettings(map);
+        parsePricing(map);
       }
-    } catch (error) {
-      console.error('获取配置失败:', error);
-    }
+    } catch (e) { console.error('获取配置失败:', e); }
   };
 
-  const parsePricing = (settingsMap: Record<string, string>) => {
+  const parsePricing = (map: Record<string, string>) => {
     try {
-      const modelRatio = JSON.parse(settingsMap['model_ratio'] || '{}');
-      const completionRatio = JSON.parse(settingsMap['completion_ratio'] || '{}');
-      
-      const allModels = new Set([...Object.keys(modelRatio), ...Object.keys(completionRatio)]);
-      const items: PricingItem[] = Array.from(allModels).map(model => ({
-        model,
-        ratio: modelRatio[model] || 0,
-        completion_ratio: completionRatio[model] || 0,
-      }));
-      setPricingItems(items.sort((a, b) => a.model.localeCompare(b.model)));
-    } catch (e) {
-      console.error("解析模型倍率失败", e);
-    }
+      const mr = JSON.parse(map['model_ratio'] || '{}');
+      const cr = JSON.parse(map['completion_ratio'] || '{}');
+      const all = new Set([...Object.keys(mr), ...Object.keys(cr)]);
+      setPricingItems(
+        Array.from(all).map(m => ({ model: m, ratio: mr[m] || 0, completion_ratio: cr[m] || 0 }))
+          .sort((a, b) => a.model.localeCompare(b.model))
+      );
+    } catch (e) { console.error('解析倍率失败', e); }
   };
 
-  useEffect(() => {
-    fetchSettings();
-  }, []);
+  useEffect(() => { fetchSettings(); }, []);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const set = (key: string, value: string) => setSettings(prev => ({ ...prev, [key]: value }));
+  const get = (key: string, fallback = '') => settings[key] ?? fallback;
+
+  const handleSave = async () => {
     setSaving(true);
-    setMessage(null);
+    const mr: Record<string, number> = {};
+    const cr: Record<string, number> = {};
+    pricingItems.forEach(i => { mr[i.model] = i.ratio; cr[i.model] = i.completion_ratio; });
 
-    // Serialize Pricing
-    const modelRatio: Record<string, number> = {};
-    const completionRatio: Record<string, number> = {};
-    pricingItems.forEach(item => {
-      modelRatio[item.model] = item.ratio;
-      completionRatio[item.model] = item.completion_ratio;
-    });
-
+    const keys = [
+      // 基础
+      'system_name','system_url','logo_url','notice','footer_html','chat_link','chat_link2',
+      'price','min_topup',
+      // 支付
+      'payment_provider','epay_api_url','epay_pid','epay_key','epay_type',
+      'enable_topup',
+      // 风控
+      'content_moderation_enabled','content_moderation_keywords','content_moderation_api',
+      'content_moderation_timeout','content_moderation_whitelist_users',
+      'content_moderation_whitelist_models','content_moderation_whitelist_ips',
+      // 缓存
+      'redis_addr','redis_password','redis_db',
+      // OAuth
+      'github_client_id','github_client_secret',
+      'linuxdo_client_id','linuxdo_client_secret',
+      'linuxdo_quota_level_0','linuxdo_quota_level_1','linuxdo_quota_level_2',
+      'linuxdo_quota_level_3','linuxdo_quota_level_4','linuxdo_quota_level_5',
+      'discord_client_id','discord_client_secret',
+      'oidc_client_id','oidc_client_secret','oidc_issuer_url',
+      'telegram_bot_token',
+      // 邮件
+      'smtp_server','smtp_port','smtp_account','smtp_password','smtp_from',
+      // 安全
+      'turnstile_site_key','turnstile_secret_key','turnstile_check_enabled',
+      'captcha_provider','geetest_enabled','geetest_id','geetest_key',
+      // 邀请
+      'invitation_enabled','invitation_cost','invitation_reward','new_user_reward',
+      // 签到
+      'checkin_enabled','checkin_min_reward','checkin_max_reward','checkin_captcha',
+      // 系统
+      'thinking_to_content','model_rpm',
+      // 邮件域名限制
+      'email_domain_restriction_enabled','email_domain_whitelist',
+    ];
     const options = [
-      { key: 'system_name', value: settings['system_name'] || 'Akasha' },
-      { key: 'system_url', value: settings['system_url'] || '' },
-      { key: 'logo_url', value: settings['logo_url'] || '' },
-      { key: 'notice', value: settings['notice'] || '' },
-      { key: 'footer_html', value: settings['footer_html'] || '' },
-      { key: 'topup_link', value: settings['topup_link'] || '' },
-      { key: 'chat_link', value: settings['chat_link'] || '' },
-      { key: 'price', value: settings['price'] || '' },
-      { key: 'min_topup', value: settings['min_topup'] || '' },
-      { key: 'model_ratio', value: JSON.stringify(modelRatio) },
-      { key: 'completion_ratio', value: JSON.stringify(completionRatio) },
-      { key: 'payment_provider', value: settings['payment_provider'] || '' },
-      { key: 'epay_api_url', value: settings['epay_api_url'] || '' },
-      { key: 'epay_pid', value: settings['epay_pid'] || '' },
-      { key: 'epay_key', value: settings['epay_key'] || '' },
-      { key: 'epay_type', value: settings['epay_type'] || '' },
-      { key: 'epay_notify_url', value: settings['epay_notify_url'] || '' },
-      { key: 'epay_return_url', value: settings['epay_return_url'] || '' },
-      { key: 'content_moderation_enabled', value: settings['content_moderation_enabled'] || 'false' },
-      { key: 'content_moderation_keywords', value: settings['content_moderation_keywords'] || '' },
-      { key: 'content_moderation_api', value: settings['content_moderation_api'] || '' },
-      { key: 'content_moderation_timeout', value: settings['content_moderation_timeout'] || '5' },
-      { key: 'content_moderation_whitelist_users', value: settings['content_moderation_whitelist_users'] || '' },
-      { key: 'content_moderation_whitelist_models', value: settings['content_moderation_whitelist_models'] || '' },
-      { key: 'content_moderation_whitelist_ips', value: settings['content_moderation_whitelist_ips'] || '' },
-      { key: 'redis_addr', value: settings['redis_addr'] || '' },
-      { key: 'redis_password', value: settings['redis_password'] || '' },
-      { key: 'redis_db', value: settings['redis_db'] || '' },
-      { key: 'github_client_id', value: settings['github_client_id'] || '' },
-      { key: 'github_client_secret', value: settings['github_client_secret'] || '' },
-      { key: 'linuxdo_client_id', value: settings['linuxdo_client_id'] || '' },
-      { key: 'linuxdo_client_secret', value: settings['linuxdo_client_secret'] || '' },
-      { key: 'smtp_server', value: settings['smtp_server'] || '' },
-      { key: 'smtp_port', value: settings['smtp_port'] || '587' },
-      { key: 'smtp_account', value: settings['smtp_account'] || '' },
-      { key: 'smtp_password', value: settings['smtp_password'] || '' },
-      { key: 'smtp_from', value: settings['smtp_from'] || '' },
-      { key: 'turnstile_site_key', value: settings['turnstile_site_key'] || '' },
-      { key: 'turnstile_secret_key', value: settings['turnstile_secret_key'] || '' },
-      { key: 'turnstile_check_enabled', value: settings['turnstile_check_enabled'] || 'false' },
-      { key: 'invitation_enabled', value: settings['invitation_enabled'] || 'false' },
-      { key: 'invitation_cost', value: settings['invitation_cost'] || '0' },
-      { key: 'invitation_reward', value: settings['invitation_reward'] || '0' },
-      { key: 'new_user_reward', value: settings['new_user_reward'] || '0' },
-      { key: 'linuxdo_quota_level_0', value: settings['linuxdo_quota_level_0'] || '0' },
-      { key: 'linuxdo_quota_level_1', value: settings['linuxdo_quota_level_1'] || '0' },
-      { key: 'linuxdo_quota_level_2', value: settings['linuxdo_quota_level_2'] || '0' },
-      { key: 'linuxdo_quota_level_3', value: settings['linuxdo_quota_level_3'] || '0' },
-      { key: 'linuxdo_quota_level_4', value: settings['linuxdo_quota_level_4'] || '0' },
-      { key: 'linuxdo_quota_level_5', value: settings['linuxdo_quota_level_5'] || '0' },
+      ...keys.map(k => ({ key: k, value: get(k) })),
+      { key: 'model_ratio', value: JSON.stringify(mr) },
+      { key: 'completion_ratio', value: JSON.stringify(cr) },
     ];
 
     try {
       const res = await fetch('/api/option', {
         method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}` 
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(options),
       });
       const data = await res.json();
-      if (res.ok) {
-        setMessage({ type: 'success', text: '配置保存成功' });
-      } else {
-        setMessage({ type: 'danger', text: data.error || '配置保存失败' });
-      }
-    } catch (error) {
-      const text = error instanceof Error ? error.message : '配置保存失败';
-      setMessage({ type: 'danger', text });
-    } finally {
-      setSaving(false);
-    }
+      data.code === 0 ? toast.success('配置保存成功') : toast.error(data.msg || '配置保存失败');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '配置保存失败');
+    } finally { setSaving(false); }
   };
 
-  const updateSetting = (key: string, value: string) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
-  };
-
-  // Pricing Handlers
-  const handleEditPricing = (item: PricingItem) => {
-    setEditingItem(item);
-    setItemForm({ ...item });
-    onOpen();
-  };
-
-  const handleAddPricing = () => {
-    setEditingItem(null);
-    setItemForm({ model: '', ratio: 1, completion_ratio: 1 });
-    onOpen();
-  };
-
-  const handleDeletePricing = (model: string) => {
-    setPricingItems(prev => prev.filter(p => p.model !== model));
-  };
-
+  const handleEditPricing = (item: PricingItem) => { setEditingItem(item); setItemForm({ ...item }); onOpen(); };
+  const handleAddPricing = () => { setEditingItem(null); setItemForm({ model: '', ratio: 1, completion_ratio: 1 }); onOpen(); };
+  const handleDeletePricing = (model: string) => setPricingItems(prev => prev.filter(p => p.model !== model));
   const handleSavePricingItem = (onClose: () => void) => {
     if (!itemForm.model) return;
-    
-    setPricingItems(prev => {
-      const filtered = prev.filter(p => p.model !== (editingItem?.model || itemForm.model));
-      return [...filtered, itemForm].sort((a, b) => a.model.localeCompare(b.model));
-    });
+    setPricingItems(prev =>
+      [...prev.filter(p => p.model !== (editingItem?.model || itemForm.model)), itemForm]
+        .sort((a, b) => a.model.localeCompare(b.model))
+    );
     onClose();
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto pb-10">
-      <Card>
-        <CardHeader className="font-bold text-xl">系统设置</CardHeader>
-        <CardBody>
-          {message && (
-            <Alert color={message.type} className="mb-4">
-              {message.text}
-            </Alert>
-          )}
-          
-          <Form onSubmit={handleSave} className="space-y-6">
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">基础设置</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  label="系统名称"
-                  value={settings['system_name'] || ''}
-                  onValueChange={(val) => updateSetting('system_name', val)}
-                />
-                <Input
-                  label="系统地址"
-                  value={settings['system_url'] || ''}
-                  onValueChange={(val) => updateSetting('system_url', val)}
-                />
-                <Input
-                  label="Logo 地址"
-                  value={settings['logo_url'] || ''}
-                  onValueChange={(val) => updateSetting('logo_url', val)}
-                />
-                <Input
-                  label="最低充值"
-                  type="number"
-                  value={settings['min_topup'] || ''}
-                  onValueChange={(val) => updateSetting('min_topup', val)}
-                />
-                <Input
-                  label="默认价格"
-                  type="number"
-                  value={settings['price'] || ''}
-                  onValueChange={(val) => updateSetting('price', val)}
-                />
-                <Input
-                  label="充值链接"
-                  value={settings['topup_link'] || ''}
-                  onValueChange={(val) => updateSetting('topup_link', val)}
-                />
-                <Input
-                  label="对话链接"
-                  value={settings['chat_link'] || ''}
-                  onValueChange={(val) => updateSetting('chat_link', val)}
-                />
-              </div>
-              <Textarea
-                label="公告内容"
-                value={settings['notice'] || ''}
-                onValueChange={(val) => updateSetting('notice', val)}
-              />
-              <Textarea
-                label="页脚内容"
-                value={settings['footer_html'] || ''}
-                onValueChange={(val) => updateSetting('footer_html', val)}
-              />
-            </div>
+    <div className="space-y-5 max-w-4xl mx-auto pb-10">
+      <PageHeader
+        title="系统设置"
+        description="管理系统全局配置、支付、OAuth 和安全选项"
+        actions={
+          <Button color="primary" startContent={<Save size={18} />} isLoading={saving} onPress={handleSave}>
+            保存全部配置
+          </Button>
+        }
+      />
 
-            <Divider className="my-2" />
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">支付配置</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  label="支付渠道"
-                  value={settings['payment_provider'] || ''}
-                  onValueChange={(val) => updateSetting('payment_provider', val)}
-                  placeholder="例如：epay"
-                />
-                <Input
-                  label="易支付 API 地址"
-                  value={settings['epay_api_url'] || ''}
-                  onValueChange={(val) => updateSetting('epay_api_url', val)}
-                />
-                <Input
-                  label="易支付 PID"
-                  value={settings['epay_pid'] || ''}
-                  onValueChange={(val) => updateSetting('epay_pid', val)}
-                />
-                <Input
-                  label="易支付 KEY"
-                  type="password"
-                  value={settings['epay_key'] || ''}
-                  onValueChange={(val) => updateSetting('epay_key', val)}
-                />
-                <Input
-                  label="易支付通道类型"
-                  value={settings['epay_type'] || ''}
-                  onValueChange={(val) => updateSetting('epay_type', val)}
-                  placeholder="例如：alipay"
-                />
-                <Input
-                  label="易支付回调地址"
-                  value={settings['epay_notify_url'] || ''}
-                  onValueChange={(val) => updateSetting('epay_notify_url', val)}
-                />
-                <Input
-                  label="易支付同步返回地址"
-                  value={settings['epay_return_url'] || ''}
-                  onValueChange={(val) => updateSetting('epay_return_url', val)}
-                />
-              </div>
-            </div>
+      <Tabs aria-label="系统设置" variant="underlined" color="primary">
 
-            <Divider className="my-2" />
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">内容审查</h3>
-              <div className="flex items-center gap-2">
-                <Switch
-                  isSelected={settings['content_moderation_enabled'] === 'true'}
-                  onValueChange={(val) => updateSetting('content_moderation_enabled', String(val))}
-                >
+        {/* ── 基础 ── */}
+        <Tab key="basic" title="🌐 基础">
+          <Card>
+            <CardBody className="gap-4 p-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input label="系统名称" value={get('system_name')} onValueChange={v => set('system_name', v)} />
+                <Input label="系统地址" value={get('system_url')} onValueChange={v => set('system_url', v)} placeholder={window.location.origin} />
+                <Input label="Logo 地址" value={get('logo_url')} onValueChange={v => set('logo_url', v)} />
+                <Input label="对话链接" value={get('chat_link')} onValueChange={v => set('chat_link', v)} />
+                <Input label="最低充值" type="number" value={get('min_topup')} onValueChange={v => set('min_topup', v)} />
+                <Input label="默认价格" type="number" value={get('price')} onValueChange={v => set('price', v)} />
+              </div>
+              <Textarea label="公告内容" value={get('notice')} onValueChange={v => set('notice', v)} minRows={2} />
+              <Textarea label="页脚 HTML" value={get('footer_html')} onValueChange={v => set('footer_html', v)} minRows={2} />
+            </CardBody>
+          </Card>
+        </Tab>
+
+        {/* ── 支付 ── */}
+        <Tab key="payment" title="💳 支付">
+          <Card>
+            <CardBody className="gap-4 p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-[var(--text-primary)]">开放充值</p>
+                  <p className="text-xs text-[var(--text-secondary)]">允许用户通过易支付进行充值</p>
+                </div>
+                <Switch isSelected={get('enable_topup') === 'true'} onValueChange={v => set('enable_topup', v ? 'true' : 'false')} />
+              </div>
+              <Divider />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input label="支付渠道" value={get('payment_provider')} onValueChange={v => set('payment_provider', v)} placeholder="例如：epay" />
+                <Input label="易支付 API 地址" value={get('epay_api_url')} onValueChange={v => set('epay_api_url', v)} />
+                <Input label="易支付 PID" value={get('epay_pid')} onValueChange={v => set('epay_pid', v)} />
+                <Input label="易支付 KEY" type="password" value={get('epay_key')} onValueChange={v => set('epay_key', v)} />
+                <Input label="易支付通道类型" value={get('epay_type')} onValueChange={v => set('epay_type', v)} placeholder="例如：alipay" />
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-[var(--text-secondary)]">易支付回调地址（自动生成）</span>
+                  <div className="px-3 py-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-color)] text-sm text-[var(--text-secondary)] font-mono break-all select-all">
+                    {get('system_url') ? `${get('system_url')}/api/payment/notify` : <span className="italic opacity-50">请先设置系统 URL</span>}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-[var(--text-secondary)]">易支付同步返回地址（自动生成）</span>
+                  <div className="px-3 py-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-color)] text-sm text-[var(--text-secondary)] font-mono break-all select-all">
+                    {get('system_url') || <span className="italic opacity-50">请先设置系统 URL</span>}
+                  </div>
+                </div>
+              </div>
+            </CardBody>
+          </Card>
+        </Tab>
+
+        {/* ── 安全 ── */}
+        <Tab key="security" title="🛡️ 安全">
+          <div className="space-y-4">
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>内容审查</p>
+                <Switch isSelected={get('content_moderation_enabled') === 'true'} onValueChange={v => set('content_moderation_enabled', String(v))}>
                   启用内容审查
                 </Switch>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  label="审查接口地址"
-                  value={settings['content_moderation_api'] || ''}
-                  onValueChange={(val) => updateSetting('content_moderation_api', val)}
-                />
-                <Input
-                  label="审查超时（秒）"
-                  type="number"
-                  value={settings['content_moderation_timeout'] || ''}
-                  onValueChange={(val) => updateSetting('content_moderation_timeout', val)}
-                />
-              </div>
-              <Textarea
-                label="敏感词（逗号分隔）"
-                value={settings['content_moderation_keywords'] || ''}
-                onValueChange={(val) => updateSetting('content_moderation_keywords', val)}
-              />
-              <Textarea
-                label="白名单用户 ID（逗号分隔）"
-                value={settings['content_moderation_whitelist_users'] || ''}
-                onValueChange={(val) => updateSetting('content_moderation_whitelist_users', val)}
-              />
-              <Textarea
-                label="白名单模型（逗号分隔）"
-                value={settings['content_moderation_whitelist_models'] || ''}
-                onValueChange={(val) => updateSetting('content_moderation_whitelist_models', val)}
-              />
-              <Textarea
-                label="白名单 IP（逗号分隔）"
-                value={settings['content_moderation_whitelist_ips'] || ''}
-                onValueChange={(val) => updateSetting('content_moderation_whitelist_ips', val)}
-              />
-            </div>
-
-            <Divider className="my-2" />
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">Redis 缓存</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  label="Redis 地址"
-                  value={settings['redis_addr'] || ''}
-                  onValueChange={(val) => updateSetting('redis_addr', val)}
-                />
-                <Input
-                  label="Redis 密码"
-                  type="password"
-                  value={settings['redis_password'] || ''}
-                  onValueChange={(val) => updateSetting('redis_password', val)}
-                />
-                <Input
-                  label="Redis 数据库"
-                  type="number"
-                  value={settings['redis_db'] || ''}
-                  onValueChange={(val) => updateSetting('redis_db', val)}
-                />
-              </div>
-            </div>
-
-            <Divider className="my-2" />
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">GitHub OAuth 配置</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  label="客户端 ID"
-                  value={settings['github_client_id'] || ''}
-                  onValueChange={(val) => updateSetting('github_client_id', val)}
-                />
-                <Input
-                  label="客户端密钥"
-                  type="password"
-                  value={settings['github_client_secret'] || ''}
-                  onValueChange={(val) => updateSetting('github_client_secret', val)}
-                />
-              </div>
-            </div>
-
-            <Divider className="my-2" />
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">LinuxDO OAuth 配置</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  label="客户端 ID"
-                  value={settings['linuxdo_client_id'] || ''}
-                  onValueChange={(val) => updateSetting('linuxdo_client_id', val)}
-                />
-                <Input
-                  label="客户端密钥"
-                  type="password"
-                  value={settings['linuxdo_client_secret'] || ''}
-                  onValueChange={(val) => updateSetting('linuxdo_client_secret', val)}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4 mt-2">
-                {[0, 1, 2, 3, 4, 5].map(level => (
-                  <Input
-                    key={level}
-                    label={`等级 ${level} 初始额度`}
-                    type="number"
-                    placeholder="500000 = 1 美元"
-                    value={settings[`linuxdo_quota_level_${level}`] || '0'}
-                    onValueChange={(val) => updateSetting(`linuxdo_quota_level_${level}`, val)}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <Divider className="my-2" />
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">SMTP 邮件</h3>
-              <Input
-                label="SMTP 服务器"
-                value={settings['smtp_server'] || ''}
-                onValueChange={(val) => updateSetting('smtp_server', val)}
-              />
-              <div className="flex gap-4">
-                <Input
-                  label="SMTP 端口"
-                  value={settings['smtp_port'] || ''}
-                  onValueChange={(val) => updateSetting('smtp_port', val)}
-                  className="w-1/3"
-                />
-                <Input
-                  label="SMTP 账号"
-                  value={settings['smtp_account'] || ''}
-                  onValueChange={(val) => updateSetting('smtp_account', val)}
-                  className="w-2/3"
-                />
-              </div>
-              <Input
-                label="SMTP 密码"
-                type="password"
-                value={settings['smtp_password'] || ''}
-                onValueChange={(val) => updateSetting('smtp_password', val)}
-              />
-              <Input
-                label="发件人地址"
-                value={settings['smtp_from'] || ''}
-                onValueChange={(val) => updateSetting('smtp_from', val)}
-              />
-            </div>
-
-            <Divider className="my-2" />
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">邀请设置</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium">邀请码开关</label>
-                  <Switch
-                    isSelected={settings['invitation_enabled'] === 'true'}
-                    onValueChange={(val) => updateSetting('invitation_enabled', String(val))}
-                  >
-                    注册必须使用邀请码
-                  </Switch>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="审查接口地址" value={get('content_moderation_api')} onValueChange={v => set('content_moderation_api', v)} />
+                  <Input label="审查超时（秒）" type="number" value={get('content_moderation_timeout')} onValueChange={v => set('content_moderation_timeout', v)} />
                 </div>
-                <Input
-                  label="邀请码成本"
-                  type="number"
-                  placeholder="0"
-                  value={settings['invitation_cost'] || ''}
-                  onValueChange={(val) => updateSetting('invitation_cost', val)}
-                  description="生成邀请码时扣除额度"
-                />
-                <Input
-                  label="邀请者奖励"
-                  type="number"
-                  placeholder="0"
-                  value={settings['invitation_reward'] || ''}
-                  onValueChange={(val) => updateSetting('invitation_reward', val)}
-                  description="被邀请用户注册时奖励"
-                />
-                <Input
-                  label="新用户奖励"
-                  type="number"
-                  placeholder="0"
-                  value={settings['new_user_reward'] || ''}
-                  onValueChange={(val) => updateSetting('new_user_reward', val)}
-                  description="新用户初始额度"
-                />
-              </div>
-            </div>
+                <Textarea label="敏感词（逗号分隔）" value={get('content_moderation_keywords')} onValueChange={v => set('content_moderation_keywords', v)} minRows={2} />
+                <Textarea label="白名单用户 ID" value={get('content_moderation_whitelist_users')} onValueChange={v => set('content_moderation_whitelist_users', v)} minRows={2} />
+                <Textarea label="白名单模型" value={get('content_moderation_whitelist_models')} onValueChange={v => set('content_moderation_whitelist_models', v)} minRows={2} />
+                <Textarea label="白名单 IP" value={get('content_moderation_whitelist_ips')} onValueChange={v => set('content_moderation_whitelist_ips', v)} minRows={2} />
+              </CardBody>
+            </Card>
 
-            <Divider className="my-2" />
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold">安全验证</h3>
-              <div className="flex items-center gap-2">
-                <Switch 
-                  isSelected={settings['turnstile_check_enabled'] === 'true'} 
-                  onValueChange={(isSelected) => updateSetting('turnstile_check_enabled', String(isSelected))}
-                >
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Turnstile 人机验证</p>
+                <Switch isSelected={get('turnstile_check_enabled') === 'true'} onValueChange={v => set('turnstile_check_enabled', String(v))}>
                   启用 Turnstile 验证
                 </Switch>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="站点密钥" value={get('turnstile_site_key')} onValueChange={v => set('turnstile_site_key', v)} />
+                  <Input label="私钥" type="password" value={get('turnstile_secret_key')} onValueChange={v => set('turnstile_secret_key', v)} />
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>极验 GeeTest 人机验证</p>
+                <Switch isSelected={get('geetest_enabled') === 'true'} onValueChange={v => set('geetest_enabled', String(v))}>
+                  启用极验验证
+                </Switch>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="Captcha ID" value={get('geetest_id')} onValueChange={v => set('geetest_id', v)} placeholder="极验后台获取" />
+                  <Input label="Captcha Key" type="password" value={get('geetest_key')} onValueChange={v => set('geetest_key', v)} />
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Redis 缓存</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="Redis 地址" value={get('redis_addr')} onValueChange={v => set('redis_addr', v)} placeholder="127.0.0.1:6379" />
+                  <Input label="Redis 密码" type="password" value={get('redis_password')} onValueChange={v => set('redis_password', v)} />
+                  <Input label="Redis 数据库" type="number" value={get('redis_db')} onValueChange={v => set('redis_db', v)} placeholder="0" />
+                </div>
+              </CardBody>
+            </Card>
+          </div>
+        </Tab>
+
+        {/* ── OAuth ── */}
+        <Tab key="oauth" title="🔗 OAuth">
+          <div className="space-y-4">
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>🐙 GitHub OAuth</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="客户端 ID" value={get('github_client_id')} onValueChange={v => set('github_client_id', v)} />
+                  <Input label="客户端密钥" type="password" value={get('github_client_secret')} onValueChange={v => set('github_client_secret', v)} />
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>🐧 LinuxDO OAuth</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="客户端 ID" value={get('linuxdo_client_id')} onValueChange={v => set('linuxdo_client_id', v)} />
+                  <Input label="客户端密钥" type="password" value={get('linuxdo_client_secret')} onValueChange={v => set('linuxdo_client_secret', v)} />
+                </div>
+                <Divider />
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>各等级初始额度（500000 = $1）</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {[0, 1, 2, 3, 4, 5].map(level => (
+                    <Input key={level} label={`等级 ${level}`} type="number" placeholder="0"
+                      value={get(`linuxdo_quota_level_${level}`, '0')}
+                      onValueChange={v => set(`linuxdo_quota_level_${level}`, v)} />
+                  ))}
+                </div>
+              </CardBody>
+            </Card>
+          </div>
+        </Tab>
+
+        {/* ── 邮件 ── */}
+        <Tab key="smtp" title="📧 邮件">
+          <Card>
+            <CardBody className="gap-4 p-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input label="SMTP 服务器" value={get('smtp_server')} onValueChange={v => set('smtp_server', v)} />
+                <Input label="SMTP 端口" value={get('smtp_port')} onValueChange={v => set('smtp_port', v)} placeholder="587" />
+                <Input label="SMTP 账号" value={get('smtp_account')} onValueChange={v => set('smtp_account', v)} />
+                <Input label="SMTP 密码" type="password" value={get('smtp_password')} onValueChange={v => set('smtp_password', v)} />
+                <Input label="发件人地址" value={get('smtp_from')} onValueChange={v => set('smtp_from', v)} />
               </div>
+            </CardBody>
+          </Card>
+        </Tab>
+
+        {/* ── 邀请 ── */}
+        <Tab key="invitation" title="🎁 邀请">
+          <Card>
+            <CardBody className="gap-4 p-5">
+              <Switch isSelected={get('invitation_enabled') === 'true'} onValueChange={v => set('invitation_enabled', String(v))}>
+                注册必须使用邀请码
+              </Switch>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Input label="邀请码成本" type="number" placeholder="0" value={get('invitation_cost')} onValueChange={v => set('invitation_cost', v)} description="生成时扣除额度" />
+                <Input label="邀请者奖励" type="number" placeholder="0" value={get('invitation_reward')} onValueChange={v => set('invitation_reward', v)} description="被邀请用户注册时" />
+                <Input label="新用户初始额度" type="number" placeholder="0" value={get('new_user_reward')} onValueChange={v => set('new_user_reward', v)} description="注册即赠" />
+              </div>
+            </CardBody>
+          </Card>
+        </Tab>
+
+        {/* ── 签到 ── */}
+        <Tab key="checkin" title="📅 签到">
+          <Card>
+            <CardBody className="gap-4 p-5">
+              <Switch isSelected={get('checkin_enabled') === 'true'} onValueChange={v => set('checkin_enabled', String(v))}>
+                启用每日签到
+              </Switch>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
-                  label="Turnstile 站点密钥"
-                  value={settings['turnstile_site_key'] || ''}
-                  onValueChange={(val) => updateSetting('turnstile_site_key', val)}
+                  label="最小奖励额度"
+                  type="number"
+                  placeholder="例如：1000"
+                  value={get('checkin_min_reward')}
+                  onValueChange={v => set('checkin_min_reward', v)}
+                  description="每次签到随机奖励下限（Quota 单位）"
                 />
                 <Input
-                  label="Turnstile 私钥"
-                  type="password"
-                  value={settings['turnstile_secret_key'] || ''}
-                  onValueChange={(val) => updateSetting('turnstile_secret_key', val)}
+                  label="最大奖励额度"
+                  type="number"
+                  placeholder="例如：10000"
+                  value={get('checkin_max_reward')}
+                  onValueChange={v => set('checkin_max_reward', v)}
+                  description="每次签到随机奖励上限（Quota 单位）"
                 />
               </div>
-            </div>
+              <Switch isSelected={get('checkin_captcha') === 'true'} onValueChange={v => set('checkin_captcha', String(v))}>
+                签到需要人机验证
+              </Switch>
+            </CardBody>
+          </Card>
+        </Tab>
 
-            <Button color="primary" type="submit" isLoading={saving} startContent={<Save size={18} />}>
-              保存全部配置
-            </Button>
-          </Form>
-        </CardBody>
-      </Card>
+        {/* ── 倍率 ── */}
+        <Tab key="pricing" title="📊 倍率">
+          <Card>
+            <CardBody style={{ padding: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 16px' }}>
+                <Button size="sm" color="primary" variant="flat" startContent={<Plus size={15} />} onPress={handleAddPricing}>
+                  添加模型
+                </Button>
+              </div>
+              <div className="data-table-wrap" style={{ borderRadius: 0, border: 'none', boxShadow: 'none' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr><th>模型名称</th><th>模型倍率</th><th>补全倍率</th><th>操作</th></tr>
+                  </thead>
+                  <tbody>
+                    {pricingItems.length === 0 ? (
+                      <tr><td colSpan={4}><EmptyState icon="📊" title="暂无倍率配置" description="添加模型以自定义计费倍率" /></td></tr>
+                    ) : pricingItems.map(item => (
+                      <tr key={item.model}>
+                        <td style={{ fontWeight: 600, fontFamily: 'monospace' }}>{item.model}</td>
+                        <td>{item.ratio}x</td>
+                        <td>{item.completion_ratio}x</td>
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <Tooltip content="编辑"><span className="text-default-400 cursor-pointer active:opacity-50" onClick={() => handleEditPricing(item)}><Edit size={16} /></span></Tooltip>
+                            <Tooltip color="danger" content="删除"><span className="text-danger cursor-pointer active:opacity-50" onClick={() => handleDeletePricing(item.model)}><Trash2 size={16} /></span></Tooltip>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardBody>
+          </Card>
+        </Tab>
 
-      {/* 模型倍率可视化设置 */}
-      <Card>
-          <CardHeader className="flex justify-between">
-            <h3 className="text-lg font-semibold">模型倍率配置</h3>
-            <Button size="sm" color="primary" variant="flat" startContent={<Plus size={16} />} onPress={handleAddPricing}>
-              添加模型
-            </Button>
-          </CardHeader>
-          <Divider />
-          <CardBody>
-            <Table aria-label="Pricing Table" removeWrapper>
-              <TableHeader>
-                <TableColumn>模型名称</TableColumn>
-                <TableColumn>模型倍率</TableColumn>
-                <TableColumn>补全倍率</TableColumn>
-                <TableColumn>操作</TableColumn>
-              </TableHeader>
-              <TableBody emptyContent="暂无配置">
-                {pricingItems.map((item) => (
-                  <TableRow key={item.model}>
-                    <TableCell className="font-bold">{item.model}</TableCell>
-                    <TableCell>{item.ratio}</TableCell>
-                    <TableCell>{item.completion_ratio}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Tooltip content="编辑">
-                          <span className="text-lg text-default-400 cursor-pointer active:opacity-50" onClick={() => handleEditPricing(item)}>
-                            <Edit size={18} />
-                          </span>
-                        </Tooltip>
-                        <Tooltip color="danger" content="删除">
-                          <span className="text-lg text-danger cursor-pointer active:opacity-50" onClick={() => handleDeletePricing(item.model)}>
-                            <Trash2 size={18} />
-                          </span>
-                        </Tooltip>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardBody>
-        </Card>
+      </Tabs>
 
       <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
         <ModalContent>
@@ -596,30 +408,17 @@ export default function SystemSettings() {
             <>
               <ModalHeader>{editingItem ? '编辑倍率' : '添加倍率'}</ModalHeader>
               <ModalBody>
-                <Form className="flex flex-col gap-4">
-                  <Input 
-                    label="模型名称" 
-                    placeholder="gpt-4" 
-                    value={itemForm.model}
-                    onValueChange={(v) => setItemForm({...itemForm, model: v})}
-                    isDisabled={!!editingItem}
-                    isRequired
-                  />
-                  <Input 
-                    label="模型倍率" 
-                    type="number" 
-                    step="0.01"
-                    value={itemForm.ratio.toString()}
-                    onValueChange={(v) => setItemForm({...itemForm, ratio: parseFloat(v)})}
-                  />
-                  <Input 
-                    label="补全倍率" 
-                    type="number" 
-                    step="0.01"
-                    value={itemForm.completion_ratio.toString()}
-                    onValueChange={(v) => setItemForm({...itemForm, completion_ratio: parseFloat(v)})}
-                  />
-                </Form>
+                <div className="flex flex-col gap-4">
+                  <Input label="模型名称" placeholder="gpt-4o" value={itemForm.model}
+                    onValueChange={v => setItemForm({ ...itemForm, model: v })}
+                    isDisabled={!!editingItem} isRequired />
+                  <Input label="模型倍率" type="number" step="0.01" value={itemForm.ratio.toString()}
+                    onValueChange={v => setItemForm({ ...itemForm, ratio: parseFloat(v) })}
+                    description="相对于基础价格的倍数" />
+                  <Input label="补全倍率" type="number" step="0.01" value={itemForm.completion_ratio.toString()}
+                    onValueChange={v => setItemForm({ ...itemForm, completion_ratio: parseFloat(v) })}
+                    description="输出 token 相对于输入的倍数" />
+                </div>
               </ModalBody>
               <ModalFooter>
                 <Button color="danger" variant="light" onPress={onClose}>取消</Button>

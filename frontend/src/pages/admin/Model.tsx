@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
+import PageHeader from '../../components/PageHeader';
+import EmptyState from '../../components/EmptyState';
+import LoadingRows from '../../components/LoadingRows';
 import {
-  Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
   Button, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
   useDisclosure, Input, Select, SelectItem, Chip, Switch,
-} from '@heroui/react';
+} from '../../components/ui';
 import { Plus, Edit, Trash2, RefreshCw, ArrowUpDown } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
+import { toast } from '../../store/toast';
+import { confirm } from '../../store/confirm';
 
 interface ModelConfig {
   id: number;
@@ -89,12 +93,12 @@ export default function ModelManagement() {
         body: JSON.stringify(body),
       });
       if (res.ok) { fetchModels(); onClose(); }
-      else alert('操作失败');
+      else toast.error('操作失败');
     } catch (e) { console.error(e); }
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确定删除此模型配置?')) return;
+    if (!await confirm({ title: '删除模型', message: '确定删除此模型配置？', danger: true })) return;
     try {
       const res = await fetch(`/api/model/${id}`, {
         method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
@@ -110,74 +114,67 @@ export default function ModelManagement() {
         method: 'POST', headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) alert(data.message || '同步成功');
-      else alert(data.error || '同步失败');
+      if (res.ok) toast.success(data.message || '同步成功');
+      else toast.error(data.error || '同步失败');
     } catch (e) { console.error(e); }
     finally { setSyncing(false); }
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold">模型管理</h1>
-          <p className="text-default-500">管理模型配置与定价倍率</p>
-        </div>
-        <div className="flex gap-2">
-          <Select
-            placeholder="分类筛选" size="sm" className="w-32"
-            selectedKeys={categoryFilter ? [categoryFilter] : []}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-          >
-            {CATEGORIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
-          </Select>
-          <Button startContent={<RefreshCw size={18} />} onPress={fetchModels} variant="flat">刷新</Button>
-          <Button startContent={<ArrowUpDown size={18} />} onPress={handleSyncPricing} variant="flat" color="warning" isLoading={syncing}>
-            同步定价
-          </Button>
-          <Button startContent={<Plus size={18} />} color="primary" onPress={handleAdd}>添加模型</Button>
-        </div>
-      </div>
+      <PageHeader
+        title="模型管理"
+        description="管理模型配置与定价倍率"
+        actions={
+          <div className="flex gap-2">
+            <Select
+              placeholder="分类筛选" size="sm" className="w-32"
+              selectedKeys={categoryFilter ? [categoryFilter] : []}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            >
+              {CATEGORIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
+            </Select>
+            <Button startContent={<RefreshCw size={18} />} onPress={fetchModels} variant="flat">刷新</Button>
+            <Button startContent={<ArrowUpDown size={18} />} onPress={handleSyncPricing} variant="flat" color="warning" isLoading={syncing}>
+              同步定价
+            </Button>
+            <Button startContent={<Plus size={18} />} color="primary" onPress={handleAdd}>添加模型</Button>
+          </div>
+        }
+      />
 
-      <Table aria-label="Model config table">
-        <TableHeader>
-          <TableColumn>模型名称</TableColumn>
-          <TableColumn>显示名称</TableColumn>
-          <TableColumn>分类</TableColumn>
-          <TableColumn>输入倍率</TableColumn>
-          <TableColumn>输出倍率</TableColumn>
-          <TableColumn>上下文</TableColumn>
-          <TableColumn>状态</TableColumn>
-          <TableColumn>操作</TableColumn>
-        </TableHeader>
-        <TableBody emptyContent="暂无模型配置" isLoading={loading}>
-          {models.map((m) => (
-            <TableRow key={m.id}>
-              <TableCell className="font-mono text-sm">{m.model_name}</TableCell>
-              <TableCell>{m.display_name || '-'}</TableCell>
-              <TableCell>
-                <Chip size="sm" variant="flat" color="secondary">
-                  {CATEGORIES.find(c => c.key === m.category)?.label || m.category}
-                </Chip>
-              </TableCell>
-              <TableCell>{m.input_ratio}</TableCell>
-              <TableCell>{m.output_ratio}</TableCell>
-              <TableCell>{m.max_context.toLocaleString()}</TableCell>
-              <TableCell>
-                <Chip size="sm" color={m.enabled ? 'success' : 'default'} variant="flat">
-                  {m.enabled ? '启用' : '禁用'}
-                </Chip>
-              </TableCell>
-              <TableCell>
-                <div className="flex gap-2">
-                  <span className="cursor-pointer text-default-400" onClick={() => handleEdit(m)}><Edit size={18} /></span>
-                  <span className="cursor-pointer text-danger" onClick={() => handleDelete(m.id)}><Trash2 size={18} /></span>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <div className="data-table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>模型名称</th><th>显示名称</th><th>分类</th><th>输入倍率</th><th>输出倍率</th><th>上下文</th><th>状态</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <LoadingRows cols={8} rows={5} />
+            ) : models.length === 0 ? (
+              <tr><td colSpan={8}><EmptyState icon="🤖" title="暂无模型映射" /></td></tr>
+            ) : models.map((m) => (
+              <tr key={m.id}>
+                <td className="font-mono text-sm">{m.model_name}</td>
+                <td>{m.display_name || '-'}</td>
+                <td><Chip size="sm" variant="flat" color="secondary">{CATEGORIES.find(c => c.key === m.category)?.label || m.category}</Chip></td>
+                <td>{m.input_ratio}</td>
+                <td>{m.output_ratio}</td>
+                <td>{m.max_context.toLocaleString()}</td>
+                <td><Chip size="sm" color={m.enabled ? 'success' : 'default'} variant="flat">{m.enabled ? '启用' : '禁用'}</Chip></td>
+                <td>
+                  <div className="flex gap-2">
+                    <span className="cursor-pointer text-default-400" onClick={() => handleEdit(m)}><Edit size={18} /></span>
+                    <span className="cursor-pointer text-danger" onClick={() => handleDelete(m.id)}><Trash2 size={18} /></span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="2xl">
         <ModalContent>

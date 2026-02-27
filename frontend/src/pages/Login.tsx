@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardBody, CardHeader, Button, Input, Form, Alert, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure } from '@heroui/react';
+import { Card, CardBody, CardHeader, Button, Input, Form, Alert, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure } from '../components/ui';
 import { useAuthStore } from '../store/auth';
 
 export default function Login() {
@@ -47,28 +47,29 @@ export default function Login() {
     fetch('/api/system/status')
       .then(res => res.json())
       .then(data => {
-        if (data.initialized === false) {
+        const payload = data.code === 0 ? data.data : data;
+        if (payload.initialized === false) {
           setInitialized(false);
         }
-        if (data.options) {
-          if (data.options.system_name) setSystemName(data.options.system_name);
-          if (data.options.logo_url) setLogoUrl(data.options.logo_url);
-          if (data.options.github_client_id) setGithubEnabled(true);
-          if (data.options.linuxdo_client_id) setLinuxDOEnabled(true);
-          if (data.options.discord_client_id) setDiscordEnabled(true);
-          if (data.options.oidc_client_id) setOidcEnabled(true);
-          if (data.options.telegram_bot_token) {
+        if (payload.options) {
+          if (payload.options.system_name) setSystemName(payload.options.system_name);
+          if (payload.options.logo_url) setLogoUrl(payload.options.logo_url);
+          if (payload.options.github_client_id) setGithubEnabled(true);
+          if (payload.options.linuxdo_client_id) setLinuxDOEnabled(true);
+          if (payload.options.discord_client_id) setDiscordEnabled(true);
+          if (payload.options.oidc_client_id) setOidcEnabled(true);
+          if (payload.options.telegram_bot_token) {
             setTelegramEnabled(true);
-            setTelegramBotToken(data.options.telegram_bot_token);
+            setTelegramBotToken(payload.options.telegram_bot_token);
           }
-          if (data.options.captcha_provider) setCaptchaProvider(data.options.captcha_provider);
-          if (data.options.turnstile_check_enabled === 'true') {
+          if (payload.options.captcha_provider) setCaptchaProvider(payload.options.captcha_provider);
+          if (payload.options.turnstile_check_enabled === 'true') {
             setTurnstileEnabled(true);
-            setTurnstileSiteKey(data.options.turnstile_site_key || '');
+            setTurnstileSiteKey(payload.options.turnstile_site_key || '');
           }
-          if (data.options.geetest_enabled === 'true') {
+          if (payload.options.geetest_enabled === 'true') {
             setGeetestEnabled(true);
-            setGeetestId(data.options.geetest_id || '');
+            setGeetestId(payload.options.geetest_id || '');
           }
         }
       });
@@ -160,25 +161,25 @@ export default function Login() {
       });
 
       const data = await res.json();
-      if (!res.ok) {
+      if (data.code !== 0) {
         if (turnstileEnabled && (window as any).turnstile) {
           (window as any).turnstile.reset();
           setTurnstileToken('');
         }
         setGeetestResult(null);
-        throw new Error(data.error || 'Login failed');
+        throw new Error(data.msg || 'Login failed');
       }
 
       // Check if 2FA is required
-      if (data.requires_2fa) {
+      if (data.data?.requires_2fa) {
         setRequires2FA(true);
-        setTotpUserId(data.user_id);
+        setTotpUserId(data.data.user_id);
         return;
       }
 
-      login(data.user, data.token);
+      login(data.data.user, data.data.token);
 
-      if (data.user.role >= 10) {
+      if (data.data.user.role >= 10) {
         navigate('/admin');
       } else {
         navigate('/');
@@ -201,9 +202,9 @@ export default function Login() {
         body: JSON.stringify({ user_id: totpUserId, code: totpCode }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '验证失败');
-      login(data.user, data.token);
-      if (data.user.role >= 10) navigate('/admin');
+      if (data.code !== 0) throw new Error(data.msg || '验证失败');
+      login(data.data.user, data.data.token);
+      if (data.data.user.role >= 10) navigate('/admin');
       else navigate('/');
     } catch (err: any) {
       setError(err.message);
@@ -223,7 +224,7 @@ export default function Login() {
         body: JSON.stringify({ email: resetEmail }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '请求失败');
+      if (data.code !== 0) throw new Error(data.msg || '请求失败');
       setResetMsg('验证码已发送到您的邮箱');
       setResetStep('code');
     } catch (err: any) {
@@ -244,7 +245,7 @@ export default function Login() {
         body: JSON.stringify({ email: resetEmail, code: resetCode, new_password: resetPassword }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '重置失败');
+      if (data.code !== 0) throw new Error(data.msg || '重置失败');
       setResetMsg('密码重置成功，请登录');
       setTimeout(() => { onResetOpenChange(); setResetStep('email'); setResetMsg(''); }, 1500);
     } catch (err: any) {
@@ -257,123 +258,173 @@ export default function Login() {
   // 2FA input screen
   if (requires2FA) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="flex flex-col gap-1 items-center pb-0">
-            <h1 className="text-2xl font-bold">两步验证</h1>
-            <p className="text-default-500 text-sm">请输入验证器应用中的6位验证码</p>
-          </CardHeader>
-          <CardBody className="overflow-visible py-4">
-            {error && <Alert color="danger" className="mb-4">{error}</Alert>}
-            <div className="flex flex-col gap-4">
-              <Input
-                label="验证码"
-                placeholder="000000"
-                value={totpCode}
-                onValueChange={setTotpCode}
-                maxLength={6}
-                description="也可输入备份码"
-              />
-              <Button color="primary" isLoading={totpLoading} onPress={handle2FASubmit} className="w-full font-bold">
-                验证
-              </Button>
-              <Button variant="light" onPress={() => { setRequires2FA(false); setTotpCode(''); setError(''); }}>
-                返回登录
-              </Button>
-            </div>
-          </CardBody>
-        </Card>
+      <div className="flex items-center justify-center min-h-screen p-4 relative overflow-hidden star-bg" style={{ background: 'var(--bg-base)' }}>
+        <span className="auth-deco-1">✿</span>
+        <span className="auth-deco-2">✦</span>
+        <div className="animate-fade-in-up w-full max-w-md">
+          <Card className="w-full" style={{
+            background: 'var(--bg-surface)',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '24px',
+            boxShadow: 'var(--shadow-card)',
+          }}>
+            <CardHeader className="flex flex-col gap-1 items-center pb-0 pt-8">
+              <div className="text-3xl mb-2">🔐</div>
+              <h1 className="text-2xl font-bold gradient-text">两步验证</h1>
+              <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>请输入验证器应用中的6位验证码</p>
+            </CardHeader>
+            <CardBody className="overflow-visible py-6 px-8">
+              {error && <Alert color="danger" className="mb-4">{error}</Alert>}
+              <div className="flex flex-col gap-4">
+                <Input
+                  label="验证码"
+                  placeholder="000000"
+                  value={totpCode}
+                  onValueChange={setTotpCode}
+                  maxLength={6}
+                  description="也可输入备份码"
+                />
+                <Button
+                  isLoading={totpLoading}
+                  onPress={handle2FASubmit}
+                  className="w-full font-bold h-11"
+                  style={{ background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))', color: 'white', borderRadius: '12px' }}
+                >
+                  验证
+                </Button>
+                <Button variant="light" onPress={() => { setRequires2FA(false); setTotpCode(''); setError(''); }} style={{ color: 'var(--text-secondary)' }}>
+                  返回登录
+                </Button>
+              </div>
+            </CardBody>
+          </Card>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="flex flex-col gap-1 items-center pb-0">
-          {logoUrl && <img src={logoUrl} alt="Logo" className="w-12 h-12 mb-2" />}
-          <h1 className="text-2xl font-bold">{systemName}</h1>
-          {!initialized && (
-            <Alert color="warning" className="mt-2 text-center w-full">
-              System not initialized. Please register an admin account.
-            </Alert>
-          )}
-        </CardHeader>
-        <CardBody className="overflow-visible py-4">
-          {error && <Alert color="danger" className="mb-4">{error}</Alert>}
-          <Form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-            <Input isRequired label="Username" value={username} onValueChange={setUsername} />
-            <Input isRequired label="Password" type="password" value={password} onValueChange={setPassword} />
+    <div className="flex items-center justify-center min-h-screen p-4 relative overflow-hidden star-bg" style={{ background: 'var(--bg-base)' }}>
+      <span className="auth-deco-1">✿</span>
+      <span className="auth-deco-2">✦</span>
+      <span className="auth-deco-3">❋</span>
+      <span className="auth-deco-4">◈</span>
 
-            {turnstileEnabled && (
-                <div id="turnstile-widget" className="cf-turnstile" data-sitekey={turnstileSiteKey} data-callback="onTurnstileSuccess"></div>
+      <div className="animate-fade-in-up w-full max-w-md">
+        <Card className="w-full" style={{
+          background: 'var(--bg-surface)',
+          backdropFilter: 'blur(16px)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '24px',
+          boxShadow: 'var(--shadow-card)',
+        }}>
+          <CardHeader className="flex flex-col gap-1 items-center pb-0 pt-8">
+            {logoUrl
+              ? <img src={logoUrl} alt="Logo" className="w-14 h-14 mb-2 rounded-full" style={{ boxShadow: '0 4px 16px var(--accent-glow)' }} />
+              : <div className="text-4xl mb-2" style={{ color: 'var(--accent-primary)' }}>✿</div>
+            }
+            <h1 className="text-2xl font-bold gradient-text">{systemName}</h1>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>欢迎回来，请登录您的账号</p>
+            {!initialized && (
+              <Alert color="warning" className="mt-3 w-full">
+                系统未初始化，请注册管理员账号
+              </Alert>
+            )}
+          </CardHeader>
+
+          <CardBody className="overflow-visible py-6 px-8">
+            {error && <Alert color="danger" className="mb-4">{error}</Alert>}
+            <Form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+              <Input isRequired label="用户名" placeholder="请输入用户名" value={username} onValueChange={setUsername} />
+              <Input isRequired label="密码" type="password" placeholder="请输入密码" value={password} onValueChange={setPassword} />
+
+              {turnstileEnabled && (
+                <div id="turnstile-widget" className="cf-turnstile" data-sitekey={turnstileSiteKey} data-callback="onTurnstileSuccess" />
+              )}
+
+              <Button
+                type="submit"
+                isLoading={loading}
+                className="w-full font-bold h-11 mt-1"
+                style={{ background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))', color: 'white', borderRadius: '12px' }}
+              >
+                登录
+              </Button>
+            </Form>
+
+            <div className="mt-2 text-right">
+              <Button variant="light" size="sm" onPress={onResetOpen} style={{ color: 'var(--text-secondary)' }}>
+                忘记密码?
+              </Button>
+            </div>
+
+            {(githubEnabled || linuxDOEnabled || discordEnabled || oidcEnabled || telegramEnabled) && (
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full" style={{ borderTop: '1px solid var(--border-color)' }} />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="px-3" style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)' }}>或使用第三方登录</span>
+                </div>
+              </div>
             )}
 
-            <Button color="primary" type="submit" isLoading={loading} className="w-full font-bold">
-              Log In
-            </Button>
-          </Form>
+            {githubEnabled && (
+              <div className="mt-2">
+                <Button variant="bordered" className="w-full" onPress={handleGithubLogin}
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', borderRadius: '12px' }}>
+                  Sign in with GitHub
+                </Button>
+              </div>
+            )}
+            {linuxDOEnabled && (
+              <div className="mt-2">
+                <Button variant="bordered" className="w-full" onPress={handleLinuxDOLogin}
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', borderRadius: '12px' }}>
+                  Sign in with LinuxDO
+                </Button>
+              </div>
+            )}
+            {discordEnabled && (
+              <div className="mt-2">
+                <Button variant="bordered" className="w-full" onPress={handleDiscordLogin}
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', borderRadius: '12px' }}>
+                  Sign in with Discord
+                </Button>
+              </div>
+            )}
+            {oidcEnabled && (
+              <div className="mt-2">
+                <Button variant="bordered" className="w-full" onPress={handleOIDCLogin}
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', borderRadius: '12px' }}>
+                  Sign in with SSO (OIDC)
+                </Button>
+              </div>
+            )}
+            {telegramEnabled && (
+              <div className="mt-2">
+                <script async src="https://telegram.org/js/telegram-widget.js?22"
+                  data-telegram-login={telegramBotToken.split(':')[0]}
+                  data-size="large"
+                  data-auth-url={`${window.location.origin}/oauth/telegram/callback`}
+                  data-request-access="write" />
+                <Button variant="bordered" className="w-full" onPress={() => {
+                  window.location.href = `https://oauth.telegram.org/auth?bot_id=${telegramBotToken.split(':')[0]}&origin=${window.location.origin}&return_to=${window.location.origin}/oauth/telegram/callback`;
+                }} style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', borderRadius: '12px' }}>
+                  Sign in with Telegram
+                </Button>
+              </div>
+            )}
 
-          <div className="mt-2 text-right">
-            <Button variant="light" size="sm" onPress={onResetOpen} className="text-default-500">
-              忘记密码?
-            </Button>
-          </div>
-
-          {githubEnabled && (
-            <div className="mt-4">
-              <Button variant="bordered" className="w-full" onPress={handleGithubLogin}>
-                Sign in with GitHub
+            <div className="mt-5 text-center">
+              <Button variant="light" onPress={() => navigate('/register')} style={{ color: 'var(--accent-primary)' }}>
+                {initialized ? '没有账号？立即注册 ✦' : '初始化系统（注册管理员）'}
               </Button>
             </div>
-          )}
-
-          {linuxDOEnabled && (
-            <div className="mt-4">
-              <Button variant="bordered" className="w-full" onPress={handleLinuxDOLogin}>
-                Sign in with LinuxDO
-              </Button>
-            </div>
-          )}
-
-          {discordEnabled && (
-            <div className="mt-4">
-              <Button variant="bordered" className="w-full" onPress={handleDiscordLogin}>
-                Sign in with Discord
-              </Button>
-            </div>
-          )}
-
-          {oidcEnabled && (
-            <div className="mt-4">
-              <Button variant="bordered" className="w-full" onPress={handleOIDCLogin}>
-                Sign in with SSO (OIDC)
-              </Button>
-            </div>
-          )}
-
-          {telegramEnabled && (
-            <div className="mt-4 flex justify-center">
-              <script async src="https://telegram.org/js/telegram-widget.js?22"
-                data-telegram-login={telegramBotToken.split(':')[0]}
-                data-size="large"
-                data-auth-url={`${window.location.origin}/oauth/telegram/callback`}
-                data-request-access="write" />
-              <Button variant="bordered" className="w-full" onPress={() => {
-                window.location.href = `https://oauth.telegram.org/auth?bot_id=${telegramBotToken.split(':')[0]}&origin=${window.location.origin}&return_to=${window.location.origin}/oauth/telegram/callback`;
-              }}>
-                Sign in with Telegram
-              </Button>
-            </div>
-          )}
-
-          <div className="mt-4 text-center text-small">
-             <Button variant="light" onPress={() => navigate('/register')} className="text-primary">
-               {initialized ? "No account? Sign up" : "Initialize System (Register Admin)"}
-             </Button>
-          </div>
-        </CardBody>
-      </Card>
+          </CardBody>
+        </Card>
+      </div>
 
       {/* Password Reset Modal */}
       <Modal isOpen={isResetOpen} onOpenChange={onResetOpenChange}>
