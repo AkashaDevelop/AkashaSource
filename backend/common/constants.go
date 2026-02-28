@@ -77,6 +77,10 @@ var (
 	// Telegram
 	TelegramBotToken = ""
 
+	// WeChat Open Platform
+	WechatAppId     = ""
+	WechatAppSecret = ""
+
 	// Email domain restriction
 	EmailDomainRestrictionEnabled = false
 	EmailDomainWhitelist          = ""

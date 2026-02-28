@@ -159,6 +159,13 @@ func UpdateOptionMap(key string, value string) {
 		TelegramBotToken = value
 	}
 
+	if key == "wechat_app_id" {
+		WechatAppId = value
+	}
+	if key == "wechat_app_secret" {
+		WechatAppSecret = value
+	}
+
 	if key == "email_domain_restriction_enabled" {
 		EmailDomainRestrictionEnabled = (value == "true")
 	}

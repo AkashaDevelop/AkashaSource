@@ -25,10 +25,10 @@ type OIDCTokenResponse struct {
 }
 
 type OIDCUserInfo struct {
-	Sub               string `json:"sub"`
-	Name              string `json:"name"`
-	PreferredUsername  string `json:"preferred_username"`
-	Email             string `json:"email"`
+	Sub              string `json:"sub"`
+	Name             string `json:"name"`
+	PreferredUsername string `json:"preferred_username"`
+	Email            string `json:"email"`
 }
 
 var cachedDiscovery *OIDCDiscovery
@@ -43,7 +43,6 @@ func fetchOIDCDiscovery() (*OIDCDiscovery, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
 	var disc OIDCDiscovery
 	if err := json.NewDecoder(resp.Body).Decode(&disc); err != nil {
 		return nil, err
@@ -57,38 +56,36 @@ func OIDCLogin(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "OIDC not configured"})
 		return
 	}
-
 	disc, err := fetchOIDCDiscovery()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to fetch OIDC discovery: " + err.Error()})
 		return
 	}
-
+	state := generateState()
 	redirectURI := getOIDCRedirectURI(c)
-	u := fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&response_type=code&scope=openid+profile+email",
-		disc.AuthorizationEndpoint,
-		common.OIDCClientId,
-		url.QueryEscape(redirectURI),
+	u := fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&response_type=code&scope=openid+profile+email&state=%s",
+		disc.AuthorizationEndpoint, common.OIDCClientId, url.QueryEscape(redirectURI), state,
 	)
 	c.Redirect(http.StatusFound, u)
 }
 
 func OIDCCallback(c *gin.Context) {
+	if !verifyState(c.Query("state")) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid state parameter"})
+		return
+	}
 	code := c.Query("code")
 	if code == "" {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid code"})
 		return
 	}
-
 	disc, err := fetchOIDCDiscovery()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "OIDC discovery failed"})
 		return
 	}
-
 	redirectURI := getOIDCRedirectURI(c)
 
-	// Exchange code for token
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")
 	data.Set("client_id", common.OIDCClientId)
@@ -121,7 +118,6 @@ func OIDCCallback(c *gin.Context) {
 		return
 	}
 
-	// Get user info
 	userReq, _ := http.NewRequest("GET", disc.UserinfoEndpoint, nil)
 	userReq.Header.Set("Authorization", "Bearer "+tokenResp.AccessToken)
 	userResp, err := client.Do(userReq)
@@ -141,39 +137,25 @@ func OIDCCallback(c *gin.Context) {
 		return
 	}
 
-	// Find or create user
-	var user model.User
-	if err := common.DB.Where("oidc_id = ?", userInfo.Sub).First(&user).Error; err != nil {
+	user, err := createOAuthUser("oidc_id", userInfo.Sub, func() model.User {
 		displayName := userInfo.Name
 		if displayName == "" {
 			displayName = userInfo.PreferredUsername
 		}
-		user = model.User{
+		return model.User{
 			Username:    fmt.Sprintf("oidc_%s", userInfo.Sub),
 			DisplayName: displayName,
 			Email:       userInfo.Email,
 			OIDCId:      userInfo.Sub,
 			Role:        model.RoleUser,
 			Status:      model.UserStatusActive,
-			Quota:       0,
 		}
-		if err := common.DB.Create(&user).Error; err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to create user: " + err.Error()})
-			return
-		}
-	} else {
-		if user.Status == model.UserStatusBanned {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "User is banned"})
-			return
-		}
-	}
-
-	token, err := common.GenerateToken(user.Id, user.Username, user.Role)
+	}, c.Query("aff"))
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to generate token"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	c.Redirect(http.StatusFound, fmt.Sprintf("/?token=%s", token))
+	oauthRedirect(c, user)
 }
 
 func getOIDCRedirectURI(c *gin.Context) string {

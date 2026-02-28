@@ -19,12 +19,10 @@ type DiscordOAuthResponse struct {
 }
 
 type DiscordUser struct {
-	Id            string `json:"id"`
-	Username      string `json:"username"`
-	Discriminator string `json:"discriminator"`
-	GlobalName    string `json:"global_name"`
-	Avatar        string `json:"avatar"`
-	Email         string `json:"email"`
+	Id         string `json:"id"`
+	Username   string `json:"username"`
+	GlobalName string `json:"global_name"`
+	Email      string `json:"email"`
 }
 
 func DiscordLogin(c *gin.Context) {
@@ -32,15 +30,20 @@ func DiscordLogin(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Discord OAuth not configured"})
 		return
 	}
+	state := generateState()
 	redirectURI := getDiscordRedirectURI(c)
 	u := fmt.Sprintf(
-		"https://discord.com/api/oauth2/authorize?client_id=%s&redirect_uri=%s&response_type=code&scope=identify%%20email",
-		common.DiscordClientId, url.QueryEscape(redirectURI),
+		"https://discord.com/api/oauth2/authorize?client_id=%s&redirect_uri=%s&response_type=code&scope=identify%%20email&state=%s",
+		common.DiscordClientId, url.QueryEscape(redirectURI), state,
 	)
 	c.Redirect(http.StatusFound, u)
 }
 
 func DiscordCallback(c *gin.Context) {
+	if !verifyState(c.Query("state")) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid state parameter"})
+		return
+	}
 	code := c.Query("code")
 	if code == "" {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid code"})
@@ -48,8 +51,6 @@ func DiscordCallback(c *gin.Context) {
 	}
 
 	redirectURI := getDiscordRedirectURI(c)
-
-	// Exchange code for token
 	data := url.Values{}
 	data.Set("client_id", common.DiscordClientId)
 	data.Set("client_secret", common.DiscordClientSecret)
@@ -82,7 +83,6 @@ func DiscordCallback(c *gin.Context) {
 		return
 	}
 
-	// Get user info
 	userReq, _ := http.NewRequest("GET", "https://discord.com/api/users/@me", nil)
 	userReq.Header.Set("Authorization", "Bearer "+oauthResp.AccessToken)
 	userResp, err := client.Do(userReq)
@@ -98,39 +98,25 @@ func DiscordCallback(c *gin.Context) {
 		return
 	}
 
-	// Find or create user
-	var user model.User
-	if err := common.DB.Where("discord_id = ?", discordUser.Id).First(&user).Error; err != nil {
+	user, err := createOAuthUser("discord_id", discordUser.Id, func() model.User {
 		displayName := discordUser.GlobalName
 		if displayName == "" {
 			displayName = discordUser.Username
 		}
-		user = model.User{
+		return model.User{
 			Username:    fmt.Sprintf("discord_%s", discordUser.Id),
 			DisplayName: displayName,
 			Email:       discordUser.Email,
 			DiscordId:   discordUser.Id,
 			Role:        model.RoleUser,
 			Status:      model.UserStatusActive,
-			Quota:       0,
 		}
-		if err := common.DB.Create(&user).Error; err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to create user: " + err.Error()})
-			return
-		}
-	} else {
-		if user.Status == model.UserStatusBanned {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "User is banned"})
-			return
-		}
-	}
-
-	token, err := common.GenerateToken(user.Id, user.Username, user.Role)
+	}, c.Query("aff"))
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to generate token"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	c.Redirect(http.StatusFound, fmt.Sprintf("/?token=%s", token))
+	oauthRedirect(c, user)
 }
 
 func getDiscordRedirectURI(c *gin.Context) string {

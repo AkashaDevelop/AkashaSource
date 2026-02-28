@@ -95,6 +95,7 @@ export default function SystemSettings() {
       'discord_client_id','discord_client_secret',
       'oidc_client_id','oidc_client_secret','oidc_issuer_url',
       'telegram_bot_token',
+      'wechat_app_id','wechat_app_secret',
       // 邮件
       'smtp_server','smtp_port','smtp_account','smtp_password','smtp_from',
       'smtp_ssl_enabled','email_verification_enabled',
@@ -315,6 +316,16 @@ export default function SystemSettings() {
                 <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>✈️ Telegram 登录</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Input label="Bot Token" type="password" value={get('telegram_bot_token')} onValueChange={v => set('telegram_bot_token', v)} placeholder="从 @BotFather 获取" />
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>💬 微信扫码登录</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="AppID" value={get('wechat_app_id')} onValueChange={v => set('wechat_app_id', v)} placeholder="微信开放平台 AppID" />
+                  <Input label="AppSecret" type="password" value={get('wechat_app_secret')} onValueChange={v => set('wechat_app_secret', v)} placeholder="微信开放平台 AppSecret" />
                 </div>
               </CardBody>
             </Card>

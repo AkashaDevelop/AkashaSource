@@ -77,6 +77,10 @@ const (
 
 	// Telegram
 	OptionKeyTelegramBotToken = "telegram_bot_token"
+
+	// WeChat Open Platform
+	OptionKeyWechatAppId     = "wechat_app_id"
+	OptionKeyWechatAppSecret = "wechat_app_secret"
 )
 
 func InitOptions() {

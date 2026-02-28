@@ -20,6 +20,7 @@ export default function Login() {
   const [oidcEnabled, setOidcEnabled] = useState(false);
   const [telegramEnabled, setTelegramEnabled] = useState(false);
   const [telegramBotToken, setTelegramBotToken] = useState('');
+  const [wechatEnabled, setWechatEnabled] = useState(false);
   const [turnstileEnabled, setTurnstileEnabled] = useState(false);
   const [turnstileSiteKey, setTurnstileSiteKey] = useState('');
   const [turnstileToken, setTurnstileToken] = useState('');
@@ -64,6 +65,7 @@ export default function Login() {
             setTelegramEnabled(true);
             setTelegramBotToken(payload.options.telegram_bot_token);
           }
+          if (payload.options.wechat_app_id) setWechatEnabled(true);
           if (payload.options.captcha_provider) setCaptchaProvider(payload.options.captcha_provider);
           if (payload.options.turnstile_check_enabled === 'true') {
             setTurnstileEnabled(true);
@@ -366,7 +368,7 @@ export default function Login() {
               </Button>
             </div>
 
-            {(githubEnabled || linuxDOEnabled || discordEnabled || oidcEnabled || telegramEnabled) && (
+            {(githubEnabled || linuxDOEnabled || discordEnabled || oidcEnabled || telegramEnabled || wechatEnabled) && (
               <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full" style={{ borderTop: '1px solid var(--border-color)' }} />
@@ -420,6 +422,14 @@ export default function Login() {
                   window.location.href = `https://oauth.telegram.org/auth?bot_id=${telegramBotToken.split(':')[0]}&origin=${window.location.origin}&return_to=${window.location.origin}/oauth/telegram/callback`;
                 }} style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', borderRadius: '12px' }}>
                   Sign in with Telegram
+                </Button>
+              </div>
+            )}
+            {wechatEnabled && (
+              <div className="mt-2">
+                <Button variant="bordered" className="w-full" onPress={() => { window.location.href = '/oauth/wechat'; }}
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', borderRadius: '12px' }}>
+                  微信扫码登录
                 </Button>
               </div>
             )}

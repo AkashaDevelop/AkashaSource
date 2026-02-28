@@ -59,6 +59,8 @@ func SetApiRouter(router *gin.Engine) {
 	router.GET("/oauth/oidc", oauth.OIDCLogin)
 	router.GET("/oauth/oidc/callback", oauth.OIDCCallback)
 	router.GET("/oauth/telegram/callback", oauth.TelegramCallback)
+	router.GET("/oauth/wechat", oauth.WechatLogin)
+	router.GET("/oauth/wechat/callback", oauth.WechatCallback)
 	router.POST("/api/payment/notify", controller.PaymentNotify)
 	router.GET("/api/payment/notify", controller.PaymentNotify)
 
