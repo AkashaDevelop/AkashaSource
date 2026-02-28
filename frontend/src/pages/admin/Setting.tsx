@@ -97,6 +97,7 @@ export default function SystemSettings() {
       'telegram_bot_token',
       // 邮件
       'smtp_server','smtp_port','smtp_account','smtp_password','smtp_from',
+      'smtp_ssl_enabled','email_verification_enabled',
       // 安全
       'turnstile_site_key','turnstile_secret_key','turnstile_check_enabled',
       'captcha_provider','geetest_enabled','geetest_id','geetest_key',
@@ -163,6 +164,7 @@ export default function SystemSettings() {
                 <Input label="系统地址" value={get('system_url')} onValueChange={v => set('system_url', v)} placeholder={window.location.origin} />
                 <Input label="Logo 地址" value={get('logo_url')} onValueChange={v => set('logo_url', v)} />
                 <Input label="对话链接" value={get('chat_link')} onValueChange={v => set('chat_link', v)} />
+                <Input label="对话链接 2" value={get('chat_link2')} onValueChange={v => set('chat_link2', v)} />
                 <Input label="最低充值" type="number" value={get('min_topup')} onValueChange={v => set('min_topup', v)} />
                 <Input label="默认价格" type="number" value={get('price')} onValueChange={v => set('price', v)} />
               </div>
@@ -297,6 +299,36 @@ export default function SystemSettings() {
                 </div>
               </CardBody>
             </Card>
+
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>🎮 Discord OAuth</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="客户端 ID" value={get('discord_client_id')} onValueChange={v => set('discord_client_id', v)} />
+                  <Input label="客户端密钥" type="password" value={get('discord_client_secret')} onValueChange={v => set('discord_client_secret', v)} />
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>✈️ Telegram 登录</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="Bot Token" type="password" value={get('telegram_bot_token')} onValueChange={v => set('telegram_bot_token', v)} placeholder="从 @BotFather 获取" />
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>🔐 OIDC（通用 OAuth2）</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="客户端 ID" value={get('oidc_client_id')} onValueChange={v => set('oidc_client_id', v)} />
+                  <Input label="客户端密钥" type="password" value={get('oidc_client_secret')} onValueChange={v => set('oidc_client_secret', v)} />
+                  <Input label="Issuer URL" value={get('oidc_issuer_url')} onValueChange={v => set('oidc_issuer_url', v)} placeholder="https://accounts.example.com" className="col-span-2" />
+                </div>
+              </CardBody>
+            </Card>
           </div>
         </Tab>
 
@@ -311,6 +343,17 @@ export default function SystemSettings() {
                 <Input label="SMTP 密码" type="password" value={get('smtp_password')} onValueChange={v => set('smtp_password', v)} />
                 <Input label="发件人地址" value={get('smtp_from')} onValueChange={v => set('smtp_from', v)} />
               </div>
+              <Switch isSelected={get('smtp_ssl_enabled') === 'true'} onValueChange={v => set('smtp_ssl_enabled', String(v))}>
+                启用 SSL/TLS
+              </Switch>
+              <Switch isSelected={get('email_verification_enabled') === 'true'} onValueChange={v => set('email_verification_enabled', String(v))}>
+                注册时需要邮箱验证码
+              </Switch>
+              <Divider />
+              <Switch isSelected={get('email_domain_restriction_enabled') === 'true'} onValueChange={v => set('email_domain_restriction_enabled', String(v))}>
+                限制注册邮箱域名
+              </Switch>
+              <Textarea label="允许的邮箱域名（逗号分隔）" value={get('email_domain_whitelist')} onValueChange={v => set('email_domain_whitelist', v)} minRows={2} placeholder="example.com,company.org" />
             </CardBody>
           </Card>
         </Tab>
@@ -363,6 +406,20 @@ export default function SystemSettings() {
           </Card>
         </Tab>
 
+        {/* ── 系统 ── */}
+        <Tab key="system" title="⚙️ 系统">
+          <Card>
+            <CardBody className="gap-4 p-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input label="全局 RPM 限制" type="number" value={get('model_rpm')} onValueChange={v => set('model_rpm', v)} description="每分钟最大请求数，0 表示不限制" />
+              </div>
+              <Switch isSelected={get('thinking_to_content') === 'true'} onValueChange={v => set('thinking_to_content', String(v))}>
+                将思考内容转换为普通消息（thinking_to_content）
+              </Switch>
+            </CardBody>
+          </Card>
+        </Tab>
+
         {/* ── 倍率 ── */}
         <Tab key="pricing" title="📊 倍率">
           <Card>
@@ -388,7 +445,7 @@ export default function SystemSettings() {
                         <td>
                           <div className="flex items-center gap-2">
                             <Tooltip content="编辑"><span className="text-default-400 cursor-pointer active:opacity-50" onClick={() => handleEditPricing(item)}><Edit size={16} /></span></Tooltip>
-                            <Tooltip color="danger" content="删除"><span className="text-danger cursor-pointer active:opacity-50" onClick={() => handleDeletePricing(item.model)}><Trash2 size={16} /></span></Tooltip>
+                            <Tooltip content="删除"><span className="text-danger cursor-pointer active:opacity-50" onClick={() => handleDeletePricing(item.model)}><Trash2 size={16} /></span></Tooltip>
                           </div>
                         </td>
                       </tr>
@@ -412,10 +469,10 @@ export default function SystemSettings() {
                   <Input label="模型名称" placeholder="gpt-4o" value={itemForm.model}
                     onValueChange={v => setItemForm({ ...itemForm, model: v })}
                     isDisabled={!!editingItem} isRequired />
-                  <Input label="模型倍率" type="number" step="0.01" value={itemForm.ratio.toString()}
+                  <Input label="模型倍率" type="number" value={itemForm.ratio.toString()}
                     onValueChange={v => setItemForm({ ...itemForm, ratio: parseFloat(v) })}
                     description="相对于基础价格的倍数" />
-                  <Input label="补全倍率" type="number" step="0.01" value={itemForm.completion_ratio.toString()}
+                  <Input label="补全倍率" type="number" value={itemForm.completion_ratio.toString()}
                     onValueChange={v => setItemForm({ ...itemForm, completion_ratio: parseFloat(v) })}
                     description="输出 token 相对于输入的倍数" />
                 </div>

@@ -4,12 +4,24 @@ import (
 	"STfreApi/common"
 	"STfreApi/model"
 	"encoding/csv"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+func ExportChannelsJSON(c *gin.Context) {
+	var channels []model.Channel
+	if err := common.DB.Order("id asc").Find(&channels).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "导出失败"})
+		return
+	}
+	c.Header("Content-Disposition", "attachment; filename=channels.json")
+	c.Header("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(c.Writer).Encode(channels)
+}
 
 func ExportLogsCSV(c *gin.Context) {
 	var logs []model.Log

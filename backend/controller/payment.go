@@ -169,19 +169,21 @@ func PaymentNotify(c *gin.Context) {
 		}).Error; err != nil {
 			return err
 		}
+		if order.OrderType == "subscription" {
+			return ActivateSubscription(tx, order.RefId)
+		}
 		if err := tx.Model(&model.User{}).Where("id = ?", order.UserId).
 			Update("quota", gorm.Expr("quota + ?", quotaAdd)).Error; err != nil {
 			return err
 		}
-		logItem := model.Log{
+		service.EnqueueLog(model.Log{
 			UserId:    order.UserId,
 			CreatedAt: time.Now().Unix(),
 			Type:      model.LogTypeTopup,
 			Content:   "充值成功",
 			Quota:     quotaAdd,
 			ModelName: "system",
-		}
-		service.EnqueueLog(logItem)
+		})
 		return nil
 	})
 	if err != nil {
@@ -286,7 +288,6 @@ func handleEpayNotify(c *gin.Context) {
 		return
 	}
 
-	quotaAdd := int64(amount * 500000)
 	err := common.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&model.PaymentOrder{}).Where("id = ?", order.Id).Updates(map[string]interface{}{
 			"status":      model.PaymentStatusPaid,
@@ -295,19 +296,22 @@ func handleEpayNotify(c *gin.Context) {
 		}).Error; err != nil {
 			return err
 		}
+		if order.OrderType == "subscription" {
+			return ActivateSubscription(tx, order.RefId)
+		}
+		quotaAdd := int64(amount * 500000)
 		if err := tx.Model(&model.User{}).Where("id = ?", order.UserId).
 			Update("quota", gorm.Expr("quota + ?", quotaAdd)).Error; err != nil {
 			return err
 		}
-		logItem := model.Log{
+		service.EnqueueLog(model.Log{
 			UserId:    order.UserId,
 			CreatedAt: time.Now().Unix(),
 			Type:      model.LogTypeTopup,
 			Content:   "易支付充值成功",
 			Quota:     quotaAdd,
 			ModelName: "system",
-		}
-		service.EnqueueLog(logItem)
+		})
 		return nil
 	})
 	if err != nil {

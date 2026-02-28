@@ -154,7 +154,7 @@ export default function RedemptionManagement() {
             <Input placeholder="搜索名称/码" value={keyword} onValueChange={setKeyword} className="w-36"
               onKeyDown={(e) => { if (e.key === 'Enter') { setPage(1); fetchCodes(); } }} />
             <Select label="状态" selectedKeys={statusFilter ? [statusFilter] : []}
-              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+              onSelectionChange={(keys) => { setStatusFilter([...keys][0] as string || ''); setPage(1); }}
               className="w-28" placeholder="全部">
               <SelectItem key="1">未使用</SelectItem>
               <SelectItem key="2">已用完</SelectItem>
@@ -242,8 +242,7 @@ export default function RedemptionManagement() {
       </div>
 
       <div className="flex justify-center mt-4">
-        <Pagination isCompact showControls showShadow color="primary"
-          page={page} total={Math.ceil(total / 10) || 1} onChange={(p) => setPage(p)} />
+        <Pagination page={page} total={Math.ceil(total / 10) || 1} onChange={(p) => setPage(p)} />
       </div>
 
       <Modal isOpen={isOpen} onOpenChange={onOpenChange}>

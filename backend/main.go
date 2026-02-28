@@ -48,6 +48,9 @@ func main() {
 	// 启动日志队列
 	service.InitLogQueue()
 
+	// 启动订阅过期检查
+	service.InitSubscriptionExpiry()
+
 	// Initialize Gin
 	r := gin.Default()
 

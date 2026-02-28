@@ -17,6 +17,7 @@ export interface TextareaProps {
   maxLength?: number
   className?: string
   name?: string
+  onKeyDown?: React.KeyboardEventHandler<HTMLTextAreaElement>
 }
 
 export function Textarea({
@@ -35,6 +36,7 @@ export function Textarea({
   maxLength,
   className = '',
   name,
+  onKeyDown,
 }: TextareaProps) {
   const hasError = !!errorMessage
 
@@ -68,6 +70,7 @@ export function Textarea({
             onValueChange?.(e.target.value)
             onChange?.(e)
           }}
+          onKeyDown={onKeyDown}
         />
       </div>
       {errorMessage && <p className="text-xs text-red-400">{errorMessage}</p>}

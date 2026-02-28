@@ -19,7 +19,7 @@ import {
   Tabs,
   Tab,
 } from '../../components/ui';
-import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap, Download } from 'lucide-react';
+import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap, Download, DollarSign, Search } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
@@ -58,6 +58,12 @@ const CHANNEL_TYPES = [
   { key: '47', label: 'Ollama' },
   { key: '50', label: 'Suno' },
   { key: '51', label: 'Dify' },
+  { key: '52', label: 'SiliconFlow' },
+  { key: '53', label: 'Mistral' },
+  { key: '54', label: 'xAI / Grok' },
+  { key: '55', label: 'Groq' },
+  { key: '56', label: 'Together AI' },
+  { key: '57', label: 'Perplexity' },
 ];
 
 export default function ChannelManagement() {
@@ -70,8 +76,10 @@ export default function ChannelManagement() {
   const [editingChannel, setEditingChannel] = useState<Partial<Channel> | null>(null);
   const [batchText, setBatchText] = useState('');
   const [tagFilter, setTagFilter] = useState('');
+  const [nameSearch, setNameSearch] = useState('');
   const [batchTesting, setBatchTesting] = useState(false);
   const [fetchingModels, setFetchingModels] = useState<number | null>(null);
+  const [fetchingBalance, setFetchingBalance] = useState<number | null>(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -93,14 +101,15 @@ export default function ChannelManagement() {
   const fetchChannels = async () => {
     setLoading(true);
     try {
-      const params = tagFilter ? `?tag=${encodeURIComponent(tagFilter)}` : '';
-      const res = await fetch(`/api/channel${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.code === 0) {
-        setChannels(data.data);
+      let url = '/api/channel';
+      if (nameSearch.trim()) {
+        url = `/api/channel/search?keyword=${encodeURIComponent(nameSearch.trim())}`;
+      } else if (tagFilter) {
+        url = `/api/channel?tag=${encodeURIComponent(tagFilter)}`;
       }
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.code === 0) setChannels(data.data);
     } catch (error) {
       console.error('Failed to fetch channels:', error);
     } finally {
@@ -327,6 +336,41 @@ export default function ChannelManagement() {
     }
   };
 
+  const handleToggleStatus = async (channelId: number) => {
+    try {
+      const res = await fetch(`/api/channel/${channelId}/status`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        setChannels(prev => prev.map(c => c.id === channelId ? { ...c, status: data.data.status } : c));
+      }
+    } catch (error) {
+      toast.error('操作失败');
+    }
+  };
+
+  const handleFetchBalance = async (channelId: number) => {
+    setFetchingBalance(channelId);
+    try {
+      const res = await fetch(`/api/channel/balance/${channelId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        setChannels(prev => prev.map(c => c.id === channelId ? { ...c, balance: data.data.balance } : c));
+        toast.success(`余额: $${data.data.balance.toFixed(4)}`);
+      } else {
+        toast.error(data.msg || '查询余额失败');
+      }
+    } catch (error) {
+      toast.error('请求失败');
+    } finally {
+      setFetchingBalance(null);
+    }
+  };
+
   const handleFetchModels = async (channelId: number) => {
     setFetchingModels(channelId);
     try {
@@ -359,11 +403,20 @@ export default function ChannelManagement() {
         </div>
         <div className="flex gap-2">
           <Input
+            placeholder="搜索渠道名称"
+            size="sm"
+            value={nameSearch}
+            onValueChange={setNameSearch}
+            className="w-36"
+            startContent={<Search size={14} />}
+            onKeyDown={(e) => e.key === 'Enter' && fetchChannels()}
+          />
+          <Input
             placeholder="按标签筛选"
             size="sm"
             value={tagFilter}
             onValueChange={setTagFilter}
-            className="w-32"
+            className="w-28"
             onKeyDown={(e) => e.key === 'Enter' && fetchChannels()}
           />
           <Button startContent={<RefreshCw size={18} />} onPress={fetchChannels} variant="flat">
@@ -374,6 +427,18 @@ export default function ChannelManagement() {
           </Button>
           <Button startContent={<Upload size={18} />} onPress={onBatchOpen} variant="flat" color="secondary">
             批量导入
+          </Button>
+          <Button startContent={<Download size={18} />} variant="flat" onPress={async () => {
+            const res = await fetch('/api/export/channel', { headers: { Authorization: `Bearer ${token}` } });
+            if (!res.ok) return;
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'channels.json';
+            document.body.appendChild(a); a.click(); a.remove();
+            URL.revokeObjectURL(url);
+          }}>
+            导出
           </Button>
           <Button startContent={<Plus size={18} />} color="primary" onPress={handleAdd}>
             添加渠道
@@ -399,15 +464,16 @@ export default function ChannelManagement() {
                 <td className="font-medium">{channel.name}</td>
                 <td><Chip size="sm" variant="flat" color="primary">{CHANNEL_TYPES.find(t => t.key === channel.type.toString())?.label || 'Unknown'}</Chip></td>
                 <td><Chip size="sm" variant="dot">{channel.group || 'default'}</Chip></td>
-                <td><Chip size="sm" color={channel.status === 1 ? "success" : "danger"} startContent={<Power size={12} />}>{channel.status === 1 ? "已启用" : "已禁用"}</Chip></td>
+                <td><Chip size="sm" color={channel.status === 1 ? "success" : "danger"} startContent={<Power size={12} />} className="cursor-pointer" onClick={() => handleToggleStatus(channel.id)}>{channel.status === 1 ? "已启用" : "已禁用"}</Chip></td>
                 <td><Chip size="sm" variant="flat" color={getResponseTimeColor(channel.response_time)}>{channel.response_time > 0 ? `${channel.response_time}ms` : '未测试'}</Chip></td>
                 <td>${channel.balance.toFixed(2)}</td>
                 <td>{channel.priority}</td>
                 <td>
                   <div className="flex items-center gap-2">
                     <Tooltip content="测试"><span className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${testingId === channel.id ? 'animate-spin' : ''}`} onClick={() => handleTest(channel.id)}><Activity size={18} /></span></Tooltip>
+                    <Tooltip content="查询余额"><span className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${fetchingBalance === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleFetchBalance(channel.id)}><DollarSign size={18} /></span></Tooltip>
                     <Tooltip content="编辑"><span className="text-lg text-default-400 cursor-pointer active:opacity-50" onClick={() => handleEdit(channel)}><Edit size={18} /></span></Tooltip>
-                    <Tooltip color="danger" content="删除"><span className="text-lg text-danger cursor-pointer active:opacity-50" onClick={() => handleDelete(channel.id)}><Trash2 size={18} /></span></Tooltip>
+                    <Tooltip content="删除"><span className="text-lg text-danger cursor-pointer active:opacity-50" onClick={() => handleDelete(channel.id)}><Trash2 size={18} /></span></Tooltip>
                   </div>
                 </td>
               </tr>
@@ -416,7 +482,7 @@ export default function ChannelManagement() {
         </table>
       </div>
 
-      <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="3xl" scrollBehavior="inside">
+      <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="2xl" scrollBehavior="inside">
         <ModalContent>
           {(onClose) => (
             <>
@@ -436,7 +502,7 @@ export default function ChannelManagement() {
                   <Select 
                     label="渠道类型" 
                     defaultSelectedKeys={[formData.type]}
-                    onChange={(e) => setFormData({...formData, type: e.target.value})}
+                    onSelectionChange={(keys) => setFormData({...formData, type: [...keys][0] as string || '1'})}
                   >
                     {CHANNEL_TYPES.map((type) => (
                       <SelectItem key={type.key}>{type.label}</SelectItem>
@@ -536,7 +602,7 @@ export default function ChannelManagement() {
                           onClose={() => handleDeleteMapping(i)} 
                           variant="flat" 
                           color="secondary"
-                          classNames={{ content: "flex items-center gap-1" }}
+                          className="flex items-center gap-1"
                         >
                           {m.from} <ArrowRight size={12} /> {m.to}
                         </Chip>

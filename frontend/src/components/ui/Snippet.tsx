@@ -5,14 +5,17 @@ export interface SnippetProps {
   children: string
   symbol?: string
   hideSymbol?: boolean
+  codeString?: string
+  color?: string
+  size?: string
   className?: string
 }
 
-export function Snippet({ children, symbol = '$', hideSymbol = false, className = '' }: SnippetProps) {
+export function Snippet({ children, symbol = '$', hideSymbol = false, codeString, className = '' }: SnippetProps) {
   const [copied, setCopied] = useState(false)
 
   function copy() {
-    navigator.clipboard.writeText(children).then(() => {
+    navigator.clipboard.writeText(codeString ?? children).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })

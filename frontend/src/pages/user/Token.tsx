@@ -251,7 +251,7 @@ export default function TokenManagement() {
                 <td>
                   <div className="flex items-center gap-2">
                     <Tooltip content="编辑"><span className="text-lg text-default-400 cursor-pointer active:opacity-50" onClick={() => handleEdit(token)}><Edit size={18} /></span></Tooltip>
-                    <Tooltip color="danger" content="删除"><span className="text-lg text-danger cursor-pointer active:opacity-50" onClick={() => handleDelete(token.id)}><Trash2 size={18} /></span></Tooltip>
+                    <Tooltip content="删除"><span className="text-lg text-danger cursor-pointer active:opacity-50" onClick={() => handleDelete(token.id)}><Trash2 size={18} /></span></Tooltip>
                   </div>
                 </td>
               </tr>
@@ -275,10 +275,10 @@ export default function TokenManagement() {
                     isRequired
                   />
                   
-                  <Select 
-                    label="状态" 
-                    selectedKeys={[status]} 
-                    onChange={(e) => setStatus(e.target.value)}
+                  <Select
+                    label="状态"
+                    selectedKeys={[status]}
+                    onSelectionChange={(keys) => setStatus([...keys][0] as string || '1')}
                   >
                     {STATUS_OPTIONS.map((opt) => (
                       <SelectItem key={opt.key}>{opt.label}</SelectItem>

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -57,6 +58,7 @@ type RegisterRequest struct {
 	Username       string                         `json:"username" binding:"required"`
 	Password       string                         `json:"password" binding:"required"`
 	Email          string                         `json:"email"`
+	EmailCode      string                         `json:"email_code"`
 	Turnstile      string                         `json:"turnstile"`
 	GeeTest        *common.GeeTestValidateRequest `json:"geetest"`
 	InvitationCode string                         `json:"invitation_code"`
@@ -72,6 +74,30 @@ func UserRegister(c *gin.Context) {
 		common.Fail(c, common.CodeParamError, "人机验证失败")
 		return
 	}
+	if common.EmailVerificationEnabled {
+		if req.Email == "" {
+			common.Fail(c, common.CodeParamError, "请填写邮箱")
+			return
+		}
+		if !CheckEmailVerifyCode(req.Email, req.EmailCode) {
+			common.Fail(c, common.CodeParamError, "邮箱验证码无效或已过期")
+			return
+		}
+	}
+	if common.EmailDomainRestrictionEnabled && req.Email != "" {
+		allowed := false
+		for _, domain := range strings.Split(common.EmailDomainWhitelist, ",") {
+			domain = strings.TrimSpace(domain)
+			if domain != "" && strings.HasSuffix(req.Email, "@"+domain) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			common.Fail(c, common.CodeParamError, "该邮箱域名不在允许范围内")
+			return
+		}
+	}
 	invitationEnabled := common.OptionMap[model.OptionKeyInvitationEnabled] == "true"
 	var invitation model.Invitation
 	if invitationEnabled {
@@ -85,6 +111,14 @@ func UserRegister(c *gin.Context) {
 		}
 	} else if req.InvitationCode != "" {
 		common.DB.Where("code = ? AND status = ?", req.InvitationCode, model.InvitationStatusUnused).First(&invitation)
+	}
+	// Extra check: max_uses
+	if invitation.Id > 0 && invitation.MaxUses > 0 && invitation.UsedCount >= invitation.MaxUses {
+		if invitationEnabled {
+			common.Fail(c, common.CodeParamError, "邀请码已达使用上限")
+			return
+		}
+		invitation = model.Invitation{}
 	}
 	var existingUser model.User
 	if err := common.DB.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
@@ -107,9 +141,12 @@ func UserRegister(c *gin.Context) {
 			return err
 		}
 		if invitation.Id > 0 {
-			invitation.Status = model.InvitationStatusUsed
+			invitation.UsedCount++
 			invitation.InviteeId = user.Id
 			invitation.UsedAt = time.Now().Unix()
+			if invitation.MaxUses > 0 && invitation.UsedCount >= invitation.MaxUses {
+				invitation.Status = model.InvitationStatusUsed
+			}
 			if err := tx.Save(&invitation).Error; err != nil {
 				return err
 			}
@@ -137,6 +174,21 @@ func UserRegister(c *gin.Context) {
 		return
 	}
 	common.OKMsg(c, "注册成功", nil)
+}
+
+func SearchUsers(c *gin.Context) {
+	keyword := c.Query("keyword")
+	var users []model.User
+	db := common.DB.Order("id desc")
+	if keyword != "" {
+		db = db.Where("username LIKE ? OR display_name LIKE ? OR email LIKE ?", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
+	}
+	if err := db.Limit(20).Find(&users).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "搜索失败")
+		return
+	}
+	for i := range users { users[i].Password = "" }
+	common.OK(c, users)
 }
 
 func GetAllUsers(c *gin.Context) {
@@ -208,6 +260,43 @@ func DeleteUser(c *gin.Context) {
 		return
 	}
 	common.OKMsg(c, "用户已删除", nil)
+}
+
+func ToggleUserStatus(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	var user model.User
+	if err := common.DB.First(&user, id).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "用户不存在")
+		return
+	}
+	newStatus := 1
+	if user.Status == 1 {
+		newStatus = 2
+	}
+	common.DB.Model(&user).Update("status", newStatus)
+	common.OK(c, gin.H{"status": newStatus})
+}
+
+func AdjustUserQuota(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	var req struct {
+		Delta int64 `json:"delta" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, common.CodeParamError, err.Error())
+		return
+	}
+	var user model.User
+	if err := common.DB.First(&user, id).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "用户不存在")
+		return
+	}
+	newQuota := user.Quota + req.Delta
+	if newQuota < 0 {
+		newQuota = 0
+	}
+	common.DB.Model(&user).Update("quota", newQuota)
+	common.OK(c, gin.H{"quota": newQuota})
 }
 
 func GetSelf(c *gin.Context) {

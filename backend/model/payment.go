@@ -10,6 +10,8 @@ type PaymentOrder struct {
 	NotifyData string  `json:"notify_data" gorm:"type:text"`
 	CreatedAt  int64   `json:"created_at" gorm:"index"`
 	PaidAt     int64   `json:"paid_at"`
+	OrderType  string  `json:"order_type" gorm:"type:varchar(20);default:'topup'"` // topup, subscription
+	RefId      int     `json:"ref_id" gorm:"default:0"` // UserSubscription.Id for subscription orders
 }
 
 const (

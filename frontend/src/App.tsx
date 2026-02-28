@@ -19,6 +19,13 @@ import RedemptionManagement from './pages/admin/Redemption';
 import TopupPage from './pages/user/Topup';
 import ProfilePage from './pages/user/Profile';
 import UserInvitation from './pages/user/Invitation';
+import SubscriptionManagement from './pages/admin/Subscription';
+import SubscriptionPage from './pages/user/Subscription';
+import AdminInvitation from './pages/admin/Invitation';
+import MigrationPage from './pages/admin/Migration';
+import FilesPage from './pages/user/Files';
+import TasksPage from './pages/admin/Tasks';
+import UserTasksPage from './pages/user/Tasks';
 
 function PrivateRoute({ children, roleRequired }: { children: React.ReactElement, roleRequired?: number }) {
   const { token, user } = useAuthStore();
@@ -48,8 +55,11 @@ function App() {
         <Route path="log" element={<LogPage />} />
         <Route path="topup" element={<TopupPage />} />
         <Route path="invitation" element={<UserInvitation />} />
+        <Route path="subscription" element={<SubscriptionPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="playground" element={<Playground />} />
+        <Route path="files" element={<FilesPage />} />
+        <Route path="tasks" element={<UserTasksPage />} />
         <Route path="pricing" element={<Pricing />} />
       </Route>
 
@@ -70,6 +80,10 @@ function App() {
         <Route path="model" element={<ModelManagement />} />
         <Route path="setting" element={<SystemSettings />} />
         <Route path="log" element={<LogPage />} />
+        <Route path="subscription" element={<SubscriptionManagement />} />
+        <Route path="invitation" element={<AdminInvitation />} />
+        <Route path="migration" element={<MigrationPage />} />
+        <Route path="tasks" element={<TasksPage />} />
       </Route>
     </Routes>
   );

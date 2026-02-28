@@ -149,7 +149,7 @@ export default function Playground() {
               label="模型"
               size="sm"
               selectedKeys={selectedModel ? [selectedModel] : []}
-              onChange={e => setSelectedModel(e.target.value)}
+              onSelectionChange={keys => setSelectedModel([...keys][0] as string || '')}
             >
               {models.map(m => <SelectItem key={m.id}>{m.id}</SelectItem>)}
             </Select>
@@ -160,9 +160,6 @@ export default function Playground() {
               type="number"
               value={temperature}
               onValueChange={setTemperature}
-              step={0.1}
-              min={0}
-              max={2}
               description="0 = 确定性，2 = 最随机"
             />
 
@@ -185,7 +182,6 @@ export default function Playground() {
 
             <Textarea
               label="系统提示词"
-              size="sm"
               placeholder="可选，设置模型角色..."
               value={systemPrompt}
               onValueChange={setSystemPrompt}
@@ -243,13 +239,13 @@ export default function Playground() {
                 <div className="flex items-center gap-3">
                   {usage && (
                     <div className="flex gap-2">
-                      <Chip size="sm" variant="flat" style={{ fontSize: '11px' }}>
+                      <Chip size="sm" variant="flat" className="text-[11px]">
                         提示 {usage.prompt_tokens}
                       </Chip>
-                      <Chip size="sm" variant="flat" color="success" style={{ fontSize: '11px' }}>
+                      <Chip size="sm" variant="flat" color="success" className="text-[11px]">
                         补全 {usage.completion_tokens}
                       </Chip>
-                      <Chip size="sm" variant="flat" color="primary" style={{ fontSize: '11px' }}>
+                      <Chip size="sm" variant="flat" color="primary" className="text-[11px]">
                         共 {usage.total_tokens}
                       </Chip>
                     </div>

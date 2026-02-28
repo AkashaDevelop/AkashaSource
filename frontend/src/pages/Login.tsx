@@ -13,6 +13,7 @@ export default function Login() {
   const [initialized, setInitialized] = useState(true);
   const [systemName, setSystemName] = useState('Akasha');
   const [logoUrl, setLogoUrl] = useState('');
+  const [notice, setNotice] = useState('');
   const [githubEnabled, setGithubEnabled] = useState(false);
   const [linuxDOEnabled, setLinuxDOEnabled] = useState(false);
   const [discordEnabled, setDiscordEnabled] = useState(false);
@@ -54,6 +55,7 @@ export default function Login() {
         if (payload.options) {
           if (payload.options.system_name) setSystemName(payload.options.system_name);
           if (payload.options.logo_url) setLogoUrl(payload.options.logo_url);
+          if (payload.options.notice) setNotice(payload.options.notice);
           if (payload.options.github_client_id) setGithubEnabled(true);
           if (payload.options.linuxdo_client_id) setLinuxDOEnabled(true);
           if (payload.options.discord_client_id) setDiscordEnabled(true);
@@ -329,6 +331,11 @@ export default function Login() {
             {!initialized && (
               <Alert color="warning" className="mt-3 w-full">
                 系统未初始化，请注册管理员账号
+              </Alert>
+            )}
+            {notice && (
+              <Alert color="primary" className="mt-3 w-full text-left whitespace-pre-wrap">
+                {notice}
               </Alert>
             )}
           </CardHeader>

@@ -130,7 +130,7 @@ export default function ModelManagement() {
             <Select
               placeholder="分类筛选" size="sm" className="w-32"
               selectedKeys={categoryFilter ? [categoryFilter] : []}
-              onChange={(e) => setCategoryFilter(e.target.value)}
+              onSelectionChange={(keys) => setCategoryFilter([...keys][0] as string || '')}
             >
               {CATEGORIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
             </Select>
@@ -187,7 +187,7 @@ export default function ModelManagement() {
                 <Input label="显示名称" placeholder="GPT-4" value={formData.display_name}
                   onValueChange={(v) => setFormData({...formData, display_name: v})} />
                 <Select label="分类" selectedKeys={[formData.category]}
-                  onChange={(e) => setFormData({...formData, category: e.target.value})}>
+                  onSelectionChange={(keys) => setFormData({...formData, category: [...keys][0] as string || 'chat'})}>
                   {CATEGORIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
                 </Select>
                 <div className="grid grid-cols-2 gap-4">

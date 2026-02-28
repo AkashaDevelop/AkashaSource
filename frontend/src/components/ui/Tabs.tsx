@@ -18,6 +18,9 @@ export interface TabsProps {
   onSelectionChange?: (key: string) => void
   children: React.ReactNode
   className?: string
+  variant?: string
+  color?: string
+  'aria-label'?: string
 }
 
 export function Tabs({ selectedKey, defaultSelectedKey, onSelectionChange, children, className = '' }: TabsProps) {

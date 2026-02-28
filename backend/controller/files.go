@@ -152,3 +152,25 @@ func FilesDelete(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
 }
+
+// JWT-auth endpoints for user file management dashboard
+
+func UserFilesList(c *gin.Context) {
+	userId := c.GetInt("id")
+	var files []model.StoredFile
+	if err := common.DB.Where("user_id = ?", userId).Order("id desc").Find(&files).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "获取文件列表失败")
+		return
+	}
+	common.OK(c, files)
+}
+
+func UserFilesDelete(c *gin.Context) {
+	userId := c.GetInt("id")
+	id, _ := strconv.Atoi(c.Param("id"))
+	if err := common.DB.Where("id = ? AND user_id = ?", id, userId).Delete(&model.StoredFile{}).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "删除文件失败")
+		return
+	}
+	common.OK(c, gin.H{"message": "删除成功"})
+}

@@ -267,7 +267,7 @@ export default function Dashboard() {
                   border: '1px solid var(--border-color)',
                   fontSize: '13px',
                 }}
-                formatter={(value: number) => [`$${(value / 500000).toFixed(6)}`, '消耗']}
+                formatter={(value: number | undefined) => [`$${((value ?? 0) / 500000).toFixed(6)}`, '消耗']}
               />
               <Area type="monotone" dataKey="usage" stroke="var(--accent-primary)" strokeWidth={2} fillOpacity={1} fill="url(#colorUsage)" />
             </AreaChart>

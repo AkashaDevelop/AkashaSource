@@ -91,6 +91,8 @@ func InitOptions() {
 	common.DB.AutoMigrate(&StoredFile{})
 	common.DB.AutoMigrate(&PaymentOrder{})
 	common.DB.AutoMigrate(&SunoTask{})
+	common.DB.AutoMigrate(&SubscriptionPlan{})
+	common.DB.AutoMigrate(&UserSubscription{})
 	ApplyMigrations()
 	_ = ApplySQLFileMigrations()
 

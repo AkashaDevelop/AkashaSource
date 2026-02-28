@@ -79,6 +79,41 @@ func buildLogQuery(c *gin.Context, db *gorm.DB) *gorm.DB {
 	return db
 }
 
+type LogStatItem struct {
+	ModelName        string `json:"model_name"`
+	TotalQuota       int64  `json:"total_quota"`
+	PromptTokens     int64  `json:"prompt_tokens"`
+	CompletionTokens int64  `json:"completion_tokens"`
+	RequestCount     int64  `json:"request_count"`
+}
+
+func GetLogStat(c *gin.Context) {
+	db := buildLogQuery(c, common.DB.Model(&model.Log{}).Where("type = ?", model.LogTypeConsume))
+	var items []LogStatItem
+	if err := db.Select("model_name, SUM(quota) as total_quota, SUM(prompt_tokens) as prompt_tokens, SUM(completion_tokens) as completion_tokens, COUNT(*) as request_count").
+		Group("model_name").Order("total_quota desc").Scan(&items).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "获取统计失败")
+		return
+	}
+	var totalQuota int64
+	for _, it := range items { totalQuota += it.TotalQuota }
+	common.OK(c, gin.H{"items": items, "total_quota": totalQuota})
+}
+
+func GetUserLogStat(c *gin.Context) {
+	userId, _ := c.Get("id")
+	db := buildLogQuery(c, common.DB.Model(&model.Log{}).Where("type = ? AND user_id = ?", model.LogTypeConsume, userId))
+	var items []LogStatItem
+	if err := db.Select("model_name, SUM(quota) as total_quota, SUM(prompt_tokens) as prompt_tokens, SUM(completion_tokens) as completion_tokens, COUNT(*) as request_count").
+		Group("model_name").Order("total_quota desc").Scan(&items).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "获取统计失败")
+		return
+	}
+	var totalQuota int64
+	for _, it := range items { totalQuota += it.TotalQuota }
+	common.OK(c, gin.H{"items": items, "total_quota": totalQuota})
+}
+
 func DeleteLogs(c *gin.Context) {
 	var req struct{ BeforeTimestamp int64 `json:"before_timestamp"` }
 	if err := c.ShouldBindJSON(&req); err != nil || req.BeforeTimestamp <= 0 {

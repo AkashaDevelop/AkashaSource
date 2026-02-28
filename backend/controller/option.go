@@ -115,6 +115,7 @@ func IsSystemInitialized(c *gin.Context) {
 		"turnstile_check_enabled", "turnstile_site_key",
 		"captcha_provider", "geetest_enabled", "geetest_id", "checkin_captcha",
 		"enable_topup", "payment_provider", "min_topup", "price",
+		"email_verification_enabled",
 	} {
 		options[k] = common.OptionMap[k]
 	}

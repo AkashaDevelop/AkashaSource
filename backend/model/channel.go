@@ -43,8 +43,14 @@ const (
 	ChannelTypeZhipu      = 45
 	ChannelTypeMoonshot   = 46
 	ChannelTypeOllama     = 47
-	ChannelTypeSuno      = 50
-	ChannelTypeDify      = 51
+	ChannelTypeSuno        = 50
+	ChannelTypeDify        = 51
+	ChannelTypeSiliconFlow = 52
+	ChannelTypeMistral     = 53
+	ChannelTypeXAI         = 54
+	ChannelTypeGroq        = 55
+	ChannelTypeTogether    = 56
+	ChannelTypePerplexity  = 57
 )
 
 const (

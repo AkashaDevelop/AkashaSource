@@ -18,7 +18,7 @@ import {
   Form,
   Pagination,
 } from '../../components/ui';
-import { Edit, Trash2, Plus, RefreshCw, Power, Key } from 'lucide-react';
+import { Edit, Trash2, Plus, RefreshCw, Power, Key, PlusCircle, Search } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
@@ -51,9 +51,13 @@ export default function UserManagement() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState('');
   const { token } = useAuthStore();
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
+  const { isOpen: isQuotaOpen, onOpen: onQuotaOpen, onOpenChange: onQuotaOpenChange } = useDisclosure();
   const [editingUser, setEditingUser] = useState<Partial<User> | null>(null);
+  const [quotaUser, setQuotaUser] = useState<User | null>(null);
+  const [quotaDelta, setQuotaDelta] = useState('');
 
   const [formData, setFormData] = useState({
     username: '',
@@ -69,13 +73,14 @@ export default function UserManagement() {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/user?p=${page}&size=10`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      let url = `/api/user?p=${page}&size=10`;
+      if (search.trim()) url = `/api/user/search?keyword=${encodeURIComponent(search.trim())}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (data.code === 0) {
-        setUsers(data.data.data);
-        setTotal(data.data.total);
+        const list = Array.isArray(data.data) ? data.data : data.data.data;
+        setUsers(list);
+        setTotal(Array.isArray(data.data) ? list.length : data.data.total);
       }
     } catch (error) {
       console.error('Failed to fetch users:', error);
@@ -84,9 +89,8 @@ export default function UserManagement() {
     }
   };
 
-  useEffect(() => {
-    fetchUsers();
-  }, [page]);
+  useEffect(() => { fetchUsers(); }, [page]);
+  useEffect(() => { if (!search.trim()) fetchUsers(); }, [search]);
 
   const handleEdit = (user: User) => {
     setEditingUser(user);
@@ -166,6 +170,49 @@ export default function UserManagement() {
     }
   };
 
+  const handleOpenQuota = (user: User) => {
+    setQuotaUser(user);
+    setQuotaDelta('');
+    onQuotaOpen();
+  };
+
+  const handleToggleStatus = async (userId: number) => {
+    try {
+      const res = await fetch(`/api/user/${userId}/status`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: data.data.status } : u));
+      }
+    } catch {
+      toast.error('操作失败');
+    }
+  };
+
+  const handleAdjustQuota = async (onClose: () => void) => {
+    if (!quotaUser || !quotaDelta) return;
+    const delta = Math.round(parseFloat(quotaDelta) * 500000);
+    try {
+      const res = await fetch(`/api/user/${quotaUser.id}/quota`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ delta }),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        setUsers(prev => prev.map(u => u.id === quotaUser.id ? { ...u, quota: data.data.quota } : u));
+        toast.success(`额度已调整`);
+        onClose();
+      } else {
+        toast.error(data.msg || '操作失败');
+      }
+    } catch {
+      toast.error('请求失败');
+    }
+  };
+
   const renderQuota = (quota: number) => {
     return `$${(quota / 500000).toFixed(2)}`;
   };
@@ -177,12 +224,17 @@ export default function UserManagement() {
         description="管理系统所有用户账户"
         actions={
           <div className="flex gap-2">
-            <Button startContent={<RefreshCw size={18} />} onPress={fetchUsers} variant="flat">
-              刷新
-            </Button>
-            <Button startContent={<Plus size={18} />} color="primary" onPress={handleAdd}>
-              添加用户
-            </Button>
+            <Input
+              placeholder="搜索用户名/邮箱"
+              size="sm"
+              value={search}
+              onValueChange={setSearch}
+              className="w-40"
+              startContent={<Search size={14} />}
+              onKeyDown={(e) => e.key === 'Enter' && fetchUsers()}
+            />
+            <Button startContent={<RefreshCw size={18} />} onPress={fetchUsers} variant="flat">刷新</Button>
+            <Button startContent={<Plus size={18} />} color="primary" onPress={handleAdd}>添加用户</Button>
           </div>
         }
       />
@@ -205,14 +257,15 @@ export default function UserManagement() {
                 <td className="font-medium">{user.username}</td>
                 <td>{user.display_name}</td>
                 <td><Chip size="sm" variant="flat" color={user.role >= 10 ? "secondary" : "default"}>{ROLES.find(r => r.key === user.role.toString())?.label || 'Unknown'}</Chip></td>
-                <td><Chip size="sm" color={user.status === 1 ? "success" : "danger"} startContent={<Power size={12} />}>{user.status === 1 ? "正常" : "封禁"}</Chip></td>
+                <td><Chip size="sm" color={user.status === 1 ? "success" : "danger"} startContent={<Power size={12} />} className="cursor-pointer" onClick={() => handleToggleStatus(user.id)}>{user.status === 1 ? "正常" : "封禁"}</Chip></td>
                 <td>{renderQuota(user.quota)}</td>
                 <td>{renderQuota(user.used_quota)}</td>
                 <td><Chip size="sm" variant="dot">{user.group}</Chip></td>
                 <td>
                   <div className="flex items-center gap-2">
+                    <Tooltip content="调整额度"><span className="text-lg text-default-400 cursor-pointer active:opacity-50" onClick={() => handleOpenQuota(user)}><PlusCircle size={18} /></span></Tooltip>
                     <Tooltip content="编辑"><span className="text-lg text-default-400 cursor-pointer active:opacity-50" onClick={() => handleEdit(user)}><Edit size={18} /></span></Tooltip>
-                    <Tooltip color="danger" content="删除"><span className="text-lg text-danger cursor-pointer active:opacity-50" onClick={() => handleDelete(user.id)}><Trash2 size={18} /></span></Tooltip>
+                    <Tooltip content="删除"><span className="text-lg text-danger cursor-pointer active:opacity-50" onClick={() => handleDelete(user.id)}><Trash2 size={18} /></span></Tooltip>
                   </div>
                 </td>
               </tr>
@@ -221,8 +274,7 @@ export default function UserManagement() {
         </table>
       </div>
       <div className="flex justify-center mt-4">
-        <Pagination isCompact showControls showShadow color="primary"
-          page={page} total={Math.ceil(total / 10) || 1} onChange={(p) => setPage(p)} />
+        <Pagination page={page} total={Math.ceil(total / 10) || 1} onChange={(p) => setPage(p)} />
       </div>
 
       <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="2xl">
@@ -261,19 +313,19 @@ export default function UserManagement() {
                     value={formData.email}
                     onValueChange={(v) => setFormData({...formData, email: v})}
                   />
-                  <Select 
-                    label="角色" 
+                  <Select
+                    label="角色"
                     selectedKeys={[formData.role]}
-                    onChange={(e) => setFormData({...formData, role: e.target.value})}
+                    onSelectionChange={(keys) => setFormData({...formData, role: [...keys][0] as string || '1'})}
                   >
                     {ROLES.map((role) => (
                       <SelectItem key={role.key}>{role.label}</SelectItem>
                     ))}
                   </Select>
-                  <Select 
-                    label="状态" 
+                  <Select
+                    label="状态"
                     selectedKeys={[formData.status]}
-                    onChange={(e) => setFormData({...formData, status: e.target.value})}
+                    onSelectionChange={(keys) => setFormData({...formData, status: [...keys][0] as string || '1'})}
                   >
                     {STATUS_OPTIONS.map((status) => (
                       <SelectItem key={status.key}>{status.label}</SelectItem>
@@ -300,6 +352,30 @@ export default function UserManagement() {
                 <Button color="primary" onPress={() => handleSubmit(onClose)}>
                   保存
                 </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+      <Modal isOpen={isQuotaOpen} onOpenChange={onQuotaOpenChange} size="sm">
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader>调整额度 — {quotaUser?.username}</ModalHeader>
+              <ModalBody>
+                <p className="text-sm text-default-500">当前余额: {renderQuota(quotaUser?.quota ?? 0)}</p>
+                <Input
+                  label="调整金额 ($)"
+                  type="number"
+                  placeholder="正数增加，负数扣减"
+                  value={quotaDelta}
+                  onValueChange={setQuotaDelta}
+                  description={quotaDelta ? `= ${Math.round(parseFloat(quotaDelta) * 500000)} quota 单位` : ''}
+                />
+              </ModalBody>
+              <ModalFooter>
+                <Button color="danger" variant="light" onPress={onClose}>取消</Button>
+                <Button color="primary" onPress={() => handleAdjustQuota(onClose)}>确认</Button>
               </ModalFooter>
             </>
           )}

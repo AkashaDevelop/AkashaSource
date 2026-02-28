@@ -66,7 +66,7 @@ function RatioEditor({ value, onChange }: { value: string; onChange: (v: string)
             <div key={i} className="flex gap-2 items-center">
               <Input placeholder="模型名称，如 gpt-4" value={row.model}
                 onValueChange={(v) => update(i, 'model', v)} className="flex-1" />
-              <Input placeholder="倍率" type="number" step="0.01" value={row.ratio}
+              <Input placeholder="倍率" type="number" value={row.ratio}
                 onValueChange={(v) => update(i, 'ratio', v)} className="w-24" />
               <button onClick={() => remove(i)}
                 className="p-1.5 rounded-lg transition-colors"
@@ -331,7 +331,7 @@ export default function GroupManagement() {
                 <ChannelMultiSelect
                   value={formData.allowed_channels}
                   onChange={(v) => setFormData({ ...formData, allowed_channels: v })}
-                  token={token}
+                  token={token ?? ''}
                 />
               </ModalBody>
               <ModalFooter>

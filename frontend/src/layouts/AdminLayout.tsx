@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '../components/ui';
-import { LayoutDashboard, Server, Settings, LogOut, Users, Gift, ScrollText, Layers, Box, ArrowLeft } from 'lucide-react';
+import { LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box, ArrowLeft, Crown, Database, ListTodo } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
+import { useSystemStore } from '../store/system';
 import ThemeToggle from '../components/ThemeToggle';
 
 const navItems = [
@@ -9,9 +11,13 @@ const navItems = [
   { key: '/admin/channel', icon: Server, label: '渠道管理' },
   { key: '/admin/user', icon: Users, label: '用户管理' },
   { key: '/admin/redemption', icon: Gift, label: '兑换码' },
+  { key: '/admin/invitation', icon: Users, label: '邀请码管理' },
   { key: '/admin/group', icon: Layers, label: '分组管理' },
   { key: '/admin/model', icon: Box, label: '模型管理' },
+  { key: '/admin/subscription', icon: Crown, label: '订阅套餐' },
+  { key: '/admin/tasks', icon: ListTodo, label: '任务管理' },
   { key: '/admin/log', icon: ScrollText, label: '日志管理' },
+  { key: '/admin/migration', icon: Database, label: '数据库迁移' },
   { key: '/admin/setting', icon: Settings, label: '系统设置' },
 ];
 
@@ -19,11 +25,11 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
+  const { systemName, logoUrl, fetch: fetchSystem } = useSystemStore();
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
+  useEffect(() => { fetchSystem(); }, []);
+
+  const handleLogout = () => { logout(); navigate('/login'); };
 
   return (
     <div className="flex min-h-screen w-full" style={{ background: 'var(--bg-base)' }}>
@@ -39,8 +45,11 @@ export default function AdminLayout() {
         {/* Logo */}
         <div className="p-6 pb-4">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-xl" style={{ color: 'var(--accent-star)' }}>✦</span>
-            <h1 className="text-xl font-bold gradient-text">Akasha</h1>
+            {logoUrl
+              ? <img src={logoUrl} alt="logo" className="w-6 h-6 rounded-full" />
+              : <span className="text-xl" style={{ color: 'var(--accent-star)' }}>✦</span>
+            }
+            <h1 className="text-xl font-bold gradient-text">{systemName}</h1>
           </div>
           <div className="flex items-center gap-2 ml-7 mt-1">
             <span

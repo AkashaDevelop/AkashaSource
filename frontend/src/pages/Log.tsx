@@ -11,6 +11,14 @@ import { useAuthStore } from '../store/auth';
 import { toast } from '../store/toast';
 import { confirm } from '../store/confirm';
 
+interface StatItem {
+  model_name: string;
+  total_quota: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  request_count: number;
+}
+
 interface Log {
   id: number;
   created_at: number;
@@ -39,6 +47,9 @@ export default function LogPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
+  const [activeTab, setActiveTab] = useState<'list' | 'stat'>('list');
+  const [stat, setStat] = useState<{ items: StatItem[]; total_quota: number } | null>(null);
+  const [statLoading, setStatLoading] = useState(false);
   const { token } = useAuthStore();
   const location = useLocation();
   const isGlobalLog = location.pathname.startsWith('/admin');
@@ -70,6 +81,19 @@ export default function LogPage() {
       if (data.code === 0) { setLogs(data.data.data || []); setTotal(data.data.total || 0); }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
+  };
+
+  const fetchStat = async () => {
+    setStatLoading(true);
+    try {
+      const endpoint = isGlobalLog ? '/api/log/stat' : '/api/log/self/stat';
+      const res = await fetch(`${endpoint}?${buildParams(false)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) setStat(data.data);
+    } catch (e) { console.error(e); }
+    finally { setStatLoading(false); }
   };
 
   useEffect(() => { if (token) fetchLogs(); }, [page, token]);
@@ -120,8 +144,21 @@ export default function LogPage() {
         title={isGlobalLog ? '系统日志' : '我的日志'}
         description={isGlobalLog ? '查看所有请求与操作记录' : '查看您的 API 调用记录'}
         actions={
-          <div className="flex gap-2 flex-wrap">
-            {isGlobalLog && (
+          <div className="flex gap-2 flex-wrap items-center">
+            {/* Tab switcher */}
+            <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-elevated)', borderRadius: '10px', padding: '3px' }}>
+              {(['list', 'stat'] as const).map(tab => (
+                <button key={tab} onClick={() => { setActiveTab(tab); if (tab === 'stat') fetchStat(); }}
+                  style={{ padding: '4px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', border: 'none',
+                    background: activeTab === tab ? 'var(--bg-surface)' : 'transparent',
+                    color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    boxShadow: activeTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  }}>
+                  {tab === 'list' ? '日志列表' : '用量统计'}
+                </button>
+              ))}
+            </div>
+            {isGlobalLog && activeTab === 'list' && (
               <>
                 <div className="flex gap-1 items-center">
                   <Input type="number" placeholder="天数" size="sm" value={cleanupDays}
@@ -135,30 +172,39 @@ export default function LogPage() {
                 </Button>
               </>
             )}
-            <Button
-              size="sm"
-              variant={showFilters ? 'solid' : 'flat'}
-              color={activeFilterCount > 0 ? 'primary' : 'default'}
-              startContent={<Filter size={14} />}
-              onPress={() => setShowFilters(v => !v)}
-            >
-              筛选{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
-            </Button>
-            <Button size="sm" variant="flat" startContent={<RefreshCw size={14} />} onPress={fetchLogs} isLoading={loading}>
-              刷新
-            </Button>
+            {activeTab === 'list' && (
+              <>
+                <Button
+                  size="sm"
+                  variant={showFilters ? 'solid' : 'flat'}
+                  color={activeFilterCount > 0 ? 'primary' : 'default'}
+                  startContent={<Filter size={14} />}
+                  onPress={() => setShowFilters(v => !v)}
+                >
+                  筛选{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+                </Button>
+                <Button size="sm" variant="flat" startContent={<RefreshCw size={14} />} onPress={fetchLogs} isLoading={loading}>
+                  刷新
+                </Button>
+              </>
+            )}
+            {activeTab === 'stat' && (
+              <Button size="sm" variant="flat" startContent={<RefreshCw size={14} />} onPress={fetchStat} isLoading={statLoading}>
+                刷新
+              </Button>
+            )}
           </div>
         }
       />
 
       {/* 筛选面板 */}
-      {showFilters && (
+      {activeTab === 'list' && showFilters && (
         <Card>
           <CardBody className="p-4">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
               <Select label="类型" size="sm"
                 selectedKeys={filters.type ? [filters.type] : []}
-                onChange={e => setFilter('type', e.target.value)}>
+                onSelectionChange={keys => setFilter('type', [...keys][0] as string || '')}>
                 {TYPE_OPTIONS.map(t => <SelectItem key={t.key}>{t.label}</SelectItem>)}
               </Select>
               <Input size="sm" label="模型名称" value={filters.model_name} onValueChange={v => setFilter('model_name', v)} />
@@ -183,7 +229,56 @@ export default function LogPage() {
         </Card>
       )}
 
-      <div className="data-table-wrap">
+      {/* 统计视图 */}
+      {activeTab === 'stat' && (
+        <div>
+          {stat && (
+            <div style={{ marginBottom: '12px', padding: '12px 16px', borderRadius: '12px', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', display: 'flex', gap: '24px' }}>
+              <div><span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>总消耗</span><p style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', margin: '2px 0 0' }}>${(stat.total_quota / 500000).toFixed(4)}</p></div>
+              <div><span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>模型数</span><p style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', margin: '2px 0 0' }}>{stat.items.length}</p></div>
+            </div>
+          )}
+          <div style={{ borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-color)' }}>
+                  {['模型', '请求次数', '输入 Token', '输出 Token', '消耗额度'].map(h => (
+                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: 'var(--text-secondary)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {statLoading ? (
+                  <tr><td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-faint)' }}>加载中...</td></tr>
+                ) : !stat || stat.items.length === 0 ? (
+                  <tr><td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-faint)' }}>暂无数据</td></tr>
+                ) : stat.items.map((item, i) => {
+                  const pct = stat.total_quota > 0 ? (item.total_quota / stat.total_quota) * 100 : 0;
+                  return (
+                    <tr key={i} style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-surface)' }}>
+                      <td style={{ padding: '10px 14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{item.model_name || '-'}</span>
+                          <div style={{ flex: 1, height: '4px', borderRadius: '2px', background: 'var(--bg-elevated)', minWidth: '60px', maxWidth: '120px' }}>
+                            <div style={{ height: '100%', borderRadius: '2px', background: 'var(--accent-primary)', width: `${pct}%` }} />
+                          </div>
+                          <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>{pct.toFixed(1)}%</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{item.request_count.toLocaleString()}</td>
+                      <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{item.prompt_tokens.toLocaleString()}</td>
+                      <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{item.completion_tokens.toLocaleString()}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>${(item.total_quota / 500000).toFixed(4)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'list' && (<div className="data-table-wrap">
         <table className="data-table">
           <thead>
             <tr>
@@ -225,12 +320,11 @@ export default function LogPage() {
             })}
           </tbody>
         </table>
-      </div>
+      </div>)}
 
-      {total > 20 && (
+      {activeTab === 'list' && total > 20 && (
         <div className="flex justify-center">
-          <Pagination isCompact showControls showShadow color="primary"
-            page={page} total={Math.ceil(total / 20)} onChange={setPage} />
+          <Pagination page={page} total={Math.ceil(total / 20)} onChange={setPage} />
         </div>
       )}
     </div>

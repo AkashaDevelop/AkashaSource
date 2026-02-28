@@ -67,6 +67,7 @@ func SetApiRouter(router *gin.Engine) {
 		// 公开接口
 		apiRouter.POST("/user/login", middleware.CriticalRateLimitMiddleware(), controller.UserLogin)
 		apiRouter.POST("/user/register", middleware.CriticalRateLimitMiddleware(), controller.UserRegister)
+		apiRouter.POST("/user/email/verify-code", middleware.CriticalRateLimitMiddleware(), controller.SendEmailVerifyCode)
 		apiRouter.POST("/user/login/2fa", middleware.CriticalRateLimitMiddleware(), controller.TOTPLogin)
 		apiRouter.POST("/user/password/reset-request", middleware.CriticalRateLimitMiddleware(), controller.PasswordResetRequest)
 		apiRouter.POST("/user/password/reset-confirm", middleware.CriticalRateLimitMiddleware(), controller.PasswordResetConfirm)
@@ -88,6 +89,7 @@ func SetApiRouter(router *gin.Engine) {
 
 			// 日志查询 (用户)
 			authGroup.GET("/log/self", controller.GetUserLogs)
+			authGroup.GET("/log/self/stat", controller.GetUserLogStat)
 
 			// 兑换码
 			authGroup.POST("/user/redemption", controller.UseRedemptionCode)
@@ -113,6 +115,19 @@ func SetApiRouter(router *gin.Engine) {
 			// 签到
 			authGroup.POST("/user/checkin", controller.CheckIn)
 			authGroup.GET("/user/checkin", controller.GetCheckInStatus)
+
+			// 文件管理
+			authGroup.GET("/user/files", controller.UserFilesList)
+			authGroup.DELETE("/user/files/:id", controller.UserFilesDelete)
+
+			// 绘图/音乐任务
+			authGroup.GET("/user/tasks/mj", controller.UserGetMJTasks)
+			authGroup.GET("/user/tasks/suno", controller.UserGetSunoTasks)
+
+			// 订阅
+			authGroup.GET("/subscription/plans", controller.GetPublicSubscriptionPlans)
+			authGroup.POST("/subscription/subscribe", controller.CreateSubscriptionOrder)
+			authGroup.GET("/subscription/my", controller.GetMySubscriptions)
 		}
 
 		// 需要管理员权限的接口
@@ -124,14 +139,17 @@ func SetApiRouter(router *gin.Engine) {
 
 			// 渠道管理 (仅管理员)
 			adminGroup.GET("/channel", controller.GetAllChannels)
+			adminGroup.GET("/channel/search", controller.SearchChannels)
 			adminGroup.POST("/channel", controller.AddChannel)
 			adminGroup.POST("/channel/batch", controller.AddChannels)
 			adminGroup.PUT("/channel", controller.UpdateChannel)
 			adminGroup.DELETE("/channel/:id", controller.DeleteChannel)
 			adminGroup.GET("/channel/test/:id", controller.TestChannel)
+			adminGroup.PATCH("/channel/:id/status", controller.ToggleChannelStatus)
 
 			// 日志管理 (管理员)
 			adminGroup.GET("/log", controller.GetAllLogs)
+			adminGroup.GET("/log/stat", controller.GetLogStat)
 			adminGroup.GET("/export/log", controller.ExportLogsCSV)
 
 			// 系统设置
@@ -141,9 +159,12 @@ func SetApiRouter(router *gin.Engine) {
 
 			// 用户管理 (管理员)
 			adminGroup.GET("/user", controller.GetAllUsers)
+			adminGroup.GET("/user/search", controller.SearchUsers)
 			adminGroup.POST("/user", controller.AddUser)
 			adminGroup.PUT("/user", controller.UpdateUser)
 			adminGroup.DELETE("/user/:id", controller.DeleteUser)
+			adminGroup.PATCH("/user/:id/quota", controller.AdjustUserQuota)
+			adminGroup.PATCH("/user/:id/status", controller.ToggleUserStatus)
 
 			// 兑换码管理
 			adminGroup.GET("/redemption", controller.GetAllRedemptions)
@@ -160,6 +181,8 @@ func SetApiRouter(router *gin.Engine) {
 			// 渠道增强
 			adminGroup.POST("/channel/test-all", controller.TestAllChannels)
 			adminGroup.GET("/channel/models/:id", controller.FetchChannelModels)
+			adminGroup.GET("/channel/balance/:id", controller.FetchChannelBalance)
+			adminGroup.GET("/export/channel", controller.ExportChannelsJSON)
 
 			// 分组管理
 			adminGroup.GET("/group", controller.GetAllGroups)
@@ -177,6 +200,21 @@ func SetApiRouter(router *gin.Engine) {
 			// 运维监控
 			adminGroup.GET("/performance", controller.GetPerformance)
 			adminGroup.DELETE("/log", controller.DeleteLogs)
+
+			// 订阅套餐管理
+			adminGroup.GET("/subscription/plan", controller.GetAllSubscriptionPlans)
+			adminGroup.POST("/subscription/plan", controller.AddSubscriptionPlan)
+			adminGroup.PUT("/subscription/plan", controller.UpdateSubscriptionPlan)
+			adminGroup.DELETE("/subscription/plan/:id", controller.DeleteSubscriptionPlan)
+
+			// 邀请码管理
+			adminGroup.GET("/invitation", controller.AdminGetAllInvitations)
+			adminGroup.POST("/invitation", controller.AdminGenerateInvitations)
+			adminGroup.DELETE("/invitation/:id", controller.AdminDeleteInvitation)
+
+			// 任务管理
+			adminGroup.GET("/tasks/mj", controller.AdminGetMJTasks)
+			adminGroup.GET("/tasks/suno", controller.AdminGetSunoTasks)
 		}
 	}
 }

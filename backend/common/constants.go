@@ -77,6 +77,10 @@ var (
 	// Telegram
 	TelegramBotToken = ""
 
+	// Email domain restriction
+	EmailDomainRestrictionEnabled = false
+	EmailDomainWhitelist          = ""
+
 	// Suno
 	QuotaSunoGenerate = 50000 // $0.1
 

@@ -18,6 +18,11 @@ export default function Register() {
   const [geetestEnabled, setGeetestEnabled] = useState(false);
   const [geetestId, setGeetestId] = useState('');
   const [geetestResult, setGeetestResult] = useState<any>(null);
+  const [emailVerifyEnabled, setEmailVerifyEnabled] = useState(false);
+  const [emailCode, setEmailCode] = useState('');
+  const [sendingCode, setSendingCode] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+  const [countdown, setCountdown] = useState(0);
 
   useEffect(() => {
     fetch('/api/system/status')
@@ -33,6 +38,9 @@ export default function Register() {
           if (payload.options.geetest_enabled === 'true') {
             setGeetestEnabled(true);
             setGeetestId(payload.options.geetest_id || '');
+          }
+          if (payload.options.email_verification_enabled === 'true') {
+            setEmailVerifyEnabled(true);
           }
         }
       });
@@ -60,6 +68,27 @@ export default function Register() {
       });
     }
   }, [geetestEnabled, geetestId]);
+
+  const sendCode = async () => {
+    if (!email) { setError('请先填写邮箱'); return; }
+    setSendingCode(true);
+    try {
+      const res = await fetch('/api/user/email/verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        setCodeSent(true);
+        setCountdown(60);
+        const timer = setInterval(() => setCountdown(v => { if (v <= 1) { clearInterval(timer); return 0; } return v - 1; }), 1000);
+      } else {
+        setError(data.msg || '发送失败');
+      }
+    } catch { setError('发送失败'); }
+    finally { setSendingCode(false); }
+  };
 
   const triggerGeetest = (): Promise<any> => {
     return new Promise((resolve) => {
@@ -96,6 +125,7 @@ export default function Register() {
 
     try {
       const body: any = { username, password, email, invitation_code: invitationCode };
+      if (emailVerifyEnabled) body.email_code = emailCode;
       if (useTurnstile) body.turnstile = turnstileToken;
       if (useGeetest && geetestData) body.geetest = geetestData;
 
@@ -148,6 +178,15 @@ export default function Register() {
             <Form className="flex flex-col gap-4" onSubmit={handleSubmit}>
               <Input isRequired label="用户名" placeholder="请输入用户名" value={username} onValueChange={setUsername} />
               <Input isRequired label="邮箱" placeholder="请输入邮箱" type="email" value={email} onValueChange={setEmail} />
+              {emailVerifyEnabled && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <Input label="邮箱验证码" placeholder="6位验证码" value={emailCode} onValueChange={setEmailCode} style={{ flex: 1 }} />
+                  <Button size="sm" variant="flat" isLoading={sendingCode} isDisabled={countdown > 0}
+                    onPress={sendCode} style={{ alignSelf: 'flex-end', height: '40px', minWidth: '90px', borderRadius: '10px' }}>
+                    {countdown > 0 ? `${countdown}s` : codeSent ? '重新发送' : '发送验证码'}
+                  </Button>
+                </div>
+              )}
               <Input isRequired label="密码" placeholder="请设置密码" type="password" value={password} onValueChange={setPassword} />
               <Input label="邀请码" placeholder="邀请码（选填）" value={invitationCode} onValueChange={setInvitationCode} />
 
@@ -166,7 +205,7 @@ export default function Register() {
             </Form>
             <div className="mt-5 text-center">
               <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>已有账号？</span>
-              <Link href="/login" size="sm" style={{ color: 'var(--accent-primary)' }}> 立即登录 ✦</Link>
+              <Link href="/login" style={{ color: 'var(--accent-primary)' }}> 立即登录 ✦</Link>
             </div>
           </CardBody>
         </Card>

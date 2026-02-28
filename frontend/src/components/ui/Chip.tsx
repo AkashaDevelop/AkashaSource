@@ -1,4 +1,5 @@
 import React from 'react'
+import { X } from 'lucide-react'
 
 export interface ChipProps {
   color?: 'default' | 'primary' | 'secondary' | 'success' | 'warning' | 'danger'
@@ -6,6 +7,9 @@ export interface ChipProps {
   size?: 'sm' | 'md' | 'lg'
   children?: React.ReactNode
   className?: string
+  style?: React.CSSProperties
+  onClick?: React.MouseEventHandler<HTMLSpanElement>
+  onClose?: () => void
   startContent?: React.ReactNode
   endContent?: React.ReactNode
 }
@@ -34,13 +38,18 @@ const sizeMap = {
   lg: 'px-2.5 py-1 text-sm',
 }
 
-export function Chip({ color = 'default', variant = 'flat', size = 'md', children, className = '', startContent, endContent }: ChipProps) {
+export function Chip({ color = 'default', variant = 'flat', size = 'md', children, className = '', style, onClick, onClose, startContent, endContent }: ChipProps) {
   const colorClass = variant === 'solid' ? solidMap[color] : colorMap[color]
   return (
-    <span className={`inline-flex items-center gap-1 rounded-lg font-medium ${colorClass} ${sizeMap[size]} ${className}`}>
+    <span className={`inline-flex items-center gap-1 rounded-lg font-medium ${colorClass} ${sizeMap[size]} ${className}`} style={style} onClick={onClick}>
       {startContent}
       {children}
       {endContent}
+      {onClose && (
+        <button type="button" onClick={e => { e.stopPropagation(); onClose(); }} className="ml-0.5 hover:opacity-70">
+          <X size={10} />
+        </button>
+      )}
     </span>
   )
 }

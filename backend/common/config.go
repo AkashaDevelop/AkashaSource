@@ -52,6 +52,12 @@ func UpdateOptionMap(key string, value string) {
 	if key == "smtp_from" {
 		SMTPFrom = value
 	}
+	if key == "smtp_ssl_enabled" {
+		SMTPSSLEnabled = (value == "true")
+	}
+	if key == "email_verification_enabled" {
+		EmailVerificationEnabled = (value == "true")
+	}
 
 	if key == "turnstile_site_key" {
 		TurnstileSiteKey = value
@@ -151,6 +157,13 @@ func UpdateOptionMap(key string, value string) {
 
 	if key == "telegram_bot_token" {
 		TelegramBotToken = value
+	}
+
+	if key == "email_domain_restriction_enabled" {
+		EmailDomainRestrictionEnabled = (value == "true")
+	}
+	if key == "email_domain_whitelist" {
+		EmailDomainWhitelist = value
 	}
 
 	if key == "model_ratio" || key == "completion_ratio" {

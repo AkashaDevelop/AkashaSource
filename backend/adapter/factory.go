@@ -7,10 +7,16 @@ import (
 	"STfreApi/adapter/deepseek"
 	"STfreApi/adapter/dify"
 	"STfreApi/adapter/gemini"
+	"STfreApi/adapter/groq"
+	"STfreApi/adapter/mistral"
 	"STfreApi/adapter/moonshot"
 	"STfreApi/adapter/ollama"
 	"STfreApi/adapter/openai"
+	"STfreApi/adapter/perplexity"
+	"STfreApi/adapter/siliconflow"
 	"STfreApi/adapter/tencent"
+	"STfreApi/adapter/together"
+	"STfreApi/adapter/xai"
 	"STfreApi/adapter/xunfei"
 	"STfreApi/adapter/zhipu"
 	"STfreApi/model"
@@ -40,6 +46,18 @@ func GetAdaptor(channelType int) Adaptor {
 		return &ollama.Adaptor{}
 	case model.ChannelTypeDify:
 		return &dify.Adaptor{}
+	case model.ChannelTypeSiliconFlow:
+		return &siliconflow.Adaptor{}
+	case model.ChannelTypeMistral:
+		return &mistral.Adaptor{}
+	case model.ChannelTypeXAI:
+		return &xai.Adaptor{}
+	case model.ChannelTypeGroq:
+		return &groq.Adaptor{}
+	case model.ChannelTypeTogether:
+		return &together.Adaptor{}
+	case model.ChannelTypePerplexity:
+		return &perplexity.Adaptor{}
 	case model.ChannelTypeOpenAI, model.ChannelTypeCustom, model.ChannelTypeAzure:
 		return &openai.Adaptor{}
 	default:
