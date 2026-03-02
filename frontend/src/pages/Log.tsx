@@ -73,7 +73,7 @@ export default function LogPage() {
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      const endpoint = isGlobalLog ? '/api/log' : '/api/log/self';
+      const endpoint = isGlobalLog ? '/api/log/search' : '/api/log/self/search';
       const res = await fetch(`${endpoint}?${buildParams()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -119,10 +119,9 @@ export default function LogPage() {
     if (!await confirm({ title: '清理日志', message: `确定清理 ${days} 天前的日志？此操作不可撤销。`, danger: true })) return;
     const ts = Math.floor(Date.now() / 1000) - days * 86400;
     try {
-      const res = await fetch('/api/log', {
+      const res = await fetch(`/api/log?target_timestamp=${ts}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ before_timestamp: ts }),
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (data.code === 0) { toast.success(`已清理 ${data.data?.deleted ?? data.deleted} 条日志`); fetchLogs(); }

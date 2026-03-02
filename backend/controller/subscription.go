@@ -4,11 +4,12 @@ import (
 	"STfreApi/common"
 	"STfreApi/model"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
-	epay "github.com/liuscraft/epay-sdk-go"
 	"github.com/gin-gonic/gin"
+	epay "github.com/liuscraft/epay-sdk-go"
 	"gorm.io/gorm"
 )
 
@@ -85,7 +86,6 @@ func CreateSubscriptionOrder(c *gin.Context) {
 
 	userId := c.GetInt("id")
 
-	// Create pending subscription
 	sub := model.UserSubscription{
 		UserId:    userId,
 		PlanId:    plan.Id,
@@ -97,7 +97,6 @@ func CreateSubscriptionOrder(c *gin.Context) {
 		return
 	}
 
-	// Create payment order
 	provider := common.OptionMap[model.OptionKeyPaymentProvider]
 	order := model.PaymentOrder{
 		UserId:    userId,
@@ -167,7 +166,6 @@ func buildSubscriptionEpayUrl(order model.PaymentOrder, plan model.SubscriptionP
 
 func GetMySubscriptions(c *gin.Context) {
 	userId := c.GetInt("id")
-	// Expire overdue subscriptions first
 	model.ExpireSubscriptions()
 
 	var subs []model.UserSubscription
@@ -203,7 +201,6 @@ func ActivateSubscription(tx *gorm.DB, subId int) error {
 		"expired_at": expiredAt,
 	}
 
-	// Apply group change
 	if plan.Type == model.PlanTypeGroup || plan.Type == model.PlanTypeCombo {
 		if plan.GroupName != "" {
 			var user model.User
@@ -216,7 +213,6 @@ func ActivateSubscription(tx *gorm.DB, subId int) error {
 		}
 	}
 
-	// Apply quota
 	if plan.Type == model.PlanTypeQuota || plan.Type == model.PlanTypeCombo {
 		if plan.Quota > 0 {
 			if err := tx.Model(&model.User{}).Where("id = ?", sub.UserId).
@@ -227,4 +223,250 @@ func ActivateSubscription(tx *gorm.DB, subId int) error {
 	}
 
 	return tx.Model(&model.UserSubscription{}).Where("id = ?", subId).Updates(updates).Error
+}
+
+// ─── Admin: Subscription APIs (new-api compatibility) ────────────────────────
+
+type adminSubscriptionPlanDTO struct {
+	Plan model.SubscriptionPlan `json:"plan"`
+}
+
+type adminUpsertSubscriptionPlanRequest struct {
+	Plan model.SubscriptionPlan `json:"plan"`
+}
+
+func AdminListSubscriptionPlans(c *gin.Context) {
+	var plans []model.SubscriptionPlan
+	if err := common.DB.Order("sort_order asc, id asc").Find(&plans).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "查询失败")
+		return
+	}
+	result := make([]adminSubscriptionPlanDTO, 0, len(plans))
+	for _, p := range plans {
+		result = append(result, adminSubscriptionPlanDTO{Plan: p})
+	}
+	common.OK(c, result)
+}
+
+func AdminCreateSubscriptionPlan(c *gin.Context) {
+	var req adminUpsertSubscriptionPlanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, common.CodeParamError, "参数解析失败")
+		return
+	}
+	plan := req.Plan
+	plan.Id = 0
+	plan.CreatedAt = time.Now().Unix()
+	if strings.TrimSpace(plan.Name) == "" {
+		common.Fail(c, common.CodeParamError, "套餐名称不能为空")
+		return
+	}
+	if plan.Price < 0 {
+		common.Fail(c, common.CodeParamError, "价格不能为负数")
+		return
+	}
+	if err := common.DB.Create(&plan).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "创建失败")
+		return
+	}
+	common.OK(c, plan)
+}
+
+func AdminUpdateSubscriptionPlan(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	if id <= 0 {
+		common.Fail(c, common.CodeParamError, "无效的ID")
+		return
+	}
+
+	var req adminUpsertSubscriptionPlanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, common.CodeParamError, "参数解析失败")
+		return
+	}
+
+	plan := req.Plan
+	if strings.TrimSpace(plan.Name) == "" {
+		common.Fail(c, common.CodeParamError, "套餐名称不能为空")
+		return
+	}
+	if plan.Price < 0 {
+		common.Fail(c, common.CodeParamError, "价格不能为负数")
+		return
+	}
+
+	updates := map[string]interface{}{
+		"name":          plan.Name,
+		"description":   plan.Description,
+		"price":         plan.Price,
+		"duration_days": plan.DurationDays,
+		"type":          plan.Type,
+		"group_name":    plan.GroupName,
+		"quota":         plan.Quota,
+		"rpm":           plan.RPM,
+		"enabled":       plan.Enabled,
+		"sort_order":    plan.SortOrder,
+	}
+	if err := common.DB.Model(&model.SubscriptionPlan{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "更新失败")
+		return
+	}
+	common.OK(c, nil)
+}
+
+type adminUpdateSubscriptionPlanStatusRequest struct {
+	Enabled *bool `json:"enabled"`
+}
+
+func AdminUpdateSubscriptionPlanStatus(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	if id <= 0 {
+		common.Fail(c, common.CodeParamError, "无效的ID")
+		return
+	}
+	var req adminUpdateSubscriptionPlanStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
+		common.Fail(c, common.CodeParamError, "参数解析失败")
+		return
+	}
+	if err := common.DB.Model(&model.SubscriptionPlan{}).Where("id = ?", id).Update("enabled", *req.Enabled).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "更新失败")
+		return
+	}
+	common.OK(c, nil)
+}
+
+type adminBindSubscriptionRequest struct {
+	UserId int `json:"user_id"`
+	PlanId int `json:"plan_id"`
+}
+
+func adminBindSubscriptionTx(tx *gorm.DB, userId, planId int) error {
+	var user model.User
+	if err := tx.First(&user, userId).Error; err != nil {
+		return fmt.Errorf("用户不存在")
+	}
+	var plan model.SubscriptionPlan
+	if err := tx.First(&plan, planId).Error; err != nil {
+		return fmt.Errorf("套餐不存在")
+	}
+	sub := model.UserSubscription{
+		UserId:    userId,
+		PlanId:    plan.Id,
+		Status:    model.SubStatusPending,
+		CreatedAt: time.Now().Unix(),
+	}
+	if err := tx.Create(&sub).Error; err != nil {
+		return err
+	}
+	return ActivateSubscription(tx, sub.Id)
+}
+
+func AdminBindSubscription(c *gin.Context) {
+	var req adminBindSubscriptionRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.UserId <= 0 || req.PlanId <= 0 {
+		common.Fail(c, common.CodeParamError, "参数解析失败")
+		return
+	}
+	if err := common.DB.Transaction(func(tx *gorm.DB) error {
+		return adminBindSubscriptionTx(tx, req.UserId, req.PlanId)
+	}); err != nil {
+		common.Fail(c, common.CodeServerError, err.Error())
+		return
+	}
+	common.OK(c, nil)
+}
+
+func AdminListUserSubscriptions(c *gin.Context) {
+	userId, _ := strconv.Atoi(c.Param("id"))
+	if userId <= 0 {
+		common.Fail(c, common.CodeParamError, "无效的用户ID")
+		return
+	}
+	model.ExpireSubscriptions()
+	var subs []model.UserSubscription
+	if err := common.DB.Preload("Plan").Where("user_id = ?", userId).Order("id desc").Find(&subs).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "查询失败")
+		return
+	}
+	common.OK(c, subs)
+}
+
+type adminCreateUserSubscriptionRequest struct {
+	PlanId int `json:"plan_id"`
+}
+
+func AdminCreateUserSubscription(c *gin.Context) {
+	userId, _ := strconv.Atoi(c.Param("id"))
+	if userId <= 0 {
+		common.Fail(c, common.CodeParamError, "无效的用户ID")
+		return
+	}
+	var req adminCreateUserSubscriptionRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.PlanId <= 0 {
+		common.Fail(c, common.CodeParamError, "参数解析失败")
+		return
+	}
+	if err := common.DB.Transaction(func(tx *gorm.DB) error {
+		return adminBindSubscriptionTx(tx, userId, req.PlanId)
+	}); err != nil {
+		common.Fail(c, common.CodeServerError, err.Error())
+		return
+	}
+	common.OK(c, nil)
+}
+
+func AdminInvalidateUserSubscription(c *gin.Context) {
+	subId, _ := strconv.Atoi(c.Param("id"))
+	if subId <= 0 {
+		common.Fail(c, common.CodeParamError, "无效的订阅ID")
+		return
+	}
+	if err := common.DB.Transaction(func(tx *gorm.DB) error {
+		var sub model.UserSubscription
+		if err := tx.Preload("Plan").First(&sub, subId).Error; err != nil {
+			return fmt.Errorf("订阅不存在")
+		}
+		if sub.Status == model.SubStatusCancelled || sub.Status == model.SubStatusExpired {
+			return nil
+		}
+		if sub.Plan != nil && (sub.Plan.Type == model.PlanTypeGroup || sub.Plan.Type == model.PlanTypeCombo) && sub.OriginalGroup != "" {
+			if err := tx.Model(&model.User{}).Where("id = ?", sub.UserId).Update("group", sub.OriginalGroup).Error; err != nil {
+				return err
+			}
+		}
+		updates := map[string]interface{}{
+			"status":     model.SubStatusCancelled,
+			"expired_at": time.Now().Unix(),
+		}
+		return tx.Model(&model.UserSubscription{}).Where("id = ?", subId).Updates(updates).Error
+	}); err != nil {
+		common.Fail(c, common.CodeServerError, err.Error())
+		return
+	}
+	common.OK(c, nil)
+}
+
+func AdminDeleteUserSubscription(c *gin.Context) {
+	subId, _ := strconv.Atoi(c.Param("id"))
+	if subId <= 0 {
+		common.Fail(c, common.CodeParamError, "无效的订阅ID")
+		return
+	}
+	if err := common.DB.Transaction(func(tx *gorm.DB) error {
+		var sub model.UserSubscription
+		if err := tx.Preload("Plan").First(&sub, subId).Error; err != nil {
+			return fmt.Errorf("订阅不存在")
+		}
+		if sub.Status == model.SubStatusActive && sub.Plan != nil && (sub.Plan.Type == model.PlanTypeGroup || sub.Plan.Type == model.PlanTypeCombo) && sub.OriginalGroup != "" {
+			if err := tx.Model(&model.User{}).Where("id = ?", sub.UserId).Update("group", sub.OriginalGroup).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Delete(&model.UserSubscription{}, subId).Error
+	}); err != nil {
+		common.Fail(c, common.CodeServerError, err.Error())
+		return
+	}
+	common.OK(c, nil)
 }

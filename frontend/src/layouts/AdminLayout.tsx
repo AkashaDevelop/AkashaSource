@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box, ArrowLeft, Crown, Database, ListTodo } from 'lucide-react';
+import { LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box, ArrowLeft, Crown, Database, ListTodo, Building2, Boxes, CloudCog } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 import { useSystemStore } from '../store/system';
 import ThemeToggle from '../components/ThemeToggle';
@@ -27,6 +27,9 @@ const navGroups = [
       { key: '/admin/group', icon: Layers, label: '分组管理' },
       { key: '/admin/model', icon: Box, label: '模型管理' },
       { key: '/admin/subscription', icon: Crown, label: '订阅套餐' },
+      { key: '/admin/vendors', icon: Building2, label: '供应商' },
+      { key: '/admin/model-meta', icon: Boxes, label: '模型元数据' },
+      { key: '/admin/deployments', icon: CloudCog, label: '部署管理' },
     ],
   },
   {

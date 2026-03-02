@@ -26,6 +26,9 @@ import MigrationPage from './pages/admin/Migration';
 import FilesPage from './pages/user/Files';
 import TasksPage from './pages/admin/Tasks';
 import UserTasksPage from './pages/user/Tasks';
+import VendorManagement from './pages/admin/Vendor';
+import ModelMetaManagement from './pages/admin/ModelMeta';
+import DeploymentManagement from './pages/admin/Deployment';
 
 function PrivateRoute({ children, roleRequired }: { children: React.ReactElement, roleRequired?: number }) {
   const { token, user } = useAuthStore();
@@ -84,6 +87,9 @@ function App() {
         <Route path="invitation" element={<AdminInvitation />} />
         <Route path="migration" element={<MigrationPage />} />
         <Route path="tasks" element={<TasksPage />} />
+        <Route path="vendors" element={<VendorManagement />} />
+        <Route path="model-meta" element={<ModelMetaManagement />} />
+        <Route path="deployments" element={<DeploymentManagement />} />
       </Route>
     </Routes>
   );

@@ -7,26 +7,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-func FetchChannelBalance(c *gin.Context) {
-	id := c.Param("id")
-	var channel model.Channel
-	if err := common.DB.First(&channel, id).Error; err != nil {
-		common.Fail(c, common.CodeNotFound, "渠道不存在")
-		return
-	}
-
+func fetchAndPersistChannelBalance(channel *model.Channel) (float64, error) {
 	baseUrl := strings.TrimSuffix(channel.BaseURL, "/")
 	key := service.GetNextKey(channel.Key)
 	client := common.NewHTTPClient(channel.Proxy)
 
 	var balance float64
-	var fetchErr error
-
 	switch channel.Type {
 	case model.ChannelTypeSiliconFlow:
 		if baseUrl == "" {
@@ -36,8 +29,7 @@ func FetchChannelBalance(c *gin.Context) {
 		req.Header.Set("Authorization", "Bearer "+key)
 		resp, err := client.Do(req)
 		if err != nil {
-			fetchErr = err
-			break
+			return 0, err
 		}
 		defer resp.Body.Close()
 		var result struct {
@@ -49,7 +41,6 @@ func FetchChannelBalance(c *gin.Context) {
 			fmt.Sscanf(result.Data.Balance, "%f", &balance)
 		}
 	default:
-		// OpenAI-compatible billing endpoint
 		if baseUrl == "" {
 			baseUrl = "https://api.openai.com"
 		}
@@ -57,8 +48,7 @@ func FetchChannelBalance(c *gin.Context) {
 		req.Header.Set("Authorization", "Bearer "+key)
 		resp, err := client.Do(req)
 		if err != nil {
-			fetchErr = err
-			break
+			return 0, err
 		}
 		defer resp.Body.Close()
 		var result struct {
@@ -69,12 +59,24 @@ func FetchChannelBalance(c *gin.Context) {
 		}
 	}
 
-	if fetchErr != nil {
-		common.Fail(c, common.CodeServerError, "查询余额失败: "+fetchErr.Error())
+	if err := common.DB.Model(channel).Update("balance", balance).Error; err != nil {
+		return 0, err
+	}
+	return balance, nil
+}
+
+func FetchChannelBalance(c *gin.Context) {
+	id := c.Param("id")
+	var channel model.Channel
+	if err := common.DB.First(&channel, id).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "渠道不存在")
 		return
 	}
-
-	common.DB.Model(&channel).Update("balance", balance)
+	balance, err := fetchAndPersistChannelBalance(&channel)
+	if err != nil {
+		common.Fail(c, common.CodeServerError, "查询余额失败: "+err.Error())
+		return
+	}
 	common.OK(c, gin.H{"balance": balance})
 }
 
@@ -103,6 +105,102 @@ func GetAllChannels(c *gin.Context) {
 		return
 	}
 	common.OK(c, channels)
+}
+
+func ChannelListModels(c *gin.Context) {
+	var channels []model.Channel
+	if err := common.DB.Find(&channels).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "获取模型列表失败")
+		return
+	}
+	set := make(map[string]struct{})
+	for _, ch := range channels {
+		for _, m := range strings.Split(ch.Models, ",") {
+			m = strings.TrimSpace(m)
+			if m != "" {
+				set[m] = struct{}{}
+			}
+		}
+	}
+	models := make([]string, 0, len(set))
+	for m := range set {
+		models = append(models, m)
+	}
+	sort.Strings(models)
+	common.OK(c, models)
+}
+
+func EnabledListModels(c *gin.Context) {
+	var channels []model.Channel
+	if err := common.DB.Where("status = ?", model.ChannelStatusActive).Find(&channels).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "获取模型列表失败")
+		return
+	}
+	set := make(map[string]struct{})
+	for _, ch := range channels {
+		for _, m := range strings.Split(ch.Models, ",") {
+			m = strings.TrimSpace(m)
+			if m != "" {
+				set[m] = struct{}{}
+			}
+		}
+	}
+	models := make([]string, 0, len(set))
+	for m := range set {
+		models = append(models, m)
+	}
+	sort.Strings(models)
+	common.OK(c, models)
+}
+
+func GetChannel(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.Fail(c, common.CodeParamError, "渠道 ID 非法")
+		return
+	}
+	var channel model.Channel
+	if err := common.DB.First(&channel, id).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "渠道不存在")
+		return
+	}
+	common.OK(c, channel)
+}
+
+func GetChannelKey(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.Fail(c, common.CodeParamError, "渠道 ID 非法")
+		return
+	}
+	var channel model.Channel
+	if err := common.DB.Select("id", "key").First(&channel, id).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "渠道不存在")
+		return
+	}
+	common.OK(c, gin.H{"key": channel.Key})
+}
+
+func UpdateAllChannelsBalance(c *gin.Context) {
+	var channels []model.Channel
+	if err := common.DB.Where("status = ?", model.ChannelStatusActive).Find(&channels).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "获取渠道失败")
+		return
+	}
+	successCount := 0
+	failCount := 0
+	for i := range channels {
+		if _, err := fetchAndPersistChannelBalance(&channels[i]); err != nil {
+			failCount++
+			continue
+		}
+		successCount++
+	}
+	common.OK(c, gin.H{"success_count": successCount, "fail_count": failCount})
+}
+
+func UpdateChannelBalance(c *gin.Context) {
+	FetchChannelBalance(c)
 }
 
 func AddChannel(c *gin.Context) {
@@ -152,6 +250,92 @@ func DeleteChannel(c *gin.Context) {
 		return
 	}
 	common.OKMsg(c, "渠道已删除", nil)
+}
+
+func DeleteDisabledChannel(c *gin.Context) {
+	res := common.DB.Where("status IN ?", []int{model.ChannelStatusDisabled, model.ChannelStatusAutoDisabled}).Delete(&model.Channel{})
+	if res.Error != nil {
+		common.Fail(c, common.CodeServerError, "删除禁用渠道失败")
+		return
+	}
+	common.OK(c, gin.H{"deleted": res.RowsAffected})
+}
+
+type channelTagReq struct {
+	Tag          string  `json:"tag"`
+	NewTag       *string `json:"new_tag"`
+	Priority     *int64  `json:"priority"`
+	Weight       *uint   `json:"weight"`
+	ModelMapping *string `json:"model_mapping"`
+	Models       *string `json:"models"`
+}
+
+func DisableTagChannels(c *gin.Context) {
+	var req channelTagReq
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Tag) == "" {
+		common.Fail(c, common.CodeParamError, "参数错误")
+		return
+	}
+	if err := common.DB.Model(&model.Channel{}).Where("tags LIKE ?", "%"+strings.TrimSpace(req.Tag)+"%").Update("status", model.ChannelStatusDisabled).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "批量禁用失败")
+		return
+	}
+	common.OK(c, nil)
+}
+
+func EnableTagChannels(c *gin.Context) {
+	var req channelTagReq
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Tag) == "" {
+		common.Fail(c, common.CodeParamError, "参数错误")
+		return
+	}
+	if err := common.DB.Model(&model.Channel{}).Where("tags LIKE ?", "%"+strings.TrimSpace(req.Tag)+"%").Update("status", model.ChannelStatusActive).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "批量启用失败")
+		return
+	}
+	common.OK(c, nil)
+}
+
+func EditTagChannels(c *gin.Context) {
+	var req channelTagReq
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Tag) == "" {
+		common.Fail(c, common.CodeParamError, "参数错误")
+		return
+	}
+	updates := map[string]interface{}{}
+	if req.NewTag != nil {
+		updates["tags"] = strings.TrimSpace(*req.NewTag)
+	}
+	if req.Priority != nil {
+		updates["priority"] = int(*req.Priority)
+	}
+	if req.Weight != nil {
+		updates["weight"] = int(*req.Weight)
+	}
+	if req.ModelMapping != nil {
+		updates["model_mapping"] = strings.TrimSpace(*req.ModelMapping)
+	}
+	if req.Models != nil {
+		updates["models"] = strings.TrimSpace(*req.Models)
+	}
+	if len(updates) == 0 {
+		common.Fail(c, common.CodeParamError, "无可更新字段")
+		return
+	}
+	if err := common.DB.Model(&model.Channel{}).Where("tags LIKE ?", "%"+strings.TrimSpace(req.Tag)+"%").Updates(updates).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "批量编辑失败")
+		return
+	}
+	common.OK(c, nil)
+}
+
+func FixChannelsAbilities(c *gin.Context) {
+	var total int64
+	if err := common.DB.Model(&model.Channel{}).Count(&total).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "执行修复失败")
+		return
+	}
+	common.OK(c, gin.H{"success": total, "fails": 0})
 }
 
 func UpdateChannel(c *gin.Context) {

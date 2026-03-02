@@ -79,3 +79,35 @@ func RetrieveModel(c *gin.Context) {
 		},
 	})
 }
+
+// ListModelsAuth is a token-protected model list endpoint used by v1beta compatibility routes.
+// It supports Authorization Bearer, x-api-key, x-goog-api-key and query key.
+func ListModelsAuth(c *gin.Context) {
+	tokenKey := c.GetHeader("x-goog-api-key")
+	if tokenKey == "" {
+		tokenKey = c.GetHeader("x-api-key")
+	}
+	if tokenKey == "" {
+		authHeader := c.GetHeader("Authorization")
+		tokenKey = strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	if tokenKey == "" {
+		tokenKey = c.Query("key")
+	}
+	if tokenKey == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "missing api key", "type": "invalid_request_error", "code": "invalid_api_key"}})
+		return
+	}
+
+	token, err := GetTokenByKey(tokenKey)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "invalid api key", "type": "invalid_request_error", "code": "invalid_api_key"}})
+		return
+	}
+	if err := ValidateToken(token); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": err.Error(), "type": "invalid_request_error", "code": "invalid_api_key"}})
+		return
+	}
+
+	ListModels(c)
+}

@@ -16,23 +16,37 @@ func SetApiRouter(router *gin.Engine) {
 	router.POST("/v1/embeddings", middleware.RateLimitMiddleware(), controller.Relay)
 	router.POST("/v1/audio/speech", middleware.RateLimitMiddleware(), controller.Relay)
 	router.POST("/v1/audio/transcriptions", middleware.RateLimitMiddleware(), controller.Relay)
+	router.POST("/v1/audio/translations", middleware.RateLimitMiddleware(), controller.Relay)
 	router.POST("/v1/images/generations", middleware.RateLimitMiddleware(), controller.Relay)
+	router.POST("/v1/images/edits", middleware.RateLimitMiddleware(), controller.Relay)
+	router.POST("/v1/edits", middleware.RateLimitMiddleware(), controller.Relay)
 	router.POST("/v1/completions", middleware.RateLimitMiddleware(), controller.Relay)
 	router.POST("/v1/moderations", middleware.RateLimitMiddleware(), controller.Relay)
 	router.POST("/v1/rerank", middleware.RateLimitMiddleware(), controller.Relay)
 	router.GET("/v1/models", middleware.RateLimitMiddleware(), controller.ListModels)
 	router.GET("/v1/models/:model", middleware.RateLimitMiddleware(), controller.RetrieveModel)
+	router.GET("/v1beta/models", middleware.RateLimitMiddleware(), controller.ListModelsAuth)
+	router.GET("/v1beta/openai/models", middleware.RateLimitMiddleware(), controller.ListModelsAuth)
 	router.GET("/v1/files", middleware.RateLimitMiddleware(), controller.FilesList)
 	router.POST("/v1/files", middleware.RateLimitMiddleware(), controller.FilesCreate)
 	router.GET("/v1/files/:id", middleware.RateLimitMiddleware(), controller.FilesRetrieve)
 	router.GET("/v1/files/:id/content", middleware.RateLimitMiddleware(), controller.FilesContent)
 	router.DELETE("/v1/files/:id", middleware.RateLimitMiddleware(), controller.FilesDelete)
 
+	// Video API compatibility (new-api)
+	router.POST("/v1/video/generations", middleware.RateLimitMiddleware(), controller.RelayTask)
+	router.GET("/v1/video/generations/:task_id", middleware.RateLimitMiddleware(), controller.RelayTaskFetch)
+	router.POST("/v1/videos", middleware.RateLimitMiddleware(), controller.RelayTask)
+	router.GET("/v1/videos/:task_id", middleware.RateLimitMiddleware(), controller.RelayTaskFetch)
+	router.GET("/v1/videos/:task_id/content", middleware.RateLimitMiddleware(), controller.VideoProxy)
+	router.POST("/v1/videos/:video_id/remix", middleware.RateLimitMiddleware(), controller.RelayTask)
+
 	// Anthropic Messages API (Claude Code CLI compatible)
 	router.POST("/v1/messages", middleware.RateLimitMiddleware(), controller.RelayMessages)
 
 	// OpenAI Responses API (Codex CLI compatible)
 	router.POST("/v1/responses", middleware.RateLimitMiddleware(), controller.RelayResponses)
+	router.POST("/v1/responses/compact", middleware.RateLimitMiddleware(), controller.RelayResponsesCompact)
 
 	// Midjourney Relay
 	router.POST("/mj/submit/imagine", middleware.RateLimitMiddleware(), midjourney.RelayMidjourney)
@@ -45,6 +59,15 @@ func SetApiRouter(router *gin.Engine) {
 
 	// OpenAI Realtime WebSocket
 	router.GET("/v1/realtime", controller.RelayRealtime)
+
+	// Playground compatibility
+	router.POST("/pg/chat/completions", middleware.RateLimitMiddleware(), controller.Relay)
+
+	// OpenAI billing compatibility
+	router.GET("/dashboard/billing/subscription", middleware.RateLimitMiddleware(), controller.GetSubscription)
+	router.GET("/v1/dashboard/billing/subscription", middleware.RateLimitMiddleware(), controller.GetSubscription)
+	router.GET("/dashboard/billing/usage", middleware.RateLimitMiddleware(), controller.GetUsage)
+	router.GET("/v1/dashboard/billing/usage", middleware.RateLimitMiddleware(), controller.GetUsage)
 
 	// Gemini Native Format (:model::action is invalid in Gin; use wildcard and parse in controller)
 	router.POST("/gemini/v1beta/models/*path", controller.RelayGeminiNative)
@@ -67,10 +90,24 @@ func SetApiRouter(router *gin.Engine) {
 	apiRouter := router.Group("/api")
 	{
 		// 公开接口
+		apiRouter.GET("/setup", controller.GetSetup)
+		apiRouter.POST("/setup", controller.PostSetup)
+		apiRouter.GET("/status", controller.GetStatus)
+		apiRouter.GET("/notice", controller.GetNotice)
+		apiRouter.GET("/about", controller.GetAbout)
+		apiRouter.GET("/user-agreement", controller.GetUserAgreement)
+		apiRouter.GET("/privacy-policy", controller.GetPrivacyPolicy)
+		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
+		apiRouter.GET("/oauth/state", middleware.CriticalRateLimitMiddleware(), controller.GenerateOAuthCode)
+		apiRouter.GET("/oauth/:provider", middleware.CriticalRateLimitMiddleware(), controller.HandleOAuth)
+		apiRouter.POST("/verify", middleware.AuthMiddleware(), middleware.CriticalRateLimitMiddleware(), controller.UniversalVerify)
+
 		apiRouter.POST("/user/login", middleware.CriticalRateLimitMiddleware(), controller.UserLogin)
 		apiRouter.POST("/user/register", middleware.CriticalRateLimitMiddleware(), controller.UserRegister)
 		apiRouter.POST("/user/email/verify-code", middleware.CriticalRateLimitMiddleware(), controller.SendEmailVerifyCode)
 		apiRouter.POST("/user/login/2fa", middleware.CriticalRateLimitMiddleware(), controller.TOTPLogin)
+		apiRouter.POST("/user/passkey/login/begin", middleware.CriticalRateLimitMiddleware(), controller.PasskeyLoginBegin)
+		apiRouter.POST("/user/passkey/login/finish", middleware.CriticalRateLimitMiddleware(), controller.PasskeyLoginFinish)
 		apiRouter.POST("/user/password/reset-request", middleware.CriticalRateLimitMiddleware(), controller.PasswordResetRequest)
 		apiRouter.POST("/user/password/reset-confirm", middleware.CriticalRateLimitMiddleware(), controller.PasswordResetConfirm)
 		apiRouter.GET("/system/status", controller.IsSystemInitialized)
@@ -78,6 +115,7 @@ func SetApiRouter(router *gin.Engine) {
 
 		// neko-api-key-tool compatible endpoint (self-auth via Bearer token)
 		apiRouter.GET("/key/info", controller.GetKeyInfo)
+		apiRouter.GET("/usage/token", controller.GetTokenUsage)
 
 		// 需要登录的接口
 		authGroup := apiRouter.Group("/")
@@ -85,12 +123,16 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			// Token 管理 (用户/管理员)
 			authGroup.GET("/token", controller.GetAllTokens)
+			authGroup.GET("/token/search", controller.SearchTokens)
+			authGroup.GET("/token/:id", controller.GetToken)
 			authGroup.POST("/token", controller.AddToken)
 			authGroup.PUT("/token", controller.UpdateToken)
 			authGroup.DELETE("/token/:id", controller.DeleteToken)
+			authGroup.POST("/token/batch", controller.DeleteTokenBatch)
 
 			// 日志查询 (用户)
 			authGroup.GET("/log/self", controller.GetUserLogs)
+			authGroup.GET("/log/self/search", controller.SearchUserLogs)
 			authGroup.GET("/log/self/stat", controller.GetUserLogStat)
 
 			// 兑换码
@@ -104,6 +146,14 @@ func SetApiRouter(router *gin.Engine) {
 			authGroup.GET("/user/self", controller.GetSelf)
 			authGroup.PUT("/user/self", controller.UpdateSelf)
 			authGroup.GET("/user/dashboard", controller.GetUserDashboard)
+			authGroup.GET("/user/passkey", controller.PasskeyStatus)
+			authGroup.POST("/user/passkey/register/begin", controller.PasskeyRegisterBegin)
+			authGroup.POST("/user/passkey/register/finish", controller.PasskeyRegisterFinish)
+			authGroup.DELETE("/user/passkey", controller.PasskeyDelete)
+
+			// OAuth 绑定
+			authGroup.GET("/user/oauth/bindings", controller.GetUserOAuthBindings)
+			authGroup.DELETE("/user/oauth/bindings/:provider_id", controller.UnbindCustomOAuth)
 
 			// 支付
 			authGroup.POST("/payment/create", controller.CreatePayment)
@@ -130,6 +180,8 @@ func SetApiRouter(router *gin.Engine) {
 			authGroup.GET("/subscription/plans", controller.GetPublicSubscriptionPlans)
 			authGroup.POST("/subscription/subscribe", controller.CreateSubscriptionOrder)
 			authGroup.GET("/subscription/my", controller.GetMySubscriptions)
+			// 运营数据（new-api /data 兼容）
+			authGroup.GET("/data/self", controller.GetUserQuotaDates)
 		}
 
 		// 需要管理员权限的接口
@@ -151,6 +203,7 @@ func SetApiRouter(router *gin.Engine) {
 
 			// 日志管理 (管理员)
 			adminGroup.GET("/log", controller.GetAllLogs)
+			adminGroup.GET("/log/search", controller.SearchAllLogs)
 			adminGroup.GET("/log/stat", controller.GetLogStat)
 			adminGroup.GET("/export/log", controller.ExportLogsCSV)
 
@@ -167,10 +220,25 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.DELETE("/user/:id", controller.DeleteUser)
 			adminGroup.PATCH("/user/:id/quota", controller.AdjustUserQuota)
 			adminGroup.PATCH("/user/:id/status", controller.ToggleUserStatus)
+			adminGroup.GET("/user/:id/oauth/bindings", controller.GetUserOAuthBindingsByAdmin)
+			adminGroup.DELETE("/user/:id/oauth/bindings/:provider_id", controller.UnbindCustomOAuthByAdmin)
+
+			// 自定义 OAuth 提供商管理
+			adminGroup.POST("/custom-oauth-provider/discovery", controller.FetchCustomOAuthDiscovery)
+			adminGroup.GET("/custom-oauth-provider", controller.GetCustomOAuthProviders)
+			adminGroup.GET("/custom-oauth-provider/:id", controller.GetCustomOAuthProvider)
+			adminGroup.POST("/custom-oauth-provider", controller.CreateCustomOAuthProvider)
+			adminGroup.PUT("/custom-oauth-provider/:id", controller.UpdateCustomOAuthProvider)
+			adminGroup.DELETE("/custom-oauth-provider/:id", controller.DeleteCustomOAuthProvider)
 
 			// 兑换码管理
 			adminGroup.GET("/redemption", controller.GetAllRedemptions)
-			adminGroup.POST("/redemption", controller.GenerateRedemptionCodes)
+			adminGroup.GET("/redemption/search", controller.SearchRedemptions)
+			adminGroup.GET("/redemption/:id", controller.GetRedemption)
+			adminGroup.POST("/redemption", controller.AddRedemption)
+			adminGroup.PUT("/redemption", controller.UpdateRedemption)
+			adminGroup.DELETE("/redemption/invalid", controller.DeleteInvalidRedemption)
+			adminGroup.DELETE("/redemption/:id", controller.DeleteRedemption)
 			adminGroup.PATCH("/redemption/:id/status", controller.UpdateRedemptionStatus)
 			adminGroup.POST("/redemption/batch", controller.BatchRedemptionAction)
 			adminGroup.GET("/export/redemption", controller.ExportRedemptionsCSV)
@@ -185,6 +253,42 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.GET("/channel/models/:id", controller.FetchChannelModels)
 			adminGroup.GET("/channel/balance/:id", controller.FetchChannelBalance)
 			adminGroup.GET("/export/channel", controller.ExportChannelsJSON)
+			adminGroup.POST("/channel/codex/oauth/start", controller.StartCodexOAuth)
+			adminGroup.POST("/channel/codex/oauth/complete", controller.CompleteCodexOAuth)
+			adminGroup.POST("/channel/:id/codex/oauth/start", controller.StartCodexOAuthForChannel)
+			adminGroup.POST("/channel/:id/codex/oauth/complete", controller.CompleteCodexOAuthForChannel)
+			adminGroup.POST("/channel/:id/codex/refresh", controller.RefreshCodexChannelCredential)
+			adminGroup.GET("/channel/:id/codex/usage", controller.GetCodexChannelUsage)
+			adminGroup.POST("/channel/ollama/pull", controller.OllamaPullModel)
+			adminGroup.POST("/channel/ollama/pull/stream", controller.OllamaPullModelStream)
+			adminGroup.DELETE("/channel/ollama/delete", controller.OllamaDeleteModel)
+			adminGroup.GET("/channel/ollama/version/:id", controller.OllamaVersion)
+			adminGroup.POST("/channel/batch/tag", controller.BatchSetChannelTag)
+			adminGroup.GET("/channel/tag/models", controller.GetTagModels)
+			adminGroup.POST("/channel/copy/:id", controller.CopyChannel)
+			adminGroup.POST("/channel/multi_key/manage", controller.ManageMultiKeys)
+
+			// 渠道管理（new-api /channel 兼容增强）
+			adminGroup.GET("/channel/models", controller.ChannelListModels)
+			adminGroup.GET("/channel/models_enabled", controller.EnabledListModels)
+			adminGroup.GET("/channel/:id", controller.GetChannel)
+			adminGroup.POST("/channel/:id/key", controller.GetChannelKey)
+			adminGroup.GET("/channel/update_balance", controller.UpdateAllChannelsBalance)
+			adminGroup.GET("/channel/update_balance/:id", controller.UpdateChannelBalance)
+			adminGroup.DELETE("/channel/disabled", controller.DeleteDisabledChannel)
+			adminGroup.POST("/channel/tag/disabled", controller.DisableTagChannels)
+			adminGroup.POST("/channel/tag/enabled", controller.EnableTagChannels)
+			adminGroup.PUT("/channel/tag", controller.EditTagChannels)
+			adminGroup.POST("/channel/fix", controller.FixChannelsAbilities)
+
+			// 运营数据工具（new-api /ratio_sync /data /prefill_group 兼容）
+			adminGroup.GET("/ratio_sync/channels", controller.GetSyncableChannels)
+			adminGroup.POST("/ratio_sync/fetch", controller.FetchUpstreamRatios)
+			adminGroup.GET("/data", controller.GetAllQuotaDates)
+			adminGroup.GET("/prefill_group", controller.GetPrefillGroups)
+			adminGroup.POST("/prefill_group", controller.CreatePrefillGroup)
+			adminGroup.PUT("/prefill_group", controller.UpdatePrefillGroup)
+			adminGroup.DELETE("/prefill_group/:id", controller.DeletePrefillGroup)
 
 			// 分组管理
 			adminGroup.GET("/group", controller.GetAllGroups)
@@ -209,6 +313,17 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.PUT("/subscription/plan", controller.UpdateSubscriptionPlan)
 			adminGroup.DELETE("/subscription/plan/:id", controller.DeleteSubscriptionPlan)
 
+			// 订阅后台管理（new-api /subscription/admin 兼容）
+			adminGroup.GET("/subscription/admin/plans", controller.AdminListSubscriptionPlans)
+			adminGroup.POST("/subscription/admin/plans", controller.AdminCreateSubscriptionPlan)
+			adminGroup.PUT("/subscription/admin/plans/:id", controller.AdminUpdateSubscriptionPlan)
+			adminGroup.PATCH("/subscription/admin/plans/:id", controller.AdminUpdateSubscriptionPlanStatus)
+			adminGroup.POST("/subscription/admin/bind", controller.AdminBindSubscription)
+			adminGroup.GET("/subscription/admin/users/:id/subscriptions", controller.AdminListUserSubscriptions)
+			adminGroup.POST("/subscription/admin/users/:id/subscriptions", controller.AdminCreateUserSubscription)
+			adminGroup.POST("/subscription/admin/user_subscriptions/:id/invalidate", controller.AdminInvalidateUserSubscription)
+			adminGroup.DELETE("/subscription/admin/user_subscriptions/:id", controller.AdminDeleteUserSubscription)
+
 			// 邀请码管理
 			adminGroup.GET("/invitation", controller.AdminGetAllInvitations)
 			adminGroup.POST("/invitation", controller.AdminGenerateInvitations)
@@ -217,6 +332,42 @@ func SetApiRouter(router *gin.Engine) {
 			// 任务管理
 			adminGroup.GET("/tasks/mj", controller.AdminGetMJTasks)
 			adminGroup.GET("/tasks/suno", controller.AdminGetSunoTasks)
+			// Vendors
+			adminGroup.GET("/vendors", controller.GetAllVendors)
+			adminGroup.GET("/vendors/search", controller.SearchVendors)
+			adminGroup.GET("/vendors/:id", controller.GetVendorMeta)
+			adminGroup.POST("/vendors", controller.CreateVendorMeta)
+			adminGroup.PUT("/vendors", controller.UpdateVendorMeta)
+			adminGroup.DELETE("/vendors/:id", controller.DeleteVendorMeta)
+
+			// Models Meta
+			adminGroup.GET("/models", controller.GetAllModelsMeta)
+			adminGroup.GET("/models/search", controller.SearchModelsMeta)
+			adminGroup.GET("/models/:id", controller.GetModelMeta)
+			adminGroup.POST("/models", controller.CreateModelMeta)
+			adminGroup.PUT("/models", controller.UpdateModelMeta)
+			adminGroup.DELETE("/models/:id", controller.DeleteModelMeta)
+
+			// Deployments
+			adminGroup.GET("/deployments/settings", controller.GetModelDeploymentSettings)
+			adminGroup.POST("/deployments/settings/test-connection", controller.TestIoNetConnection)
+			adminGroup.GET("/deployments", controller.GetAllDeployments)
+			adminGroup.GET("/deployments/search", controller.SearchDeployments)
+			adminGroup.POST("/deployments/test-connection", controller.TestIoNetConnection)
+			adminGroup.GET("/deployments/hardware-types", controller.GetHardwareTypes)
+			adminGroup.GET("/deployments/locations", controller.GetLocations)
+			adminGroup.GET("/deployments/available-replicas", controller.GetAvailableReplicas)
+			adminGroup.POST("/deployments/price-estimation", controller.GetPriceEstimation)
+			adminGroup.GET("/deployments/check-name", controller.CheckClusterNameAvailability)
+			adminGroup.POST("/deployments", controller.CreateDeployment)
+			adminGroup.GET("/deployments/:id", controller.GetDeployment)
+			adminGroup.GET("/deployments/:id/logs", controller.GetDeploymentLogs)
+			adminGroup.GET("/deployments/:id/containers", controller.ListDeploymentContainers)
+			adminGroup.GET("/deployments/:id/containers/:container_id", controller.GetContainerDetails)
+			adminGroup.PUT("/deployments/:id", controller.UpdateDeployment)
+			adminGroup.PUT("/deployments/:id/name", controller.UpdateDeploymentName)
+			adminGroup.POST("/deployments/:id/extend", controller.ExtendDeployment)
+			adminGroup.DELETE("/deployments/:id", controller.DeleteDeployment)
 		}
 	}
 }

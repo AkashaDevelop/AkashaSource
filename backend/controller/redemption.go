@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,7 +27,7 @@ func GetAllRedemptions(c *gin.Context) {
 	var total int64
 	db.Count(&total)
 	var redemptions []model.Redemption
-	if err := db.Limit(size).Offset((page-1)*size).Order("id desc").Find(&redemptions).Error; err != nil {
+	if err := db.Limit(size).Offset((page - 1) * size).Order("id desc").Find(&redemptions).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "获取兑换码失败")
 		return
 	}
@@ -72,7 +73,9 @@ func UpdateRedemptionStatus(c *gin.Context) {
 		common.Fail(c, common.CodeParamError, "无效的 ID")
 		return
 	}
-	var body struct{ Status int `json:"status"` }
+	var body struct {
+		Status int `json:"status"`
+	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		common.Fail(c, common.CodeParamError, err.Error())
 		return
@@ -118,6 +121,101 @@ func BatchRedemptionAction(c *gin.Context) {
 
 type UseRedemptionRequest struct {
 	Code string `json:"code" binding:"required"`
+}
+
+func SearchRedemptions(c *gin.Context) {
+	GetAllRedemptions(c)
+}
+
+func GetRedemption(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.Fail(c, common.CodeParamError, "无效的 ID")
+		return
+	}
+	var r model.Redemption
+	if err := common.DB.First(&r, id).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "兑换码不存在")
+		return
+	}
+	common.OK(c, r)
+}
+
+func AddRedemption(c *gin.Context) {
+	// 兼容 new-api 的 /redemption POST 语义
+	GenerateRedemptionCodes(c)
+}
+
+func UpdateRedemption(c *gin.Context) {
+	statusOnly := c.Query("status_only")
+	var body struct {
+		Id     int    `json:"id"`
+		Name   string `json:"name"`
+		Quota  int64  `json:"quota"`
+		Status int    `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		common.Fail(c, common.CodeParamError, err.Error())
+		return
+	}
+	if body.Id <= 0 {
+		common.Fail(c, common.CodeParamError, "无效的 ID")
+		return
+	}
+
+	var r model.Redemption
+	if err := common.DB.First(&r, body.Id).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "兑换码不存在")
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if strings.TrimSpace(statusOnly) != "" {
+		updates["status"] = body.Status
+	} else {
+		updates["name"] = body.Name
+		updates["quota"] = body.Quota
+	}
+	if len(updates) == 0 {
+		common.OKMsg(c, "无更新字段", r)
+		return
+	}
+	if err := common.DB.Model(&r).Updates(updates).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "更新失败")
+		return
+	}
+	if err := common.DB.First(&r, body.Id).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "更新后读取失败")
+		return
+	}
+	common.OK(c, r)
+}
+
+func DeleteInvalidRedemption(c *gin.Context) {
+	result := common.DB.Where("status IN ?", []int{model.RedemptionStatusUsed, model.RedemptionStatusDisabled}).Delete(&model.Redemption{})
+	if result.Error != nil {
+		common.Fail(c, common.CodeServerError, "删除无效兑换码失败")
+		return
+	}
+	common.OK(c, result.RowsAffected)
+}
+
+func DeleteRedemption(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.Fail(c, common.CodeParamError, "无效的 ID")
+		return
+	}
+	result := common.DB.Delete(&model.Redemption{}, id)
+	if result.Error != nil {
+		common.Fail(c, common.CodeServerError, "删除兑换码失败")
+		return
+	}
+	if result.RowsAffected == 0 {
+		common.Fail(c, common.CodeNotFound, "兑换码不存在")
+		return
+	}
+	common.OKMsg(c, "删除成功", nil)
 }
 
 func UseRedemptionCode(c *gin.Context) {

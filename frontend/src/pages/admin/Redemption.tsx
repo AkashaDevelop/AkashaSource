@@ -50,7 +50,7 @@ export default function RedemptionManagement() {
       const params = new URLSearchParams({ p: page.toString(), size: '10' });
       if (statusFilter) params.set('status', statusFilter);
       if (keyword) params.set('keyword', keyword);
-      const res = await fetch(`/api/redemption?${params}`, {
+      const res = await fetch(`/api/redemption/search?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();

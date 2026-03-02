@@ -36,7 +36,7 @@ export default function SubscriptionManagement() {
   const [loading, setLoading] = useState(false);
 
   const fetchPlans = async () => {
-    const res = await fetch('/api/subscription/plan', { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch('/api/subscription/admin/plans', { headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json();
     if (data.code === 0) setPlans(data.data || []);
   };
@@ -51,7 +51,8 @@ export default function SubscriptionManagement() {
     setLoading(true);
     try {
       const method = isNew ? 'POST' : 'PUT';
-      const res = await fetch('/api/subscription/plan', {
+      const url = isNew ? '/api/subscription/admin/plans' : `/api/subscription/admin/plans/${editing.id}`;
+      const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(editing),
@@ -78,10 +79,10 @@ export default function SubscriptionManagement() {
   };
 
   const toggleEnabled = async (p: Plan) => {
-    const res = await fetch('/api/subscription/plan', {
-      method: 'PUT',
+    const res = await fetch(`/api/subscription/admin/plans/${p.id}`, {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ ...p, enabled: !p.enabled }),
+      body: JSON.stringify({ enabled: !p.enabled }),
     });
     const data = await res.json();
     if (data.code === 0) fetchPlans();

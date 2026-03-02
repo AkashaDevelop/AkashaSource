@@ -81,6 +81,15 @@ const (
 	// WeChat Open Platform
 	OptionKeyWechatAppId     = "wechat_app_id"
 	OptionKeyWechatAppSecret = "wechat_app_secret"
+
+	// Passkey
+	OptionKeyPasskeyEnabled          = "passkey_enabled"
+	OptionKeyPasskeyRPID             = "passkey_rp_id"
+	OptionKeyPasskeyRPDisplayName    = "passkey_display_name"
+	OptionKeyPasskeyOrigins          = "passkey_origins"
+	OptionKeyPasskeyAllowInsecure    = "passkey_allow_insecure"
+	OptionKeyPasskeyUserVerification = "passkey_user_verification"
+	OptionKeyPasskeyAttachment       = "passkey_attachment"
 )
 
 func InitOptions() {
@@ -97,6 +106,13 @@ func InitOptions() {
 	common.DB.AutoMigrate(&SunoTask{})
 	common.DB.AutoMigrate(&SubscriptionPlan{})
 	common.DB.AutoMigrate(&UserSubscription{})
+	common.DB.AutoMigrate(&PasskeyCredential{})
+	common.DB.AutoMigrate(&CustomOAuthProvider{})
+	common.DB.AutoMigrate(&UserOAuthBinding{})
+	common.DB.AutoMigrate(&Vendor{})
+	common.DB.AutoMigrate(&ModelMeta{})
+	common.DB.AutoMigrate(&Deployment{})
+	common.DB.AutoMigrate(&PrefillGroup{})
 	ApplyMigrations()
 	_ = ApplySQLFileMigrations()
 

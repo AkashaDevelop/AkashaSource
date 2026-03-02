@@ -18,6 +18,7 @@ import {
   Textarea,
   Tabs,
   Tab,
+  Pagination,
 } from '../../components/ui';
 import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap, Download, DollarSign, Search } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
@@ -39,6 +40,14 @@ interface Channel {
   status: number;
   response_time: number;
   balance: number;
+}
+
+interface MultiKeyStatusItem {
+  index: number;
+  status: number;
+  disabled_time: number;
+  reason: string;
+  key_preview: string;
 }
 
 const CHANNEL_TYPES = [
@@ -64,6 +73,7 @@ const CHANNEL_TYPES = [
   { key: '55', label: 'Groq' },
   { key: '56', label: 'Together AI' },
   { key: '57', label: 'Perplexity' },
+  { key: '58', label: 'Codex' },
 ];
 
 export default function ChannelManagement() {
@@ -80,6 +90,19 @@ export default function ChannelManagement() {
   const [batchTesting, setBatchTesting] = useState(false);
   const [fetchingModels, setFetchingModels] = useState<number | null>(null);
   const [fetchingBalance, setFetchingBalance] = useState<number | null>(null);
+  const [operatingId, setOperatingId] = useState<number | null>(null);
+  const { isOpen: isMultiKeyOpen, onOpen: onMultiKeyOpen, onOpenChange: onMultiKeyOpenChange } = useDisclosure();
+  const [multiKeyChannel, setMultiKeyChannel] = useState<Channel | null>(null);
+  const [multiKeyRows, setMultiKeyRows] = useState<MultiKeyStatusItem[]>([]);
+  const [multiKeyPage, setMultiKeyPage] = useState(1);
+  const [multiKeyPageSize, setMultiKeyPageSize] = useState(10);
+  const [multiKeyTotalPages, setMultiKeyTotalPages] = useState(1);
+  const [multiKeyTotal, setMultiKeyTotal] = useState(0);
+  const [multiKeyStatusFilter, setMultiKeyStatusFilter] = useState<'all' | '1' | '2' | '3'>('all');
+  const [multiKeySummary, setMultiKeySummary] = useState({ enabled: 0, manual: 0, auto: 0 });
+  const [multiKeyLoading, setMultiKeyLoading] = useState(false);
+  const [multiKeyActionLoading, setMultiKeyActionLoading] = useState<string | null>(null);
+  const [multiKeyEditorText, setMultiKeyEditorText] = useState('');
 
   // Form State
   const [formData, setFormData] = useState({
@@ -394,6 +417,445 @@ export default function ChannelManagement() {
     }
   };
 
+  const handleCopyChannel = async (channelId: number) => {
+    setOperatingId(channelId);
+    try {
+      const suffix = window.prompt('复制后缀', '_复制') ?? '_复制';
+      const res = await fetch(`/api/channel/copy/${channelId}?suffix=${encodeURIComponent(suffix)}&reset_balance=true`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success('复制成功');
+        fetchChannels();
+      } else {
+        toast.error(data.msg || '复制失败');
+      }
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const handleOllamaPull = async (channelId: number) => {
+    const modelName = window.prompt('输入要拉取的 Ollama 模型名（如 llama3:8b）', 'llama3');
+    if (!modelName?.trim()) return;
+    setOperatingId(channelId);
+    try {
+      const res = await fetch('/api/channel/ollama/pull', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ channel_id: channelId, model_name: modelName.trim() }),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success(data.msg || '拉取成功');
+      } else {
+        toast.error(data.msg || '拉取失败');
+      }
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const handleOllamaDelete = async (channelId: number) => {
+    const modelName = window.prompt('输入要删除的 Ollama 模型名', 'llama3');
+    if (!modelName?.trim()) return;
+    setOperatingId(channelId);
+    try {
+      const res = await fetch('/api/channel/ollama/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ channel_id: channelId, model_name: modelName.trim() }),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success(data.msg || '删除成功');
+      } else {
+        toast.error(data.msg || '删除失败');
+      }
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const handleOllamaPullStream = async (channelId: number) => {
+    const modelName = window.prompt('输入要流式拉取的 Ollama 模型名', 'llama3');
+    if (!modelName?.trim()) return;
+    setOperatingId(channelId);
+    try {
+      const res = await fetch('/api/channel/ollama/pull/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ channel_id: channelId, model_name: modelName.trim() }),
+      });
+      if (!res.ok || !res.body) {
+        toast.error('流式拉取失败');
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let lastStatus = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const payload = trimmed.slice(5).trim();
+          if (payload === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(payload);
+            if (parsed?.status) lastStatus = parsed.status;
+            if (parsed?.message) lastStatus = parsed.message;
+            if (parsed?.error) {
+              toast.error(parsed.error);
+              return;
+            }
+          } catch {
+            // ignore non-json chunks
+          }
+        }
+      }
+      toast.success(lastStatus || '流式拉取完成');
+    } catch {
+      toast.error('流式拉取失败');
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const handleOllamaVersion = async (channelId: number) => {
+    setOperatingId(channelId);
+    try {
+      const res = await fetch(`/api/channel/ollama/version/${channelId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        const payload = data.data?.data || data.data;
+        toast.info(`Ollama 版本: ${payload?.version || '-'}`);
+      } else {
+        toast.error(data.msg || '查询版本失败');
+      }
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const fetchMultiKeyStatus = async (channelId: number, opts?: { page?: number; pageSize?: number; status?: 'all' | '1' | '2' | '3' }) => {
+    const page = opts?.page ?? multiKeyPage;
+    const pageSize = opts?.pageSize ?? multiKeyPageSize;
+    const status = opts?.status ?? multiKeyStatusFilter;
+    setMultiKeyLoading(true);
+    try {
+      const body: any = { channel_id: channelId, action: 'get_key_status', page, page_size: pageSize };
+      if (status !== 'all') body.status = parseInt(status, 10);
+      const res = await fetch('/api/channel/multi_key/manage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.code !== 0) {
+        toast.error(data.msg || '获取多Key状态失败');
+        return;
+      }
+      const stat = data.data?.data || data.data;
+      setMultiKeyRows(stat?.keys || []);
+      setMultiKeyPage(stat?.page || page);
+      setMultiKeyPageSize(stat?.page_size || pageSize);
+      setMultiKeyTotal(stat?.total || 0);
+      setMultiKeyTotalPages(stat?.total_pages || 1);
+      setMultiKeySummary({
+        enabled: stat?.enabled_count || 0,
+        manual: stat?.manual_disabled_count || 0,
+        auto: stat?.auto_disabled_count || 0,
+      });
+    } finally {
+      setMultiKeyLoading(false);
+    }
+  };
+
+  const handleGetMultiKeyStatus = async (channelId: number) => {
+    const current = channels.find((c) => c.id === channelId) || null;
+    setMultiKeyChannel(current);
+    setMultiKeyStatusFilter('all');
+    setMultiKeyPage(1);
+    setMultiKeyPageSize(10);
+    setMultiKeyEditorText(current?.key || '');
+    onMultiKeyOpen();
+    await fetchMultiKeyStatus(channelId, { page: 1, pageSize: 10, status: 'all' });
+  };
+
+  const doMultiKeyAction = async (action: string, keyIndex?: number) => {
+    if (!multiKeyChannel) return;
+    const loadingKey = `${action}:${keyIndex ?? 'all'}`;
+    setMultiKeyActionLoading(loadingKey);
+    try {
+      const body: any = { channel_id: multiKeyChannel.id, action };
+      if (typeof keyIndex === 'number') body.key_index = keyIndex;
+      const res = await fetch('/api/channel/multi_key/manage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success('操作成功');
+        await fetchMultiKeyStatus(multiKeyChannel.id);
+      } else {
+        toast.error(data.msg || '操作失败');
+      }
+    } finally {
+      setMultiKeyActionLoading(null);
+    }
+  };
+
+  const getKeyStatusText = (status: number) => {
+    if (status === 1) return '启用';
+    if (status === 2) return '手动禁用';
+    if (status === 3) return '自动禁用';
+    return `未知(${status})`;
+  };
+
+  const getKeyStatusColor = (status: number): 'success' | 'warning' | 'danger' | 'default' => {
+    if (status === 1) return 'success';
+    if (status === 2) return 'warning';
+    if (status === 3) return 'danger';
+    return 'default';
+  };
+
+  const formatUnix = (ts: number) => {
+    if (!ts) return '-';
+    return new Date(ts * 1000).toLocaleString();
+  };
+
+  const handleEnableAllKeys = async (channelId: number) => {
+    setOperatingId(channelId);
+    try {
+      const res = await fetch('/api/channel/multi_key/manage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ channel_id: channelId, action: 'enable_all_keys' }),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success('已启用全部 Key');
+      } else {
+        toast.error(data.msg || '启用失败');
+      }
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const handleDisableAllKeys = async (channelId: number) => {
+    setOperatingId(channelId);
+    try {
+      const res = await fetch('/api/channel/multi_key/manage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ channel_id: channelId, action: 'disable_all_keys' }),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success('已禁用全部 Key');
+      } else {
+        toast.error(data.msg || '禁用失败');
+      }
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const handleCodexOAuthStart = async (channelId: number) => {
+    setOperatingId(channelId);
+    try {
+      const res = await fetch(`/api/channel/${channelId}/codex/oauth/start`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code !== 0) {
+        toast.error(data.msg || '获取授权链接失败');
+        return;
+      }
+      const payload = data.data?.data || data.data;
+      const authorizeUrl = payload?.authorize_url;
+      if (!authorizeUrl) {
+        toast.error('后端未返回授权链接');
+        return;
+      }
+      window.open(authorizeUrl, '_blank');
+      toast.success('已打开 Codex 授权链接');
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const handleCodexOAuthComplete = async (channelId: number) => {
+    const input = window.prompt('粘贴 Codex 回调（code#state 或完整 URL）', '');
+    if (!input?.trim()) return;
+    setOperatingId(channelId);
+    try {
+      const res = await fetch(`/api/channel/${channelId}/codex/oauth/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ input: input.trim() }),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success('Codex OAuth 完成并已写入渠道');
+        fetchChannels();
+      } else {
+        toast.error(data.msg || 'Codex OAuth 完成失败');
+      }
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const handleCodexRefresh = async (channelId: number) => {
+    setOperatingId(channelId);
+    try {
+      const res = await fetch(`/api/channel/${channelId}/codex/refresh`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success('Codex 凭据刷新成功');
+      } else {
+        toast.error(data.msg || 'Codex 凭据刷新失败');
+      }
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const handleSetSingleTag = async (channelId: number) => {
+    const tag = window.prompt('输入标签（会覆盖该渠道 tags 字段）', '');
+    if (!tag?.trim()) return;
+    setOperatingId(channelId);
+    try {
+      const res = await fetch('/api/channel/batch/tag', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ids: [channelId], tag: tag.trim() }),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success('标签更新成功');
+        fetchChannels();
+      } else {
+        toast.error(data.msg || '标签更新失败');
+      }
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const handleGetTagModels = async (initialTag?: string) => {
+    const tag = window.prompt('输入标签，查询该标签下模型列表', initialTag || '');
+    if (!tag?.trim()) return;
+    setOperatingId(-2);
+    try {
+      const res = await fetch(`/api/channel/tag/models?tag=${encodeURIComponent(tag.trim())}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        const payload = data.data?.data ?? data.data;
+        toast.info(`标签[${tag}]模型: ${payload || '(空)'}`);
+      } else {
+        toast.error(data.msg || '查询标签模型失败');
+      }
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const handleCodexUsage = async (channelId: number) => {
+    setOperatingId(channelId);
+    try {
+      const res = await fetch(`/api/channel/${channelId}/codex/usage`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        const payload = data.data?.data || data.data;
+        toast.info(`Codex 用量: ${JSON.stringify(payload)}`);
+      } else {
+        toast.error(data.msg || '查询 Codex 用量失败');
+      }
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
+  const handleSetMultiKeys = async () => {
+    if (!multiKeyChannel) return;
+    const keys = multiKeyEditorText.split('\n').map((v) => v.trim()).filter(Boolean);
+    if (keys.length === 0) {
+      toast.error('至少保留一个 Key');
+      return;
+    }
+    if (!await confirm({ title: '覆盖多 Key', message: `将覆盖该渠道全部 Key，共 ${keys.length} 个，是否继续？`, danger: true })) return;
+    setMultiKeyActionLoading('set:all');
+    try {
+      const res = await fetch('/api/channel/multi_key/manage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ channel_id: multiKeyChannel.id, action: 'set', keys }),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success('多 Key 已更新');
+        await fetchMultiKeyStatus(multiKeyChannel.id, { page: 1 });
+        await fetchChannels();
+      } else {
+        toast.error(data.msg || '更新多 Key 失败');
+      }
+    } finally {
+      setMultiKeyActionLoading(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -427,6 +889,9 @@ export default function ChannelManagement() {
           </Button>
           <Button startContent={<Upload size={18} />} onPress={onBatchOpen} variant="flat" color="secondary">
             批量导入
+          </Button>
+          <Button startContent={<Search size={18} />} onPress={() => handleGetTagModels(tagFilter)} variant="flat" color="secondary">
+            标签模型
           </Button>
           <Button startContent={<Download size={18} />} variant="flat" onPress={async () => {
             const res = await fetch('/api/export/channel', { headers: { Authorization: `Bearer ${token}` } });
@@ -469,9 +934,34 @@ export default function ChannelManagement() {
                 <td>${channel.balance.toFixed(2)}</td>
                 <td>{channel.priority}</td>
                 <td>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Tooltip content="测试"><span className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${testingId === channel.id ? 'animate-spin' : ''}`} onClick={() => handleTest(channel.id)}><Activity size={18} /></span></Tooltip>
                     <Tooltip content="查询余额"><span className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${fetchingBalance === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleFetchBalance(channel.id)}><DollarSign size={18} /></span></Tooltip>
+                    <Tooltip content="复制渠道"><span className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleCopyChannel(channel.id)}><Plus size={18} /></span></Tooltip>
+                    {channel.type === 47 && (
+                      <>
+                        <Tooltip content="Ollama 拉取模型"><span className={`text-lg text-secondary cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleOllamaPull(channel.id)}><Download size={18} /></span></Tooltip>
+                        <Tooltip content="Ollama 流式拉取"><span className={`text-lg text-primary cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleOllamaPullStream(channel.id)}><RefreshCw size={18} /></span></Tooltip>
+                        <Tooltip content="Ollama 版本"><span className={`text-lg text-success cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleOllamaVersion(channel.id)}><Activity size={18} /></span></Tooltip>
+                        <Tooltip content="Ollama 删除模型"><span className={`text-lg text-warning cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleOllamaDelete(channel.id)}><Trash2 size={18} /></span></Tooltip>
+                      </>
+                    )}
+                    {channel.key?.includes('\n') && (
+                      <>
+                        <Tooltip content="查看多 Key 状态"><span className={`text-lg text-primary cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleGetMultiKeyStatus(channel.id)}><Zap size={18} /></span></Tooltip>
+                        <Tooltip content="启用全部 Key"><span className={`text-lg text-success cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleEnableAllKeys(channel.id)}><Power size={18} /></span></Tooltip>
+                        <Tooltip content="禁用全部 Key"><span className={`text-lg text-warning cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleDisableAllKeys(channel.id)}><RefreshCw size={18} /></span></Tooltip>
+                      </>
+                    )}
+                    <Tooltip content="设置标签"><span className={`text-lg text-success cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleSetSingleTag(channel.id)}><Search size={18} /></span></Tooltip>
+                    {channel.type === 58 && (
+                      <>
+                        <Tooltip content="Codex OAuth 开始"><span className={`text-lg text-primary cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleCodexOAuthStart(channel.id)}><Power size={18} /></span></Tooltip>
+                        <Tooltip content="Codex OAuth 完成"><span className={`text-lg text-secondary cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleCodexOAuthComplete(channel.id)}><Activity size={18} /></span></Tooltip>
+                        <Tooltip content="Codex 凭据刷新"><span className={`text-lg text-warning cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleCodexRefresh(channel.id)}><RefreshCw size={18} /></span></Tooltip>
+                        <Tooltip content="Codex 用量"><span className={`text-lg text-success cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleCodexUsage(channel.id)}><DollarSign size={18} /></span></Tooltip>
+                      </>
+                    )}
                     <Tooltip content="编辑"><span className="text-lg text-default-400 cursor-pointer active:opacity-50" onClick={() => handleEdit(channel)}><Edit size={18} /></span></Tooltip>
                     <Tooltip content="删除"><span className="text-lg text-danger cursor-pointer active:opacity-50" onClick={() => handleDelete(channel.id)}><Trash2 size={18} /></span></Tooltip>
                   </div>
@@ -619,6 +1109,202 @@ export default function ChannelManagement() {
                 <Button color="primary" onPress={() => handleSubmit(onClose)}>
                   保存
                 </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={isMultiKeyOpen} onOpenChange={onMultiKeyOpenChange} size="xl" scrollBehavior="inside">
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader>
+                多 Key 管理 {multiKeyChannel ? `#${multiKeyChannel.id} ${multiKeyChannel.name}` : ''}
+              </ModalHeader>
+              <ModalBody className="space-y-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Chip color="primary" variant="flat">总数 {multiKeyTotal}</Chip>
+                  <Chip color="success" variant="flat">启用 {multiKeySummary.enabled}</Chip>
+                  <Chip color="warning" variant="flat">手禁 {multiKeySummary.manual}</Chip>
+                  <Chip color="danger" variant="flat">自禁 {multiKeySummary.auto}</Chip>
+                </div>
+
+                <div className="flex items-end gap-2 flex-wrap">
+                  <Select
+                    label="状态筛选"
+                    selectedKeys={[multiKeyStatusFilter]}
+                    className="w-40"
+                    onSelectionChange={(keys) => {
+                      if (!multiKeyChannel) return;
+                      const v = ([...keys][0] as 'all' | '1' | '2' | '3') || 'all';
+                      setMultiKeyStatusFilter(v);
+                      setMultiKeyPage(1);
+                      fetchMultiKeyStatus(multiKeyChannel.id, { page: 1, pageSize: multiKeyPageSize, status: v });
+                    }}
+                  >
+                    <SelectItem key="all">全部</SelectItem>
+                    <SelectItem key="1">启用</SelectItem>
+                    <SelectItem key="2">手动禁用</SelectItem>
+                    <SelectItem key="3">自动禁用</SelectItem>
+                  </Select>
+
+                  <Select
+                    label="每页"
+                    selectedKeys={[String(multiKeyPageSize)]}
+                    className="w-28"
+                    onSelectionChange={(keys) => {
+                      if (!multiKeyChannel) return;
+                      const v = parseInt(([...keys][0] as string) || '10', 10);
+                      setMultiKeyPageSize(v);
+                      setMultiKeyPage(1);
+                      fetchMultiKeyStatus(multiKeyChannel.id, { page: 1, pageSize: v });
+                    }}
+                  >
+                    <SelectItem key="10">10</SelectItem>
+                    <SelectItem key="20">20</SelectItem>
+                    <SelectItem key="50">50</SelectItem>
+                  </Select>
+
+                  <Button
+                    variant="flat"
+                    startContent={<RefreshCw size={14} />}
+                    isLoading={multiKeyLoading}
+                    onPress={() => multiKeyChannel && fetchMultiKeyStatus(multiKeyChannel.id)}
+                  >
+                    刷新
+                  </Button>
+                  <Button
+                    color="success"
+                    variant="flat"
+                    isLoading={multiKeyActionLoading === 'enable_all_keys:all'}
+                    onPress={() => doMultiKeyAction('enable_all_keys')}
+                  >
+                    全部启用
+                  </Button>
+                  <Button
+                    color="warning"
+                    variant="flat"
+                    isLoading={multiKeyActionLoading === 'disable_all_keys:all'}
+                    onPress={() => doMultiKeyAction('disable_all_keys')}
+                  >
+                    全部禁用
+                  </Button>
+                  <Button
+                    color="danger"
+                    variant="flat"
+                    isLoading={multiKeyActionLoading === 'delete_disabled_keys:all'}
+                    onPress={async () => {
+                      if (!await confirm({ title: '删除自动禁用 Key', message: '将删除全部自动禁用（状态=3）的 Key，是否继续？', danger: true })) return;
+                      doMultiKeyAction('delete_disabled_keys');
+                    }}
+                  >
+                    删除自动禁用
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <span className="text-small font-medium">覆盖设置 Key 列表（每行一个）</span>
+                  <Textarea
+                    minRows={4}
+                    placeholder="每行一个 Key"
+                    value={multiKeyEditorText}
+                    onValueChange={setMultiKeyEditorText}
+                    description="提交后将重建多 Key 列表并清空历史禁用状态"
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      color="secondary"
+                      variant="flat"
+                      isLoading={multiKeyActionLoading === 'set:all'}
+                      onPress={handleSetMultiKeys}
+                    >
+                      覆盖保存 Key 列表
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="data-table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>预览</th>
+                        <th>状态</th>
+                        <th>禁用时间</th>
+                        <th>原因</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {multiKeyLoading ? (
+                        <LoadingRows cols={6} rows={5} />
+                      ) : multiKeyRows.length === 0 ? (
+                        <tr><td colSpan={6}><EmptyState icon="🔑" title="暂无 Key 数据" description="当前筛选条件下没有结果" /></td></tr>
+                      ) : multiKeyRows.map((row) => (
+                        <tr key={row.index}>
+                          <td>{row.index}</td>
+                          <td className="font-mono text-xs">{row.key_preview || '-'}</td>
+                          <td><Chip size="sm" color={getKeyStatusColor(row.status)} variant="flat">{getKeyStatusText(row.status)}</Chip></td>
+                          <td>{formatUnix(row.disabled_time)}</td>
+                          <td>{row.reason || '-'}</td>
+                          <td>
+                            <div className="flex items-center gap-2">
+                              {row.status !== 1 ? (
+                                <Button
+                                  size="sm"
+                                  color="success"
+                                  variant="flat"
+                                  isLoading={multiKeyActionLoading === `enable_key:${row.index}`}
+                                  onPress={() => doMultiKeyAction('enable_key', row.index)}
+                                >
+                                  启用
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  color="warning"
+                                  variant="flat"
+                                  isLoading={multiKeyActionLoading === `disable_key:${row.index}`}
+                                  onPress={() => doMultiKeyAction('disable_key', row.index)}
+                                >
+                                  禁用
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                color="danger"
+                                variant="light"
+                                isLoading={multiKeyActionLoading === `delete_key:${row.index}`}
+                                onPress={async () => {
+                                  if (!await confirm({ title: '删除 Key', message: `确定删除索引 ${row.index} 的 Key？`, danger: true })) return;
+                                  doMultiKeyAction('delete_key', row.index);
+                                }}
+                              >
+                                删除
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex justify-end">
+                  <Pagination
+                    page={multiKeyPage}
+                    total={multiKeyTotalPages}
+                    onChange={(p) => {
+                      if (!multiKeyChannel) return;
+                      setMultiKeyPage(p);
+                      fetchMultiKeyStatus(multiKeyChannel.id, { page: p });
+                    }}
+                  />
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button variant="light" color="danger" onPress={onClose}>关闭</Button>
               </ModalFooter>
             </>
           )}

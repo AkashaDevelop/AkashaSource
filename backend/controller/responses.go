@@ -162,6 +162,12 @@ func RelayResponses(c *gin.Context) {
 	sendResponsesError(c, http.StatusServiceUnavailable, "server_error", errMsg)
 }
 
+// RelayResponsesCompact provides compatibility for POST /v1/responses/compact.
+// Current implementation keeps the same behavior as /v1/responses.
+func RelayResponsesCompact(c *gin.Context) {
+	RelayResponses(c)
+}
+
 func sendResponsesError(c *gin.Context, status int, code, message string) {
 	c.JSON(status, gin.H{
 		"error": gin.H{
@@ -227,10 +233,10 @@ func normalChatToResponses(c *gin.Context, resp *http.Response, responseID, mode
 	if len(chatResp.Choices) > 0 {
 		msg := chatResp.Choices[0].Message
 		outputItem := map[string]interface{}{
-			"type":    "message",
-			"id":      fmt.Sprintf("msg_%s", common.GetUUID()),
-			"status":  "completed",
-			"role":    "assistant",
+			"type":   "message",
+			"id":     fmt.Sprintf("msg_%s", common.GetUUID()),
+			"status": "completed",
+			"role":   "assistant",
 			"content": []map[string]interface{}{
 				{"type": "output_text", "text": msg.Content},
 			},
@@ -294,9 +300,9 @@ func streamChatToResponses(c *gin.Context, resp *http.Response, responseID, mode
 				"item":         gin.H{"type": "message", "id": msgID, "role": "assistant", "status": "in_progress"},
 			})
 			writeResponsesSSE(c, "response.content_part.added", gin.H{
-				"output_index":     0,
-				"content_index":    0,
-				"part":             gin.H{"type": "output_text", "text": ""},
+				"output_index":  0,
+				"content_index": 0,
+				"part":          gin.H{"type": "output_text", "text": ""},
 			})
 			started = true
 		}

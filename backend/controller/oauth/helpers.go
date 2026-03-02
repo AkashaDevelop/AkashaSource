@@ -36,6 +36,11 @@ func generateState() string {
 	return state
 }
 
+// GenerateStateToken exports OAuth state generation for unified API endpoint.
+func GenerateStateToken() string {
+	return generateState()
+}
+
 // verifyState validates and consumes a state token (one-time use)
 func verifyState(state string) bool {
 	if state == "" {

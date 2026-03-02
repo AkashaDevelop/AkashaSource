@@ -12,7 +12,10 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-var DB *gorm.DB
+var (
+	DB       *gorm.DB
+	DBDriver string
+)
 
 // InitDB 初始化数据库连接
 // driver: sqlite, mysql, postgres
@@ -62,5 +65,6 @@ func InitDB(driver string, dsn string) {
 	sqlDB.SetMaxOpenConns(100)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
+	DBDriver = driver
 	log.Printf("Database connected successfully (%s)", driver)
 }
