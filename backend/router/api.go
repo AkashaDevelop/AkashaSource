@@ -101,6 +101,12 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/oauth/state", middleware.CriticalRateLimitMiddleware(), controller.GenerateOAuthCode)
 		apiRouter.GET("/oauth/:provider", middleware.CriticalRateLimitMiddleware(), controller.HandleOAuth)
 		apiRouter.POST("/verify", middleware.AuthMiddleware(), middleware.CriticalRateLimitMiddleware(), controller.UniversalVerify)
+		apiRouter.GET("/uptime/status", controller.GetUptimeStatus)
+		apiRouter.GET("/status/test", middleware.AuthMiddleware(), middleware.AdminAuthMiddleware(), controller.TestStatus)
+		apiRouter.GET("/verification", middleware.CriticalRateLimitMiddleware(), controller.SendEmailVerification)
+		apiRouter.GET("/reset_password", middleware.CriticalRateLimitMiddleware(), controller.SendPasswordResetEmail)
+		apiRouter.POST("/user/reset", middleware.CriticalRateLimitMiddleware(), controller.ResetPassword)
+		apiRouter.GET("/ratio_config", middleware.CriticalRateLimitMiddleware(), controller.GetRatioConfig)
 
 		apiRouter.POST("/user/login", middleware.CriticalRateLimitMiddleware(), controller.UserLogin)
 		apiRouter.POST("/user/register", middleware.CriticalRateLimitMiddleware(), controller.UserRegister)
@@ -305,6 +311,12 @@ func SetApiRouter(router *gin.Engine) {
 
 			// 运维监控
 			adminGroup.GET("/performance", controller.GetPerformance)
+			adminGroup.GET("/performance/stats", controller.GetPerformanceStats)
+			adminGroup.DELETE("/performance/disk_cache", controller.ClearDiskCache)
+			adminGroup.POST("/performance/reset_stats", controller.ResetPerformanceStats)
+			adminGroup.POST("/performance/gc", controller.ForceGC)
+			adminGroup.GET("/option/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
+			adminGroup.DELETE("/option/channel_affinity_cache", controller.ClearChannelAffinityCache)
 			adminGroup.DELETE("/log", controller.DeleteLogs)
 
 			// 订阅套餐管理

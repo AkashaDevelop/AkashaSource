@@ -34,6 +34,25 @@
   - `new-api/router/api-router.go` 中 `uptime/status`、部分第三方支付/绑定流程、部分历史管理接口。
 - 以上差异当前不影响本仓库既有前后端联调主链路，后续可按业务优先级逐步纳入。
 
+### 二次完善（功能一致性）
+- 补齐状态与健康相关能力：
+  - `GET /api/uptime/status`
+  - `GET /api/status/test`
+- 补齐邮箱验证与重置密码能力：
+  - `GET /api/verification`
+  - `GET /api/reset_password`
+  - `POST /api/user/reset`
+- 补齐比率配置读取能力：
+  - `GET /api/ratio_config`（返回 `model_ratio` 与 `completion_ratio`）
+- 补齐性能与运维兼容能力：
+  - `GET /api/performance/stats`
+  - `DELETE /api/performance/disk_cache`
+  - `POST /api/performance/reset_stats`
+  - `POST /api/performance/gc`
+  - `GET /api/option/channel_affinity_cache`
+  - `DELETE /api/option/channel_affinity_cache`
+- 新增兼容控制器：`backend/controller/newapi_compat_extra.go`。
+
 ### 构建与验收
 - Backend: `go build ./...` 通过。
 - Frontend: `npm run build` 通过。
