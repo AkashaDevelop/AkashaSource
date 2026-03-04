@@ -214,6 +214,7 @@ curl http://localhost:8080/v1/chat/completions \
 | `POST /suno/submit/*` | Suno AI 音乐生成 |
 | `GET /api/key/info` | API Key 额度查询 (neko-api-key-tool 兼容) |
 
+
 ### CLI 工具配置
 
 **Claude Code CLI**

@@ -13,6 +13,25 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	BillingPreferenceSubscriptionFirst = "subscription_first"
+	BillingPreferenceWalletFirst       = "wallet_first"
+	BillingPreferenceSubscriptionOnly  = "subscription_only"
+	BillingPreferenceWalletOnly        = "wallet_only"
+)
+
+func normalizeBillingPreference(pref string) string {
+	switch strings.TrimSpace(pref) {
+	case BillingPreferenceSubscriptionFirst,
+		BillingPreferenceWalletFirst,
+		BillingPreferenceSubscriptionOnly,
+		BillingPreferenceWalletOnly:
+		return strings.TrimSpace(pref)
+	default:
+		return BillingPreferenceSubscriptionFirst
+	}
+}
+
 // ─── Admin: Plan CRUD ───────────────────────────────────────────────────────
 
 func GetAllSubscriptionPlans(c *gin.Context) {
@@ -164,6 +183,10 @@ func buildSubscriptionEpayUrl(order model.PaymentOrder, plan model.SubscriptionP
 
 // ─── User: My subscriptions ──────────────────────────────────────────────────
 
+type billingPreferenceRequest struct {
+	BillingPreference string `json:"billing_preference"`
+}
+
 func GetMySubscriptions(c *gin.Context) {
 	userId := c.GetInt("id")
 	model.ExpireSubscriptions()
@@ -171,6 +194,72 @@ func GetMySubscriptions(c *gin.Context) {
 	var subs []model.UserSubscription
 	common.DB.Preload("Plan").Where("user_id = ?", userId).Order("id desc").Find(&subs)
 	common.OK(c, subs)
+}
+
+// GetSubscriptionSelf 对齐 new-api 的 /api/subscription/self。
+func GetSubscriptionSelf(c *gin.Context) {
+	userId := c.GetInt("id")
+	if userId <= 0 {
+		common.Fail(c, common.CodeUnauthorized, "未登录")
+		return
+	}
+
+	model.ExpireSubscriptions()
+
+	var user model.User
+	if err := common.DB.Select("id", "billing_preference").First(&user, userId).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "用户不存在")
+		return
+	}
+	pref := normalizeBillingPreference(user.BillingPreference)
+
+	now := time.Now().Unix()
+	var activeSubs []model.UserSubscription
+	if err := common.DB.Preload("Plan").
+		Where("user_id = ? AND status = ? AND (expired_at = 0 OR expired_at > ?)", userId, model.SubStatusActive, now).
+		Order("id desc").
+		Find(&activeSubs).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "查询失败")
+		return
+	}
+
+	var allSubs []model.UserSubscription
+	if err := common.DB.Preload("Plan").
+		Where("user_id = ?", userId).
+		Order("id desc").
+		Find(&allSubs).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "查询失败")
+		return
+	}
+
+	common.OK(c, gin.H{
+		"billing_preference": pref,
+		"subscriptions":      activeSubs,
+		"all_subscriptions":  allSubs,
+	})
+}
+
+// UpdateSubscriptionPreference 对齐 new-api 的 /api/subscription/self/preference。
+func UpdateSubscriptionPreference(c *gin.Context) {
+	userId := c.GetInt("id")
+	if userId <= 0 {
+		common.Fail(c, common.CodeUnauthorized, "未登录")
+		return
+	}
+
+	var req billingPreferenceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, common.CodeParamError, "参数错误")
+		return
+	}
+	pref := normalizeBillingPreference(req.BillingPreference)
+
+	if err := common.DB.Model(&model.User{}).Where("id = ?", userId).Update("billing_preference", pref).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "更新失败")
+		return
+	}
+
+	common.OK(c, gin.H{"billing_preference": pref})
 }
 
 // ─── Internal: Activate subscription ────────────────────────────────────────

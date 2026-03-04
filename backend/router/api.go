@@ -245,6 +245,8 @@ func SetApiRouter(router *gin.Engine) {
 			authGroup.GET("/subscription/plans", controller.GetPublicSubscriptionPlans)
 			authGroup.POST("/subscription/subscribe", controller.CreateSubscriptionOrder)
 			authGroup.GET("/subscription/my", controller.GetMySubscriptions)
+			authGroup.GET("/subscription/self", controller.GetSubscriptionSelf)
+			authGroup.PUT("/subscription/self/preference", controller.UpdateSubscriptionPreference)
 			// 运营数据（new-api /data 兼容）
 			authGroup.GET("/data/self", controller.GetUserQuotaDates)
 		}
