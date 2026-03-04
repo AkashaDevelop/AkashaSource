@@ -53,7 +53,7 @@ func RelayRealtime(c *gin.Context) {
 	}
 
 	// 4. Select channel
-	channels, mappedModels, err := SelectChannel(modelName, user.Group)
+	channels, mappedModels, err := SelectChannelWithAffinity(modelName, user.Group, tokenKey, defaultChannelAffinityRule)
 	if err != nil || len(channels) == 0 {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": fmt.Sprintf("no channel for model: %s", modelName),
@@ -97,6 +97,7 @@ func RelayRealtime(c *gin.Context) {
 		return
 	}
 	defer upstreamConn.Close()
+	go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(tokenKey), channel.Id, mappedModel, 0, 0, 0)
 
 	// 7. Bidirectional pipe
 	done := make(chan struct{})

@@ -108,6 +108,30 @@ func SelectChannel(modelName string, userGroup string) ([]*model.Channel, []stri
 	return finalChannels, finalModels, nil
 }
 
+// SelectChannelWithAffinity 在常规选路结果上，优先命中渠道亲和缓存。
+func SelectChannelWithAffinity(modelName string, userGroup string, tokenKey string, ruleName string) ([]*model.Channel, []string, error) {
+	channels, mappedModels, err := SelectChannel(modelName, userGroup)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ruleName = strings.TrimSpace(ruleName)
+	if ruleName == "" {
+		ruleName = defaultChannelAffinityRule
+	}
+	keyFP := getChannelAffinityKeyFP(tokenKey)
+	if keyFP == "" {
+		return channels, mappedModels, nil
+	}
+
+	channelID, ok := getChannelAffinityChannelID(ruleName, userGroup, keyFP)
+	if !ok {
+		return channels, mappedModels, nil
+	}
+	newChannels, newModels := prioritizeAffinityChannel(channels, mappedModels, channelID)
+	return newChannels, newModels, nil
+}
+
 type Candidate struct {
 	Channel     model.Channel
 	MappedModel string

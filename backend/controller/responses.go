@@ -104,7 +104,7 @@ func RelayResponses(c *gin.Context) {
 	}
 
 	// 7. Select channels
-	channels, mappedModels, err := SelectChannel(openAIReq.Model, user.Group)
+	channels, mappedModels, err := SelectChannelWithAffinity(openAIReq.Model, user.Group, tokenKey, defaultChannelAffinityRule)
 	if err != nil {
 		sendResponsesError(c, http.StatusServiceUnavailable, "server_error",
 			fmt.Sprintf("no available channel for model: %s", openAIReq.Model))
@@ -153,6 +153,7 @@ func RelayResponses(c *gin.Context) {
 
 		if usage != nil {
 			go RecordConsumeLog(c, token, mappedModels[i], usage.PromptTokens, usage.CompletionTokens)
+			go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(tokenKey), channel.Id, mappedModels[i], usage.PromptTokens, usage.CompletionTokens, usage.CachedTokens)
 		}
 		return
 	}

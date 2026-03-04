@@ -97,6 +97,97 @@ func RelaySuno(c *gin.Context) {
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), respBody)
 }
 
+// RelaySunoFetch proxies Suno task fetch endpoints:
+// - POST /suno/fetch
+// - GET  /suno/fetch/:id
+func RelaySunoFetch(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
+			Message: "missing api key",
+			Type:    "invalid_request_error",
+		}})
+		return
+	}
+	tokenKey := strings.TrimPrefix(authHeader, "Bearer ")
+
+	var token model.Token
+	if err := common.DB.Where("key = ?", tokenKey).First(&token).Error; err != nil {
+		c.JSON(http.StatusUnauthorized, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
+			Message: "invalid api key",
+			Type:    "invalid_request_error",
+		}})
+		return
+	}
+
+	var channel model.Channel
+	if err := common.DB.Where("type = ? AND status = ?",
+		model.ChannelTypeSuno, model.ChannelStatusActive).
+		Order("priority DESC, RANDOM()").First(&channel).Error; err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no suno channel available"})
+		return
+	}
+
+	baseURL := strings.TrimSuffix(channel.BaseURL, "/")
+	targetURL := fmt.Sprintf("%s/suno/fetch", baseURL)
+	method := c.Request.Method
+
+	if method == http.MethodGet {
+		taskID := strings.TrimSpace(c.Param("id"))
+		if taskID != "" {
+			targetURL = fmt.Sprintf("%s/suno/fetch/%s", baseURL, taskID)
+		}
+		if raw := c.Request.URL.RawQuery; raw != "" {
+			targetURL += "?" + raw
+		}
+
+		req, err := http.NewRequest(http.MethodGet, targetURL, nil)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if channel.Key != "" {
+			req.Header.Set("Authorization", "Bearer "+channel.Key)
+		}
+
+		client := common.NewHTTPClient(channel.Proxy)
+		resp, err := client.Do(req)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+		respBody, _ := io.ReadAll(resp.Body)
+		c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), respBody)
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read body"})
+		return
+	}
+	req, err := http.NewRequest(http.MethodPost, targetURL, bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if channel.Key != "" {
+		req.Header.Set("Authorization", "Bearer "+channel.Key)
+	}
+
+	client := common.NewHTTPClient(channel.Proxy)
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), respBody)
+}
+
 // SunoNotify handles callback notifications from suno-api
 func SunoNotify(c *gin.Context) {
 	bodyBytes, err := io.ReadAll(c.Request.Body)

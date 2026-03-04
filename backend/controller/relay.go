@@ -211,7 +211,7 @@ func Relay(c *gin.Context) {
 	}
 
 	// 4. 选择渠道
-	channels, mappedModels, err := SelectChannel(openAIReq.Model, user.Group)
+	channels, mappedModels, err := SelectChannelWithAffinity(openAIReq.Model, user.Group, tokenKey, defaultChannelAffinityRule)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
 			Message: fmt.Sprintf("没有可用渠道，模型: %s", openAIReq.Model),
@@ -322,6 +322,16 @@ func Relay(c *gin.Context) {
 		}
 
 		go RecordConsumeLog(c, token, openAIReq.Model, promptTokens, completionTokens, cachedTokens)
+		go upsertChannelAffinity(
+			defaultChannelAffinityRule,
+			user.Group,
+			getChannelAffinityKeyFP(tokenKey),
+			channel.Id,
+			openAIReq.Model,
+			promptTokens,
+			completionTokens,
+			cachedTokens,
+		)
 
 		return
 	}

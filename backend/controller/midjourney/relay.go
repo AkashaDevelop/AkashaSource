@@ -162,6 +162,57 @@ func RelayMidjourney(c *gin.Context) {
 	c.Data(resp.StatusCode, "application/json", body)
 }
 
+// RelayMidjourneyFetch proxies task query endpoints like:
+// - GET /mj/task/:id/fetch
+// - GET /mj/task/:id/image-seed
+func RelayMidjourneyFetch(c *gin.Context) {
+	userId := c.GetInt("id")
+	if userId <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	taskID := strings.TrimSpace(c.Param("id"))
+	if taskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing task id"})
+		return
+	}
+
+	channel, err := model.GetRandomChannel("midjourney")
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No available Midjourney channel"})
+		return
+	}
+
+	endpoint := fmt.Sprintf("/mj/task/%s/fetch", taskID)
+	if strings.Contains(c.FullPath(), "image-seed") {
+		endpoint = fmt.Sprintf("/mj/task/%s/image-seed", taskID)
+	}
+
+	targetURL := fmt.Sprintf("%s%s", strings.TrimSuffix(channel.BaseURL, "/"), endpoint)
+	req, err := http.NewRequest(http.MethodGet, targetURL, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	req.Header.Set("mj-api-secret", channel.Key)
+
+	client := common.NewHTTPClient(channel.Proxy)
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to request upstream"})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := ioutil.ReadAll(resp.Body)
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	c.Data(resp.StatusCode, contentType, body)
+}
+
 // Notify callback from mj-proxy
 func MidjourneyNotify(c *gin.Context) {
 	var cb map[string]interface{}

@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import PageHeader from '../../components/PageHeader';
-import { Button, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader, useDisclosure } from '../../components/ui';
+import { Button, Chip, Input, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader, Select, SelectItem, useDisclosure } from '../../components/ui';
 import { Pagination } from '../../components/ui/Pagination';
 import { useAuthStore } from '../../store/auth';
 import { confirm } from '../../store/confirm';
+import { toast } from '../../store/toast';
 
 interface Vendor {
   id: number;
@@ -24,6 +25,8 @@ export default function VendorManagement() {
   const [totalPages, setTotalPages] = useState(1);
   const [editing, setEditing] = useState<Vendor | null>(null);
   const [form, setForm] = useState<Partial<Vendor>>({ name: '', code: '', base_url: '', api_version: '', status: 1, description: '' });
+  const [statusFilter, setStatusFilter] = useState<'all' | '1' | '2'>('all');
+  const [submitting, setSubmitting] = useState(false);
 
   const fetchData = async (targetPage = 1) => {
     const pageSize = 20;
@@ -53,6 +56,11 @@ export default function VendorManagement() {
 
   useEffect(() => { fetchData(1); }, []);
 
+  const filteredItems = useMemo(() => {
+    if (statusFilter === 'all') return items;
+    return items.filter(v => String(v.status) === statusFilter);
+  }, [items, statusFilter]);
+
   const openCreate = () => {
     setEditing(null);
     setForm({ name: '', code: '', base_url: '', api_version: '', status: 1, description: '' });
@@ -66,17 +74,25 @@ export default function VendorManagement() {
   };
 
   const submit = async (onClose: () => void) => {
-    const method = editing ? 'PUT' : 'POST';
-    const body = editing ? { ...form, id: editing.id } : form;
-    const res = await fetch('/api/vendors', {
-      method,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (data.code === 0) {
-      await fetchData(page);
-      onClose();
+    setSubmitting(true);
+    try {
+      const method = editing ? 'PUT' : 'POST';
+      const body = editing ? { ...form, id: editing.id } : form;
+      const res = await fetch('/api/vendors', {
+        method,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success(editing ? '供应商更新成功' : '供应商创建成功');
+        await fetchData(page);
+        onClose();
+      } else {
+        toast.error(data.msg || '保存失败');
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -84,20 +100,25 @@ export default function VendorManagement() {
     if (!await confirm({ title: '删除供应商', message: '确认删除该供应商？', danger: true })) return;
     const res = await fetch(`/api/vendors/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json();
-    if (data.code === 0) fetchData(page);
+    if (data.code === 0) {
+      toast.success('删除成功');
+      fetchData(page);
+    } else {
+      toast.error(data.msg || '删除失败');
+    }
   };
 
   return (
     <div className="space-y-6">
-      <PageHeader title="供应商管理" description="Vendors 元数据维护"
-        actions={<div className="flex gap-2"><Input size="sm" placeholder="搜索" value={keyword} onValueChange={setKeyword} onKeyDown={(e) => e.key === 'Enter' && fetchData(1)} /><Button variant="flat" onPress={() => fetchData(1)}>查询</Button><Button color="primary" onPress={openCreate}>新增</Button></div>} />
+      <PageHeader title="供应商管理" description="维护供应商元数据（名称、代码、描述等）；渠道运维操作统一在渠道管理执行"
+        actions={<div className="flex gap-2 flex-wrap"><Input size="sm" placeholder="搜索名称/code" value={keyword} onValueChange={setKeyword} onKeyDown={(e) => e.key === 'Enter' && fetchData(1)} /><Select size="sm" className="w-28" selectedKeys={[statusFilter]} onSelectionChange={(keys) => setStatusFilter(([...keys][0] as 'all' | '1' | '2') || 'all')}><SelectItem key="all">全部状态</SelectItem><SelectItem key="1">启用</SelectItem><SelectItem key="2">禁用</SelectItem></Select><Button variant="flat" onPress={() => fetchData(1)}>查询</Button><Button color="primary" onPress={openCreate}>新增</Button></div>} />
       <div className="data-table-wrap">
         <table className="data-table">
           <thead><tr><th>ID</th><th>Name</th><th>Code</th><th>Base URL</th><th>Version</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>
-            {items.map(v => (
+            {filteredItems.map(v => (
               <tr key={v.id}>
-                <td>{v.id}</td><td>{v.name}</td><td>{v.code}</td><td>{v.base_url}</td><td>{v.api_version || '-'}</td><td>{v.status === 1 ? '启用' : '禁用'}</td>
+                <td>{v.id}</td><td>{v.name}</td><td>{v.code}</td><td>{v.base_url}</td><td>{v.api_version || '-'}</td><td><Chip size="sm" color={v.status === 1 ? 'success' : 'default'} variant="flat">{v.status === 1 ? '启用' : '禁用'}</Chip></td>
                 <td><div className="flex gap-2"><Button size="sm" variant="flat" onPress={() => openEdit(v)}>编辑</Button><Button size="sm" color="danger" variant="flat" onPress={() => remove(v.id)}>删除</Button></div></td>
               </tr>
             ))}
@@ -119,10 +140,17 @@ export default function VendorManagement() {
                 <Input label="代码" value={form.code || ''} onValueChange={(v) => setForm({ ...form, code: v })} />
                 <Input label="Base URL" value={form.base_url || ''} onValueChange={(v) => setForm({ ...form, base_url: v })} />
                 <Input label="API 版本" value={form.api_version || ''} onValueChange={(v) => setForm({ ...form, api_version: v })} />
-                <Input label="状态(1启用/2禁用)" value={String(form.status ?? 1)} onValueChange={(v) => setForm({ ...form, status: Number(v) || 1 })} />
+                <Select
+                  label="状态"
+                  selectedKeys={[String(form.status ?? 1)]}
+                  onSelectionChange={(keys) => setForm({ ...form, status: Number([...keys][0] as string) || 1 })}
+                >
+                  <SelectItem key="1">启用</SelectItem>
+                  <SelectItem key="2">禁用</SelectItem>
+                </Select>
                 <Input label="描述" value={form.description || ''} onValueChange={(v) => setForm({ ...form, description: v })} />
               </ModalBody>
-              <ModalFooter><Button variant="light" onPress={onClose}>取消</Button><Button color="primary" onPress={() => submit(onClose)}>保存</Button></ModalFooter>
+              <ModalFooter><Button variant="light" onPress={onClose}>取消</Button><Button color="primary" isLoading={submitting} onPress={() => submit(onClose)}>保存</Button></ModalFooter>
             </>
           )}
         </ModalContent>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import EmptyState from '../../components/EmptyState';
 import LoadingRows from '../../components/LoadingRows';
 import {
@@ -20,7 +20,7 @@ import {
   Tab,
   Pagination,
 } from '../../components/ui';
-import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap, Download, DollarSign, Search } from 'lucide-react';
+import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap, Download, DollarSign, Search, KeyRound } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
@@ -48,6 +48,16 @@ interface MultiKeyStatusItem {
   disabled_time: number;
   reason: string;
   key_preview: string;
+}
+
+interface PromptDialogConfig {
+  title: string;
+  placeholder?: string;
+  defaultValue?: string;
+  description?: string;
+  confirmText?: string;
+  multiline?: boolean;
+  readOnly?: boolean;
 }
 
 const CHANNEL_TYPES = [
@@ -80,7 +90,7 @@ export default function ChannelManagement() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(false);
   const [testingId, setTestingId] = useState<number | null>(null);
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
   const { isOpen: isBatchOpen, onOpen: onBatchOpen, onOpenChange: onBatchOpenChange } = useDisclosure();
   const [editingChannel, setEditingChannel] = useState<Partial<Channel> | null>(null);
@@ -103,6 +113,27 @@ export default function ChannelManagement() {
   const [multiKeyLoading, setMultiKeyLoading] = useState(false);
   const [multiKeyActionLoading, setMultiKeyActionLoading] = useState<string | null>(null);
   const [multiKeyEditorText, setMultiKeyEditorText] = useState('');
+  const [batchOpLoading, setBatchOpLoading] = useState<string | null>(null);
+  const [modelSourceMode, setModelSourceMode] = useState<'manual' | 'sync'>('manual');
+  const [newModelInput, setNewModelInput] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const { isOpen: isPromptOpen, onOpen: onPromptOpen, onOpenChange: onPromptOpenChange } = useDisclosure();
+  const [promptConfig, setPromptConfig] = useState<PromptDialogConfig>({ title: '' });
+  const [promptValue, setPromptValue] = useState('');
+  const [promptSubmitting, setPromptSubmitting] = useState(false);
+  const promptResolveRef = useRef<((value: string | null) => void) | null>(null);
+
+  const channelSummary = useMemo(() => {
+    const total = channels.length;
+    const enabled = channels.filter((c) => c.status === 1).length;
+    const disabled = total - enabled;
+    const withMultiKey = channels.filter((c) => c.key?.includes('\n')).length;
+    const avgLatency = total > 0
+      ? Math.round(channels.reduce((sum, c) => sum + (c.response_time || 0), 0) / total)
+      : 0;
+
+    return { total, enabled, disabled, withMultiKey, avgLatency };
+  }, [channels]);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -189,6 +220,8 @@ export default function ChannelManagement() {
       tags: channel.tags || '',
     });
     setModelMapping(parseMapping(channel.model_mapping));
+    setModelSourceMode('manual');
+    setNewModelInput('');
     onOpen();
   };
 
@@ -206,6 +239,8 @@ export default function ChannelManagement() {
       tags: '',
     });
     setModelMapping([]);
+    setModelSourceMode('manual');
+    setNewModelInput('');
     onOpen();
   };
 
@@ -223,8 +258,7 @@ export default function ChannelManagement() {
   const handleSubmit = async (onClose: () => void) => {
     const url = '/api/channel';
     const method = editingChannel ? 'PUT' : 'POST';
-    
-    // Convert mapping array back to object then JSON
+
     const mappingObj: Record<string, string> = {};
     modelMapping.forEach(m => mappingObj[m.from] = m.to);
 
@@ -237,6 +271,7 @@ export default function ChannelManagement() {
       model_mapping: JSON.stringify(mappingObj),
     };
 
+    setSubmitting(true);
     try {
       const res = await fetch(url, {
         method,
@@ -248,14 +283,20 @@ export default function ChannelManagement() {
       });
 
       const data = await res.json();
-      if (data.code === 0) {
-        fetchChannels();
-        onClose();
-      } else {
-        toast.error('操作失败');
+      if (data.code !== 0) {
+        toast.error(data.msg || '操作失败');
+        return;
       }
+
+      toast.success(editingChannel ? '渠道更新成功' : '渠道创建成功');
+
+      fetchChannels();
+      onClose();
     } catch (error) {
       console.error('Operation error:', error);
+      toast.error('请求失败');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -359,6 +400,62 @@ export default function ChannelManagement() {
     }
   };
 
+  const handleUpdateAllBalances = async () => {
+    setBatchOpLoading('update_balance');
+    try {
+      const res = await fetch('/api/channel/update_balance', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success('已触发全量余额刷新');
+        fetchChannels();
+      } else {
+        toast.error(data.msg || '更新余额失败');
+      }
+    } finally {
+      setBatchOpLoading(null);
+    }
+  };
+
+  const handleFixChannelAbilities = async () => {
+    setBatchOpLoading('fix');
+    try {
+      const res = await fetch('/api/channel/fix', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success('渠道能力修复完成');
+      } else {
+        toast.error(data.msg || '修复渠道能力失败');
+      }
+    } finally {
+      setBatchOpLoading(null);
+    }
+  };
+
+  const handleDeleteAllDisabled = async () => {
+    if (!await confirm({ title: '清理已禁用渠道', message: '将删除全部已禁用渠道，此操作不可恢复。', danger: true })) return;
+    setBatchOpLoading('delete_disabled');
+    try {
+      const res = await fetch('/api/channel/disabled', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success('已清理禁用渠道');
+        fetchChannels();
+      } else {
+        toast.error(data.msg || '清理禁用渠道失败');
+      }
+    } finally {
+      setBatchOpLoading(null);
+    }
+  };
+
   const handleToggleStatus = async (channelId: number) => {
     try {
       const res = await fetch(`/api/channel/${channelId}/status`, {
@@ -401,14 +498,23 @@ export default function ChannelManagement() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (data.code === 0 && data.data?.models) {
-        const modelStr = data.data.models.join(',');
-        if (editingChannel) {
-          setFormData(prev => ({ ...prev, models: modelStr }));
-        }
-        toast.info(`获取到 ${data.data.models.length} 个模型`);
+      // 兼容多种格式:
+      // new-api GET:  { data: [...] }  (无 code/success 字段)
+      // new-api POST: { success: true, data: [...] }
+      // backend:      { code: 0, data: { models: [...] } }
+      const models: string[] = Array.isArray(data?.data)
+        ? data.data
+        : (Array.isArray(data?.data?.models) ? data.data.models : []);
+      // 乐观匹配：只有明确返回失败时才报错
+      const isFailed = data?.success === false || (data?.code !== undefined && data?.code !== 0);
+      if (isFailed) {
+        toast.error(data.message || data.msg || '获取模型失败');
+      } else if (models.length > 0) {
+        const modelStr = models.join(',');
+        setFormData(prev => ({ ...prev, models: modelStr }));
+        toast.success(`已拉取 ${models.length} 个上游模型`);
       } else {
-        toast.error(data.msg || '获取模型失败');
+        toast.error('上游未返回任何模型');
       }
     } catch (error) {
       console.error('Fetch models error:', error);
@@ -417,10 +523,89 @@ export default function ChannelManagement() {
     }
   };
 
+  const handleFetchModelsByForm = async () => {
+    setFetchingModels(-1);
+    try {
+      const res = await fetch('/api/channel/fetch_models', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          type: parseInt(formData.type || '1', 10),
+          key: formData.key,
+          base_url: formData.base_url,
+        }),
+      });
+      const data = await res.json();
+      // 兼容两种后端响应格式:
+      // new-api: { success: true, data: [...] }
+      // backend: { code: 0, msg: "...", data: { models: [...] } }
+      const isSuccess = data?.success === true || data?.code === 0;
+      const models = Array.isArray(data?.data)
+        ? data.data
+        : (Array.isArray(data?.data?.models) ? data.data.models : []);
+      if (isSuccess && Array.isArray(models) && models.length > 0) {
+        const modelStr = models.join(',');
+        setFormData(prev => ({ ...prev, models: modelStr }));
+        toast.success(`已同步 ${models.length} 个上游模型，可继续删改后保存`);
+      } else if (!isSuccess) {
+        toast.error(data.message || data.msg || '同步上游模型失败');
+      } else {
+        toast.error('上游未返回任何模型');
+      }
+    } catch (error) {
+      console.error('Fetch upstream models by form error:', error);
+      toast.error('同步上游模型失败');
+    } finally {
+      setFetchingModels(null);
+    }
+  };
+
+  const addModel = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const existing = formData.models ? formData.models.split(',').map((m: string) => m.trim()).filter(Boolean) : [];
+    if (existing.includes(trimmed)) return;
+    setFormData((prev: typeof formData) => ({ ...prev, models: [...existing, trimmed].join(',') }));
+    setNewModelInput('');
+  };
+
+  const removeModel = (name: string) => {
+    const existing = formData.models ? formData.models.split(',').map((m: string) => m.trim()).filter(Boolean) : [];
+    setFormData((prev: typeof formData) => ({ ...prev, models: existing.filter((m: string) => m !== name).join(',') }));
+  };
+
+  const openPromptDialog = (config: PromptDialogConfig): Promise<string | null> => {
+    setPromptConfig(config);
+    setPromptValue(config.defaultValue ?? '');
+    setPromptSubmitting(false);
+    onPromptOpen();
+    return new Promise((resolve) => {
+      promptResolveRef.current = resolve;
+    });
+  };
+
+  const closePromptDialog = (value: string | null) => {
+    promptResolveRef.current?.(value);
+    promptResolveRef.current = null;
+    onPromptOpenChange();
+  };
+
   const handleCopyChannel = async (channelId: number) => {
+    const suffixInput = await openPromptDialog({
+      title: '复制渠道',
+      placeholder: '请输入复制后缀',
+      defaultValue: '_复制',
+      description: '会在原渠道名后追加该后缀',
+      confirmText: '继续复制',
+    });
+    if (suffixInput === null) return;
+    const suffix = (suffixInput || '_复制').trim() || '_复制';
+
     setOperatingId(channelId);
     try {
-      const suffix = window.prompt('复制后缀', '_复制') ?? '_复制';
       const res = await fetch(`/api/channel/copy/${channelId}?suffix=${encodeURIComponent(suffix)}&reset_balance=true`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
@@ -437,9 +622,46 @@ export default function ChannelManagement() {
     }
   };
 
+  const handleGetChannelKey = async (channelId: number) => {
+    if ((user?.role ?? 0) < 100) {
+      toast.error('仅超级管理员可查看渠道 Key');
+      return;
+    }
+    setOperatingId(channelId);
+    try {
+      const res = await fetch(`/api/channel/${channelId}/key`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        const key = data?.data?.key ?? '';
+        await openPromptDialog({
+          title: `渠道 #${channelId} 的 Key`,
+          defaultValue: key || '(空)',
+          description: '仅超级管理员可查看，支持复制',
+          confirmText: '关闭',
+          multiline: true,
+          readOnly: true,
+        });
+      } else {
+        toast.error(data.msg || '获取渠道 Key 失败');
+      }
+    } finally {
+      setOperatingId(null);
+    }
+  };
+
   const handleOllamaPull = async (channelId: number) => {
-    const modelName = window.prompt('输入要拉取的 Ollama 模型名（如 llama3:8b）', 'llama3');
+    const modelName = await openPromptDialog({
+      title: 'Ollama 拉取模型',
+      placeholder: '例如 llama3:8b',
+      defaultValue: 'llama3',
+      description: '输入要拉取的 Ollama 模型名',
+      confirmText: '开始拉取',
+    });
     if (!modelName?.trim()) return;
+
     setOperatingId(channelId);
     try {
       const res = await fetch('/api/channel/ollama/pull', {
@@ -462,8 +684,15 @@ export default function ChannelManagement() {
   };
 
   const handleOllamaDelete = async (channelId: number) => {
-    const modelName = window.prompt('输入要删除的 Ollama 模型名', 'llama3');
+    const modelName = await openPromptDialog({
+      title: 'Ollama 删除模型',
+      placeholder: '例如 llama3:8b',
+      defaultValue: 'llama3',
+      description: '输入要删除的 Ollama 模型名',
+      confirmText: '确认删除',
+    });
     if (!modelName?.trim()) return;
+
     setOperatingId(channelId);
     try {
       const res = await fetch('/api/channel/ollama/delete', {
@@ -486,8 +715,15 @@ export default function ChannelManagement() {
   };
 
   const handleOllamaPullStream = async (channelId: number) => {
-    const modelName = window.prompt('输入要流式拉取的 Ollama 模型名', 'llama3');
+    const modelName = await openPromptDialog({
+      title: 'Ollama 流式拉取模型',
+      placeholder: '例如 llama3:8b',
+      defaultValue: 'llama3',
+      description: '输入要流式拉取的 Ollama 模型名',
+      confirmText: '开始拉取',
+    });
     if (!modelName?.trim()) return;
+
     setOperatingId(channelId);
     try {
       const res = await fetch('/api/channel/ollama/pull/stream', {
@@ -720,8 +956,16 @@ export default function ChannelManagement() {
   };
 
   const handleCodexOAuthComplete = async (channelId: number) => {
-    const input = window.prompt('粘贴 Codex 回调（code#state 或完整 URL）', '');
+    const input = await openPromptDialog({
+      title: 'Codex OAuth 完成',
+      placeholder: '粘贴 code#state 或完整 URL',
+      defaultValue: '',
+      description: '请从回调地址中粘贴完整参数',
+      confirmText: '提交回调',
+      multiline: true,
+    });
     if (!input?.trim()) return;
+
     setOperatingId(channelId);
     try {
       const res = await fetch(`/api/channel/${channelId}/codex/oauth/complete`, {
@@ -763,8 +1007,15 @@ export default function ChannelManagement() {
   };
 
   const handleSetSingleTag = async (channelId: number) => {
-    const tag = window.prompt('输入标签（会覆盖该渠道 tags 字段）', '');
+    const tag = await openPromptDialog({
+      title: '设置渠道标签',
+      placeholder: '输入标签',
+      defaultValue: '',
+      description: '会覆盖该渠道 tags 字段',
+      confirmText: '保存标签',
+    });
     if (!tag?.trim()) return;
+
     setOperatingId(channelId);
     try {
       const res = await fetch('/api/channel/batch/tag', {
@@ -788,8 +1039,15 @@ export default function ChannelManagement() {
   };
 
   const handleGetTagModels = async (initialTag?: string) => {
-    const tag = window.prompt('输入标签，查询该标签下模型列表', initialTag || '');
+    const tag = await openPromptDialog({
+      title: '查询标签模型',
+      placeholder: '输入标签',
+      defaultValue: initialTag || '',
+      description: '查询该标签下可用模型列表',
+      confirmText: '开始查询',
+    });
     if (!tag?.trim()) return;
+
     setOperatingId(-2);
     try {
       const res = await fetch(`/api/channel/tag/models?tag=${encodeURIComponent(tag.trim())}`, {
@@ -887,6 +1145,15 @@ export default function ChannelManagement() {
           <Button startContent={<Zap size={18} />} onPress={handleBatchTest} variant="flat" color="warning" isLoading={batchTesting}>
             全部测试
           </Button>
+          <Button startContent={<RefreshCw size={18} />} onPress={handleUpdateAllBalances} variant="flat" isLoading={batchOpLoading === 'update_balance'}>
+            全量余额
+          </Button>
+          <Button startContent={<Activity size={18} />} onPress={handleFixChannelAbilities} variant="flat" color="secondary" isLoading={batchOpLoading === 'fix'}>
+            修复能力
+          </Button>
+          <Button startContent={<Trash2 size={18} />} onPress={handleDeleteAllDisabled} variant="flat" color="danger" isLoading={batchOpLoading === 'delete_disabled'}>
+            清理禁用
+          </Button>
           <Button startContent={<Upload size={18} />} onPress={onBatchOpen} variant="flat" color="secondary">
             批量导入
           </Button>
@@ -909,6 +1176,16 @@ export default function ChannelManagement() {
             添加渠道
           </Button>
         </div>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <Chip size="sm" variant="flat" color="primary">总数 {channelSummary.total}</Chip>
+        <Chip size="sm" variant="flat" color="success">启用 {channelSummary.enabled}</Chip>
+        <Chip size="sm" variant="flat" color="danger">禁用 {channelSummary.disabled}</Chip>
+        <Chip size="sm" variant="flat" color="secondary">多 Key {channelSummary.withMultiKey}</Chip>
+        <Chip size="sm" variant="flat" color={channelSummary.avgLatency > 0 && channelSummary.avgLatency < 1000 ? 'success' : channelSummary.avgLatency >= 3000 ? 'danger' : 'warning'}>
+          平均响应 {channelSummary.avgLatency > 0 ? `${channelSummary.avgLatency}ms` : '未测试'}
+        </Chip>
       </div>
 
       <div className="data-table-wrap">
@@ -938,6 +1215,7 @@ export default function ChannelManagement() {
                     <Tooltip content="测试"><span className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${testingId === channel.id ? 'animate-spin' : ''}`} onClick={() => handleTest(channel.id)}><Activity size={18} /></span></Tooltip>
                     <Tooltip content="查询余额"><span className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${fetchingBalance === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleFetchBalance(channel.id)}><DollarSign size={18} /></span></Tooltip>
                     <Tooltip content="复制渠道"><span className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleCopyChannel(channel.id)}><Plus size={18} /></span></Tooltip>
+                    <Tooltip content="查看 Key (Root)"><span className={`text-lg ${(user?.role ?? 0) >= 100 ? 'text-warning cursor-pointer' : 'text-default-300 cursor-not-allowed'} active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleGetChannelKey(channel.id)}><KeyRound size={18} /></span></Tooltip>
                     {channel.type === 47 && (
                       <>
                         <Tooltip content="Ollama 拉取模型"><span className={`text-lg text-secondary cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleOllamaPull(channel.id)}><Download size={18} /></span></Tooltip>
@@ -1041,9 +1319,30 @@ export default function ChannelManagement() {
                   </div>
                   
                   <div className="col-span-2 space-y-2">
+                    {!editingChannel && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-small font-medium">模型来源</span>
+                        <Button
+                          size="sm"
+                          variant={modelSourceMode === 'manual' ? 'solid' : 'flat'}
+                          color={modelSourceMode === 'manual' ? 'primary' : 'default'}
+                          onPress={() => setModelSourceMode('manual')}
+                        >
+                          手动输入
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={modelSourceMode === 'sync' ? 'solid' : 'flat'}
+                          color={modelSourceMode === 'sync' ? 'secondary' : 'default'}
+                          onPress={() => setModelSourceMode('sync')}
+                        >
+                          同步上游模型
+                        </Button>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center">
                       <span className="text-small font-medium">模型列表 (逗号分隔)</span>
-                      {editingChannel?.id && (
+                      {editingChannel?.id ? (
                         <Button
                           size="sm"
                           variant="flat"
@@ -1054,14 +1353,61 @@ export default function ChannelManagement() {
                         >
                           拉取模型
                         </Button>
-                      )}
+                      ) : modelSourceMode === 'sync' ? (
+                        <Button
+                          size="sm"
+                          variant="flat"
+                          color="secondary"
+                          startContent={<Download size={14} />}
+                          isLoading={fetchingModels === -1}
+                          onPress={handleFetchModelsByForm}
+                        >
+                          同步上游模型
+                        </Button>
+                      ) : null}
                     </div>
-                    <Textarea
-                      placeholder="gpt-3.5-turbo,gpt-4"
-                      value={formData.models}
-                      onValueChange={(v) => setFormData({...formData, models: v})}
-                      minRows={2}
-                    />
+                    <div className="border border-default-200 rounded-xl p-2 min-h-[80px] flex flex-wrap gap-1.5">
+                      {formData.models
+                        ? formData.models.split(',').map((m: string) => m.trim()).filter(Boolean).map((m: string) => (
+                            <Chip
+                              key={m}
+                              size="sm"
+                              variant="flat"
+                              color="primary"
+                              onClose={() => removeModel(m)}
+                            >
+                              {m}
+                            </Chip>
+                          ))
+                        : <span className="text-default-400 text-small px-1 py-0.5">
+                            {modelSourceMode === 'sync' && !editingChannel ? '点击"同步上游模型"后自动填入，可删改后保存' : '请在下方输入框逐个添加或粘贴逗号分隔列表'}
+                          </span>
+                      }
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <Input
+                        size="sm"
+                        placeholder="输入模型名称后按 Enter 添加，或粘贴逗号分隔列表"
+                        value={newModelInput}
+                        onValueChange={setNewModelInput}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            // 支持粘贴逗号分隔的多个模型
+                            newModelInput.split(',').forEach((m) => addModel(m));
+                          }
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        isIconOnly
+                        color="primary"
+                        variant="flat"
+                        onPress={() => newModelInput.split(',').forEach((m) => addModel(m))}
+                      >
+                        <Plus size={16} />
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="col-span-2 space-y-2">
@@ -1106,7 +1452,7 @@ export default function ChannelManagement() {
                 <Button color="danger" variant="light" onPress={onClose}>
                   取消
                 </Button>
-                <Button color="primary" onPress={() => handleSubmit(onClose)}>
+                <Button color="primary" isLoading={submitting} onPress={() => handleSubmit(onClose)}>
                   保存
                 </Button>
               </ModalFooter>
@@ -1305,6 +1651,59 @@ export default function ChannelManagement() {
               </ModalBody>
               <ModalFooter>
                 <Button variant="light" color="danger" onPress={onClose}>关闭</Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={isPromptOpen} onOpenChange={onPromptOpenChange}>
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader>{promptConfig.title || '输入信息'}</ModalHeader>
+              <ModalBody>
+                {promptConfig.multiline ? (
+                  <Textarea
+                    minRows={promptConfig.readOnly ? 6 : 3}
+                    placeholder={promptConfig.placeholder || ''}
+                    value={promptValue}
+                    onValueChange={setPromptValue}
+                    isReadOnly={Boolean(promptConfig.readOnly)}
+                    description={promptConfig.description}
+                  />
+                ) : (
+                  <Input
+                    placeholder={promptConfig.placeholder || ''}
+                    value={promptValue}
+                    onValueChange={setPromptValue}
+                    isReadOnly={Boolean(promptConfig.readOnly)}
+                    description={promptConfig.description}
+                  />
+                )}
+              </ModalBody>
+              <ModalFooter>
+                <Button
+                  variant="light"
+                  onPress={() => {
+                    closePromptDialog(null);
+                    onClose();
+                  }}
+                >
+                  取消
+                </Button>
+                <Button
+                  color="primary"
+                  isLoading={promptSubmitting}
+                  onPress={() => {
+                    setPromptSubmitting(true);
+                    closePromptDialog(promptValue);
+                    onClose();
+                    setPromptSubmitting(false);
+                  }}
+                >
+                  {promptConfig.confirmText || '确认'}
+                </Button>
               </ModalFooter>
             </>
           )}

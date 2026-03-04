@@ -1,42 +1,40 @@
 import { useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box, ArrowLeft, Crown, Database, ListTodo, Building2, Boxes, CloudCog } from 'lucide-react';
+import { LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box, ArrowLeft, Crown, Database, Boxes, Wrench } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 import { useSystemStore } from '../store/system';
 import ThemeToggle from '../components/ThemeToggle';
 
 const navGroups = [
   {
-    label: '概览',
+    label: '工作台',
     items: [
       { key: '/admin', icon: LayoutDashboard, label: '系统概览' },
+      { key: '/admin/ops', icon: Wrench, label: '运维中心' },
+      { key: '/admin/log', icon: ScrollText, label: '日志管理' },
     ],
   },
   {
-    label: '用户',
+    label: '业务管理',
     items: [
       { key: '/admin/user', icon: Users, label: '用户管理' },
+      { key: '/admin/subscription', icon: Crown, label: '订阅套餐' },
       { key: '/admin/redemption', icon: Gift, label: '兑换码' },
       { key: '/admin/invitation', icon: Users, label: '邀请码管理' },
     ],
   },
   {
-    label: '配置',
+    label: 'AI资源',
     items: [
       { key: '/admin/channel', icon: Server, label: '渠道管理' },
-      { key: '/admin/group', icon: Layers, label: '分组管理' },
       { key: '/admin/model', icon: Box, label: '模型管理' },
-      { key: '/admin/subscription', icon: Crown, label: '订阅套餐' },
-      { key: '/admin/vendors', icon: Building2, label: '供应商' },
       { key: '/admin/model-meta', icon: Boxes, label: '模型元数据' },
-      { key: '/admin/deployments', icon: CloudCog, label: '部署管理' },
+      { key: '/admin/group', icon: Layers, label: '分组管理' },
     ],
   },
   {
-    label: '运维',
+    label: '系统维护',
     items: [
-      { key: '/admin/tasks', icon: ListTodo, label: '任务管理' },
-      { key: '/admin/log', icon: ScrollText, label: '日志管理' },
       { key: '/admin/migration', icon: Database, label: '数据库迁移' },
       { key: '/admin/setting', icon: Settings, label: '系统设置' },
     ],
@@ -102,7 +100,9 @@ export default function AdminLayout() {
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{user?.username}</p>
-            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>超级管理员</p>
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              {user?.role && user.role >= 100 ? '超级管理员' : '管理员'}
+            </p>
           </div>
         </div>
 
@@ -117,7 +117,9 @@ export default function AdminLayout() {
                 {group.label}
               </p>
               <div className="space-y-0.5">
-                {group.items.map(({ key, icon: Icon, label }) => {
+                {group.items
+                  .filter(({ key }) => !(key === '/admin/setting' && (user?.role ?? 0) < 100))
+                  .map(({ key, icon: Icon, label }) => {
                   const isActive = location.pathname === key;
                   return (
                     <button

@@ -95,7 +95,7 @@ func RelayMessages(c *gin.Context) {
 	claudeReq.Model = reasoningParams.CleanModel
 
 	// 6. Select channels
-	channels, mappedModels, err := SelectChannel(claudeReq.Model, user.Group)
+	channels, mappedModels, err := SelectChannelWithAffinity(claudeReq.Model, user.Group, tokenKey, defaultChannelAffinityRule)
 	if err != nil {
 		sendClaudeError(c, http.StatusServiceUnavailable, "api_error",
 			fmt.Sprintf("no available channel for model: %s", claudeReq.Model))
@@ -118,6 +118,7 @@ func RelayMessages(c *gin.Context) {
 			}
 			if usage != nil {
 				go RecordConsumeLog(c, token, mappedModel, usage.PromptTokens, usage.CompletionTokens)
+				go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(tokenKey), channel.Id, mappedModel, usage.PromptTokens, usage.CompletionTokens, usage.CachedTokens)
 			}
 			return
 		}
@@ -130,6 +131,7 @@ func RelayMessages(c *gin.Context) {
 		}
 		if usage != nil {
 			go RecordConsumeLog(c, token, mappedModel, usage.PromptTokens, usage.CompletionTokens)
+			go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(tokenKey), channel.Id, mappedModel, usage.PromptTokens, usage.CompletionTokens, usage.CachedTokens)
 		}
 		return
 	}

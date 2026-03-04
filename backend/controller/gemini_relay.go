@@ -57,7 +57,7 @@ func RelayGeminiNative(c *gin.Context) {
 	}
 
 	// 4. Select Gemini channel
-	channels, _, err := SelectChannel(modelName, user.Group)
+	channels, mappedModels, err := SelectChannelWithAffinity(modelName, user.Group, apiKey, defaultChannelAffinityRule)
 	if err != nil || len(channels) == 0 {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": fmt.Sprintf("no channel for model: %s", modelName),
@@ -66,15 +66,17 @@ func RelayGeminiNative(c *gin.Context) {
 	}
 
 	// Find a Gemini-type channel
-	var channel *model.Channel
+	selectedIndex := 0
 	for i := range channels {
 		if channels[i].Type == model.ChannelTypeGemini {
-			channel = channels[i]
+			selectedIndex = i
 			break
 		}
 	}
-	if channel == nil {
-		channel = channels[0]
+	channel := channels[selectedIndex]
+	mappedModel := modelName
+	if selectedIndex < len(mappedModels) && strings.TrimSpace(mappedModels[selectedIndex]) != "" {
+		mappedModel = mappedModels[selectedIndex]
 	}
 	channel.Key = service.GetNextKey(channel.Key)
 
@@ -93,7 +95,7 @@ func RelayGeminiNative(c *gin.Context) {
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
 	targetURL := fmt.Sprintf("%s/v1beta/models/%s:%s?key=%s",
-		baseURL, modelName, action, channel.Key)
+		baseURL, mappedModel, action, channel.Key)
 
 	req, err := http.NewRequest("POST", targetURL, bytes.NewBuffer(bodyBytes))
 	if err != nil {
@@ -124,7 +126,8 @@ func RelayGeminiNative(c *gin.Context) {
 	if resp.StatusCode == http.StatusOK {
 		promptTokens := common.CountToken(string(bodyBytes))
 		completionTokens := common.CountToken(string(respBody))
-		go RecordConsumeLog(c, token, modelName,
+		go RecordConsumeLog(c, token, mappedModel,
 			promptTokens, completionTokens)
+		go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(apiKey), channel.Id, mappedModel, promptTokens, completionTokens, 0)
 	}
 }

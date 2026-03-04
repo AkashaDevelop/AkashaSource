@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import LoadingRows from '../../components/LoadingRows';
@@ -6,7 +6,7 @@ import {
   Button, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
   useDisclosure, Input, Select, SelectItem, Chip, Switch,
 } from '../../components/ui';
-import { Plus, Edit, Trash2, RefreshCw, ArrowUpDown } from 'lucide-react';
+import { Plus, Edit, Trash2, RefreshCw, ArrowUpDown, Search } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
@@ -39,6 +39,9 @@ export default function ModelManagement() {
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
   const [editing, setEditing] = useState<ModelConfig | null>(null);
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [keyword, setKeyword] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
+  const [togglingId, setTogglingId] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     model_name: '', display_name: '', category: 'chat',
     input_ratio: '1', output_ratio: '1', max_context: '4096', enabled: true,
@@ -58,6 +61,21 @@ export default function ModelManagement() {
   };
 
   useEffect(() => { fetchModels(); }, [categoryFilter]);
+
+  const filteredModels = useMemo(() => {
+    const normalizedKeyword = keyword.trim().toLowerCase();
+    return models.filter((m) => {
+      const hitKeyword = !normalizedKeyword
+        || m.model_name.toLowerCase().includes(normalizedKeyword)
+        || (m.display_name || '').toLowerCase().includes(normalizedKeyword);
+
+      const hitStatus = statusFilter === 'all'
+        || (statusFilter === 'enabled' && m.enabled)
+        || (statusFilter === 'disabled' && !m.enabled);
+
+      return hitKeyword && hitStatus;
+    });
+  }, [models, keyword, statusFilter]);
 
   const handleAdd = () => {
     setEditing(null);
@@ -107,6 +125,38 @@ export default function ModelManagement() {
     } catch (e) { console.error(e); }
   };
 
+  const handleToggleEnabled = async (m: ModelConfig) => {
+    setTogglingId(m.id);
+    try {
+      const res = await fetch('/api/model', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          id: m.id,
+          model_name: m.model_name,
+          display_name: m.display_name,
+          category: m.category,
+          input_ratio: m.input_ratio,
+          output_ratio: m.output_ratio,
+          max_context: m.max_context,
+          enabled: !m.enabled,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(!m.enabled ? '模型已启用' : '模型已禁用');
+        fetchModels();
+      } else {
+        toast.error(data?.error || '状态切换失败');
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('状态切换失败');
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
   const handleSyncPricing = async () => {
     setSyncing(true);
     try {
@@ -126,7 +176,24 @@ export default function ModelManagement() {
         title="模型管理"
         description="管理模型配置与定价倍率"
         actions={
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <Input
+              size="sm"
+              className="w-44"
+              placeholder="搜索模型名/显示名"
+              value={keyword}
+              onValueChange={setKeyword}
+              startContent={<Search size={14} />}
+            />
+            <Select
+              placeholder="状态" size="sm" className="w-28"
+              selectedKeys={[statusFilter]}
+              onSelectionChange={(keys) => setStatusFilter(([...keys][0] as 'all' | 'enabled' | 'disabled') || 'all')}
+            >
+              <SelectItem key="all">全部状态</SelectItem>
+              <SelectItem key="enabled">仅启用</SelectItem>
+              <SelectItem key="disabled">仅禁用</SelectItem>
+            </Select>
             <Select
               placeholder="分类筛选" size="sm" className="w-32"
               selectedKeys={categoryFilter ? [categoryFilter] : []}
@@ -153,9 +220,9 @@ export default function ModelManagement() {
           <tbody>
             {loading ? (
               <LoadingRows cols={8} rows={5} />
-            ) : models.length === 0 ? (
-              <tr><td colSpan={8}><EmptyState icon="🤖" title="暂无模型映射" /></td></tr>
-            ) : models.map((m) => (
+            ) : filteredModels.length === 0 ? (
+              <tr><td colSpan={8}><EmptyState icon="🤖" title="暂无匹配模型" /></td></tr>
+            ) : filteredModels.map((m) => (
               <tr key={m.id}>
                 <td className="font-mono text-sm">{m.model_name}</td>
                 <td>{m.display_name || '-'}</td>
@@ -163,7 +230,19 @@ export default function ModelManagement() {
                 <td>{m.input_ratio}</td>
                 <td>{m.output_ratio}</td>
                 <td>{m.max_context.toLocaleString()}</td>
-                <td><Chip size="sm" color={m.enabled ? 'success' : 'default'} variant="flat">{m.enabled ? '启用' : '禁用'}</Chip></td>
+                <td>
+                  <div className="flex items-center gap-2">
+                    <Chip size="sm" color={m.enabled ? 'success' : 'default'} variant="flat">{m.enabled ? '启用' : '禁用'}</Chip>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      isLoading={togglingId === m.id}
+                      onPress={() => handleToggleEnabled(m)}
+                    >
+                      {m.enabled ? '禁用' : '启用'}
+                    </Button>
+                  </div>
+                </td>
                 <td>
                   <div className="flex gap-2">
                     <span className="cursor-pointer text-default-400" onClick={() => handleEdit(m)}><Edit size={18} /></span>

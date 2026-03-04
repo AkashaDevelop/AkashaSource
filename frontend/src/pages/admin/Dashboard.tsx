@@ -32,7 +32,7 @@ export default function AdminDashboard() {
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [perf, setPerf] = useState<PerformanceData | null>(null);
   const [loading, setLoading] = useState(false);
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
 
   const fetchDashboard = async () => {
     setLoading(true);
@@ -65,9 +65,13 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (token) {
       fetchDashboard();
-      fetchPerformance();
+      if ((user?.role ?? 0) >= 100) {
+        fetchPerformance();
+      } else {
+        setPerf(null);
+      }
     }
-  }, [token]);
+  }, [token, user?.role]);
 
   const channelHealthPct = stats?.channel_count ? (stats.active_channels / stats.channel_count) * 100 : 0;
 

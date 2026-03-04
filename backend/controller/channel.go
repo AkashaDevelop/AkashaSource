@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm/clause"
 )
 
 func fetchAndPersistChannelBalance(channel *model.Channel) (float64, error) {
@@ -203,6 +204,33 @@ func UpdateChannelBalance(c *gin.Context) {
 	FetchChannelBalance(c)
 }
 
+func syncModelConfigsFromChannelModels(modelsText string) error {
+	items := strings.Split(modelsText, ",")
+	toCreate := make([]model.ModelConfig, 0, len(items))
+	seen := make(map[string]bool)
+	for _, item := range items {
+		name := strings.TrimSpace(item)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		toCreate = append(toCreate, model.ModelConfig{
+			ModelName:   name,
+			DisplayName: name,
+			Category:    "chat",
+			InputRatio:  1,
+			OutputRatio: 1,
+			MaxContext:  4096,
+			Enabled:     true,
+			CreatedAt:   common.GetTimestamp(),
+		})
+	}
+	if len(toCreate) == 0 {
+		return nil
+	}
+	return common.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&toCreate).Error
+}
+
 func AddChannel(c *gin.Context) {
 	var channel model.Channel
 	if err := c.ShouldBindJSON(&channel); err != nil {
@@ -215,6 +243,10 @@ func AddChannel(c *gin.Context) {
 	}
 	if err := common.DB.Create(&channel).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "创建渠道失败")
+		return
+	}
+	if err := syncModelConfigsFromChannelModels(channel.Models); err != nil {
+		common.Fail(c, common.CodeServerError, "渠道已创建，但同步模型管理失败")
 		return
 	}
 	common.OKMsg(c, "渠道创建成功", channel)
@@ -239,6 +271,12 @@ func AddChannels(c *gin.Context) {
 	if err := common.DB.Create(&channels).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "批量创建渠道失败")
 		return
+	}
+	for _, channel := range channels {
+		if err := syncModelConfigsFromChannelModels(channel.Models); err != nil {
+			common.Fail(c, common.CodeServerError, "批量创建成功，但同步模型管理失败")
+			return
+		}
 	}
 	common.OKMsg(c, "批量创建成功", gin.H{"count": len(channels)})
 }
@@ -350,6 +388,10 @@ func UpdateChannel(c *gin.Context) {
 	}
 	if err := common.DB.Model(&channel).Updates(channel).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "更新渠道失败")
+		return
+	}
+	if err := syncModelConfigsFromChannelModels(channel.Models); err != nil {
+		common.Fail(c, common.CodeServerError, "渠道已更新，但同步模型管理失败")
 		return
 	}
 	common.OKMsg(c, "渠道更新成功", nil)
