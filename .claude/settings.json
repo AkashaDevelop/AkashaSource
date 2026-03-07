@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(go build)",
-      "Bash(npm run build)"
+      "Bash(npm run build)",
+      "Bash(git config --global user.name \"moonseafishcat\")",
+      "Bash(git config --global user.email \"ishuiliyi@gmail.com\")"
     ]
   }
 }
