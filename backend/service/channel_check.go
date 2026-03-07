@@ -13,28 +13,38 @@ import (
 
 // CheckChannel 测试渠道可用性，返回响应时间(ms)和错误
 func CheckChannel(channel *model.Channel) (int, error) {
+	return CheckChannelWithPrompt(channel, "", "")
+}
+
+// CheckChannelWithPrompt 使用自定义问题测试渠道可用性
+func CheckChannelWithPrompt(channel *model.Channel, modelName string, prompt string) (int, error) {
 	startTime := time.Now()
 
 	// Pick a model
-	modelName := ""
-	models := strings.Split(channel.Models, ",")
-	if len(models) > 0 && models[0] != "" {
-		modelName = models[0]
-	} else {
-		// Default models per type if not specified
-		switch channel.Type {
-		case model.ChannelTypeOpenAI:
-			modelName = "gpt-3.5-turbo"
-		case model.ChannelTypeAnthropic:
-			modelName = "claude-3-haiku-20240307"
-		case model.ChannelTypeGemini:
-			modelName = "gemini-pro"
-		case model.ChannelTypeMidjourney:
-			// MJ check is complex, skip for now
-			return 0, nil
-		default:
-			modelName = "gpt-3.5-turbo"
+	if modelName == "" {
+		models := strings.Split(channel.Models, ",")
+		if len(models) > 0 && models[0] != "" {
+			modelName = models[0]
+		} else {
+			// Default models per type if not specified
+			switch channel.Type {
+			case model.ChannelTypeOpenAI:
+				modelName = "gpt-3.5-turbo"
+			case model.ChannelTypeAnthropic:
+				modelName = "claude-3-haiku-20240307"
+			case model.ChannelTypeGemini:
+				modelName = "gemini-pro"
+			case model.ChannelTypeMidjourney:
+				// MJ check is complex, skip for now
+				return 0, nil
+			default:
+				modelName = "gpt-3.5-turbo"
+			}
 		}
+	}
+
+	if prompt == "" {
+		prompt = "现在几点了"
 	}
 
 	req := &dto.OpenAIRequest{
@@ -42,7 +52,7 @@ func CheckChannel(channel *model.Channel) (int, error) {
 		Messages: []interface{}{
 			map[string]string{
 				"role":    "user",
-				"content": "Hi",
+				"content": prompt,
 			},
 		},
 		MaxTokens: 1,

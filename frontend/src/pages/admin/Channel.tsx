@@ -117,6 +117,11 @@ export default function ChannelManagement() {
   const [modelSourceMode, setModelSourceMode] = useState<'manual' | 'sync'>('manual');
   const [newModelInput, setNewModelInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const { isOpen: isTestOpen, onOpen: onTestOpen, onOpenChange: onTestOpenChange } = useDisclosure();
+  const [testChannel, setTestChannel] = useState<Channel | null>(null);
+  const [testMode, setTestMode] = useState<string>('quick');
+  const [testModel, setTestModel] = useState<string>('');
+  const [testPrompt, setTestPrompt] = useState<string>('');
   const { isOpen: isPromptOpen, onOpen: onPromptOpen, onOpenChange: onPromptOpenChange } = useDisclosure();
   const [promptConfig, setPromptConfig] = useState<PromptDialogConfig>({ title: '' });
   const [promptValue, setPromptValue] = useState('');
@@ -172,13 +177,52 @@ export default function ChannelManagement() {
   };
 
   const handleTest = async (id: number) => {
+    const channel = channels.find(c => c.id === id);
+    if (!channel) return;
+
+    setTestChannel(channel);
+    setTestMode('quick');
+    setTestModel('');
+    setTestPrompt('');
+    onTestOpen();
+  };
+
+  const executeTest = async () => {
+    if (!testChannel) return;
+
+    if (testMode === 'quick') {
+      await executeChannelTest(testChannel.id);
+    } else if (testMode === 'custom') {
+      if (!testPrompt.trim()) {
+        toast.error('请输入测试问题');
+        return;
+      }
+      await executeChannelTest(testChannel.id, testPrompt.trim());
+    } else if (testMode === 'model') {
+      if (!testModel.trim()) {
+        toast.error('请选择或输入模型名称');
+        return;
+      }
+      await executeModelTest(testChannel.id, testModel.trim(), testPrompt.trim() || undefined);
+    }
+
+    onTestOpenChange();
+  };
+
+  const executeChannelTest = async (id: number, prompt?: string) => {
     setTestingId(id);
     try {
       const res = await fetch(`/api/channel/test/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt: prompt || '' }),
       });
       const data = await res.json();
       if (data.code === 0 && data.data.success) {
+        toast.success(`测试通过 (${data.data.time}ms)`);
         setChannels(prev => prev.map(c =>
           c.id === id ? { ...c, response_time: data.data.time } : c
         ));
@@ -187,9 +231,44 @@ export default function ChannelManagement() {
       }
     } catch (error) {
       console.error('Test error:', error);
+      toast.error('测试请求失败');
     } finally {
       setTestingId(null);
     }
+  };
+
+  const executeModelTest = async (id: number, model: string, prompt?: string) => {
+    setTestingId(id);
+    try {
+      const res = await fetch(`/api/channel/test-model/${id}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model, prompt: prompt || '' }),
+      });
+      const data = await res.json();
+      if (data.code === 0 && data.data.success) {
+        toast.success(`模型 ${model} 测试通过 (${data.data.time}ms)`);
+      } else {
+        toast.error(data.data?.msg || data.msg || '模型测试失败');
+      }
+    } catch (error) {
+      console.error('Model test error:', error);
+      toast.error('模型测试请求失败');
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const showPromptDialog = (config: PromptDialogConfig): Promise<string | null> => {
+    return new Promise((resolve) => {
+      setPromptConfig(config);
+      setPromptValue(config.defaultValue || '');
+      promptResolveRef.current = resolve;
+      onPromptOpen();
+    });
   };
 
   useEffect(() => {
@@ -1704,6 +1783,74 @@ export default function ChannelManagement() {
                 >
                   {promptConfig.confirmText || '确认'}
                 </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      {/* Test Channel Modal */}
+      <Modal isOpen={isTestOpen} onOpenChange={onTestOpenChange}>
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader>测试渠道可用性</ModalHeader>
+              <ModalBody>
+                <div className="space-y-4">
+                  <div className="p-3 bg-warning-50 border border-warning-200 rounded-lg">
+                    <p className="text-sm text-warning-800">⚠️ 测试会向上游发送真实请求，可能产生费用</p>
+                  </div>
+
+                  <Select
+                    label="测试方式"
+                    selectedKeys={new Set([testMode])}
+                    onSelectionChange={(keys) => {
+                      const selected = Array.from(keys)[0] as string;
+                      setTestMode(selected);
+                    }}
+                  >
+                    <SelectItem key="quick">快速测试（默认问题：现在几点了）</SelectItem>
+                    <SelectItem key="custom">自定义问题测试</SelectItem>
+                    <SelectItem key="model">测试指定模型</SelectItem>
+                  </Select>
+
+                  {testMode === 'custom' && (
+                    <Input
+                      label="测试问题"
+                      placeholder="输入测试问题"
+                      value={testPrompt}
+                      onValueChange={setTestPrompt}
+                    />
+                  )}
+
+                  {testMode === 'model' && (
+                    <>
+                      <Select
+                        label="选择模型"
+                        placeholder="选择模型"
+                        selectedKeys={testModel ? new Set([testModel]) : new Set()}
+                        onSelectionChange={(keys) => {
+                          const selected = Array.from(keys)[0] as string;
+                          setTestModel(selected || '');
+                        }}
+                      >
+                        {(testChannel?.models?.split(',').filter(m => m.trim()) || []).map(m => (
+                          <SelectItem key={m.trim()}>{m.trim()}</SelectItem>
+                        ))}
+                      </Select>
+                      <Input
+                        label="测试问题（可选）"
+                        placeholder="留空使用默认问题"
+                        value={testPrompt}
+                        onValueChange={setTestPrompt}
+                      />
+                    </>
+                  )}
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button color="danger" variant="light" onPress={onClose}>取消</Button>
+                <Button color="primary" onPress={executeTest} isLoading={testingId === testChannel?.id}>开始测试</Button>
               </ModalFooter>
             </>
           )}

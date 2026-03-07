@@ -42,6 +42,9 @@ export default function ModelManagement() {
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
   const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const { isOpen: isBatchOpen, onOpen: onBatchOpen, onOpenChange: onBatchOpenChange } = useDisclosure();
+  const [batchRatio, setBatchRatio] = useState({ input: '1', output: '1' });
   const [formData, setFormData] = useState({
     model_name: '', display_name: '', category: 'chat',
     input_ratio: '1', output_ratio: '1', max_context: '4096', enabled: true,
@@ -160,14 +163,51 @@ export default function ModelManagement() {
   const handleSyncPricing = async () => {
     setSyncing(true);
     try {
-      const res = await fetch('/api/model/sync-pricing', {
+      const res = await fetch('/api/model/sync-upstream', {
         method: 'POST', headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) toast.success(data.message || '同步成功');
-      else toast.error(data.error || '同步失败');
-    } catch (e) { console.error(e); }
+      if (data.code === 0) {
+        toast.success(`同步成功：创建 ${data.data.created} 个，更新 ${data.data.updated} 个`);
+        fetchModels();
+      } else {
+        toast.error(data.msg || '同步失败');
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('同步请求失败');
+    }
     finally { setSyncing(false); }
+  };
+
+  const handleBatchRatio = async () => {
+    if (selectedIds.length === 0) {
+      toast.error('请先选择模型');
+      return;
+    }
+    try {
+      const res = await fetch('/api/model/batch-ratio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          ids: selectedIds,
+          input_ratio: parseFloat(batchRatio.input),
+          output_ratio: parseFloat(batchRatio.output),
+        }),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success(`已更新 ${selectedIds.length} 个模型的倍率`);
+        setSelectedIds([]);
+        fetchModels();
+        onBatchOpenChange();
+      } else {
+        toast.error(data.msg || '批量更新失败');
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('批量更新请求失败');
+    }
   };
 
   return (
@@ -202,6 +242,11 @@ export default function ModelManagement() {
               {CATEGORIES.map(c => <SelectItem key={c.key}>{c.label}</SelectItem>)}
             </Select>
             <Button startContent={<RefreshCw size={18} />} onPress={fetchModels} variant="flat">刷新</Button>
+            {selectedIds.length > 0 && (
+              <Button color="secondary" onPress={onBatchOpen}>
+                批量设置倍率 ({selectedIds.length})
+              </Button>
+            )}
             <Button startContent={<ArrowUpDown size={18} />} onPress={handleSyncPricing} variant="flat" color="warning" isLoading={syncing}>
               同步定价
             </Button>
@@ -214,21 +259,51 @@ export default function ModelManagement() {
         <table className="data-table">
           <thead>
             <tr>
-              <th>模型名称</th><th>显示名称</th><th>分类</th><th>输入倍率</th><th>输出倍率</th><th>上下文</th><th>状态</th><th>操作</th>
+              <th style={{width: '40px'}}>
+                <input
+                  type="checkbox"
+                  checked={selectedIds.length === filteredModels.length && filteredModels.length > 0}
+                  onChange={(e) => setSelectedIds(e.target.checked ? filteredModels.map(m => m.id) : [])}
+                />
+              </th>
+              <th>模型名称</th><th>显示名称</th><th>分类</th><th>输入倍率</th><th>输出倍率</th><th>输入价格</th><th>输出价格</th><th>上下文</th><th>状态</th><th>操作</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <LoadingRows cols={8} rows={5} />
+              <LoadingRows cols={11} rows={5} />
             ) : filteredModels.length === 0 ? (
-              <tr><td colSpan={8}><EmptyState icon="🤖" title="暂无匹配模型" /></td></tr>
+              <tr><td colSpan={11}><EmptyState icon="🤖" title="暂无匹配模型" /></td></tr>
             ) : filteredModels.map((m) => (
               <tr key={m.id}>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(m.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedIds([...selectedIds, m.id]);
+                      } else {
+                        setSelectedIds(selectedIds.filter(id => id !== m.id));
+                      }
+                    }}
+                  />
+                </td>
                 <td className="font-mono text-sm">{m.model_name}</td>
                 <td>{m.display_name || '-'}</td>
                 <td><Chip size="sm" variant="flat" color="secondary">{CATEGORIES.find(c => c.key === m.category)?.label || m.category}</Chip></td>
                 <td>{m.input_ratio}</td>
                 <td>{m.output_ratio}</td>
+                <td>
+                  {m.upstream_input_price > 0 ? (
+                    <span className="text-sm">¥{(m.upstream_input_price * m.input_ratio).toFixed(2)}/M</span>
+                  ) : '-'}
+                </td>
+                <td>
+                  {m.upstream_output_price > 0 ? (
+                    <span className="text-sm">¥{(m.upstream_output_price * m.output_ratio).toFixed(2)}/M</span>
+                  ) : '-'}
+                </td>
                 <td>{m.max_context.toLocaleString()}</td>
                 <td>
                   <div className="flex items-center gap-2">
@@ -285,6 +360,27 @@ export default function ModelManagement() {
               <ModalFooter>
                 <Button variant="light" onPress={onClose}>取消</Button>
                 <Button color="primary" onPress={() => handleSubmit(onClose)}>保存</Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={isBatchOpen} onOpenChange={onBatchOpenChange}>
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader>批量设置倍率</ModalHeader>
+              <ModalBody className="gap-4">
+                <p className="text-sm text-default-500">已选择 {selectedIds.length} 个模型</p>
+                <Input label="输入倍率" type="number" value={batchRatio.input}
+                  onValueChange={(v) => setBatchRatio({...batchRatio, input: v})} />
+                <Input label="输出倍率" type="number" value={batchRatio.output}
+                  onValueChange={(v) => setBatchRatio({...batchRatio, output: v})} />
+              </ModalBody>
+              <ModalFooter>
+                <Button variant="light" onPress={onClose}>取消</Button>
+                <Button color="primary" onPress={() => { handleBatchRatio(); onClose(); }}>确定</Button>
               </ModalFooter>
             </>
           )}

@@ -66,5 +66,15 @@ func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any)
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *model.Token) (usage *dto.Usage, err error) {
-	return a.openai.DoResponse(c, resp, meta)
+	usage, err = a.openai.DoResponse(c, resp, meta)
+	if err != nil || usage == nil {
+		return usage, err
+	}
+
+	// DeepSeek uses prompt_cache_hit_tokens instead of prompt_tokens_details
+	if usage.PromptCacheHitTokens > 0 {
+		usage.CachedTokens = usage.PromptCacheHitTokens
+	}
+
+	return usage, nil
 }

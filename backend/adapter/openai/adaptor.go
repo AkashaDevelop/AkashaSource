@@ -129,11 +129,8 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 
 	if len(response.Choices) > 0 {
 		// Extract cached tokens from prompt_tokens_details
-		var detailed struct {
-			Usage dto.UsageWithDetails `json:"usage"`
-		}
-		if json.Unmarshal(body, &detailed) == nil && detailed.Usage.PromptTokensDetail != nil {
-			response.Usage.CachedTokens = detailed.Usage.PromptTokensDetail.CachedTokens
+		if response.Usage.PromptTokensDetails != nil && response.Usage.PromptTokensDetails.CachedTokens > 0 {
+			response.Usage.CachedTokens = response.Usage.PromptTokensDetails.CachedTokens
 		}
 		return &response.Usage, nil
 	}

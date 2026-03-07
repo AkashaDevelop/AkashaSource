@@ -9,6 +9,10 @@ interface ModelPrice {
   model: string;
   input_ratio: number;
   output_ratio: number;
+  upstream_input_price: number;
+  upstream_output_price: number;
+  actual_input_price: number;
+  actual_output_price: number;
 }
 
 function getRatioColor(ratio: number): string {
@@ -27,7 +31,13 @@ export default function Pricing() {
     setLoading(true);
     fetch('/api/pricing')
       .then(r => r.json())
-      .then(d => { if (d.models) setModels(d.models); })
+      .then(d => {
+        if (d.code === 0 && d.data?.models) {
+          setModels(d.data.models);
+        } else if (d.models) {
+          setModels(d.models);
+        }
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -82,13 +92,17 @@ export default function Pricing() {
                   <th>模型名称</th>
                   <th>输入倍率</th>
                   <th>输出倍率</th>
+                  <th>上游输入价格</th>
+                  <th>上游输出价格</th>
+                  <th>实际输入价格</th>
+                  <th>实际输出价格</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <LoadingRows cols={3} rows={8} />
+                  <LoadingRows cols={7} rows={8} />
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={3}><EmptyState icon="🤖" title="暂无定价数据" description={search ? `未找到包含「${search}」的模型` : '暂时没有可用的模型定价'} /></td></tr>
+                  <tr><td colSpan={7}><EmptyState icon="🤖" title="暂无定价数据" description={search ? `未找到包含「${search}」的模型` : '暂时没有可用的模型定价'} /></td></tr>
                 ) : filtered.map((m) => (
                   <tr key={m.model}>
                     <td>
@@ -111,6 +125,26 @@ export default function Pricing() {
                       >
                         {m.output_ratio}x
                       </Chip>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: '13px' }}>
+                        {m.upstream_input_price > 0 ? `¥${m.upstream_input_price.toFixed(2)}/M` : '-'}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: '13px' }}>
+                        {m.upstream_output_price > 0 ? `¥${m.upstream_output_price.toFixed(2)}/M` : '-'}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--accent-cosmic)' }}>
+                        {m.actual_input_price > 0 ? `¥${m.actual_input_price.toFixed(2)}/M` : '-'}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--accent-cosmic)' }}>
+                        {m.actual_output_price > 0 ? `¥${m.actual_output_price.toFixed(2)}/M` : '-'}
+                      </span>
                     </td>
                   </tr>
                 ))}

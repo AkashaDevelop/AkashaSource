@@ -27,10 +27,20 @@ interface PerformanceData {
   go_version: string;
 }
 
+interface SystemStats {
+  cpu_usage: number;
+  memory_usage: number;
+  memory_total: number;
+  memory_used: number;
+  goroutines: number;
+  timestamp: number;
+}
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [perf, setPerf] = useState<PerformanceData | null>(null);
+  const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
   const [loading, setLoading] = useState(false);
   const { token, user } = useAuthStore();
 
@@ -62,11 +72,26 @@ export default function AdminDashboard() {
     } catch (e) { console.error(e); }
   };
 
+  const fetchSystemStats = async () => {
+    try {
+      const res = await fetch('/api/admin/system/monitor', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.code === 0 && data.data) {
+        setSystemStats(data.data);
+      }
+    } catch (e) { console.error(e); }
+  };
+
   useEffect(() => {
     if (token) {
       fetchDashboard();
       if ((user?.role ?? 0) >= 100) {
         fetchPerformance();
+        fetchSystemStats();
+        const interval = setInterval(fetchSystemStats, 5000);
+        return () => clearInterval(interval);
       } else {
         setPerf(null);
       }
@@ -192,6 +217,33 @@ export default function AdminDashboard() {
             </div>
           </CardBody>
         </Card>
+      )}
+
+      {/* 实时系统监控 */}
+      {systemStats && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <StatCard
+            title="CPU 使用率"
+            value={`${systemStats.cpu_usage.toFixed(1)}%`}
+            icon={<Cpu size={24} style={{ color: 'var(--accent-primary)' }} />}
+            iconBg="rgba(124,58,237,0.15)"
+            footer={systemStats.cpu_usage > 80 ? '高负载' : '正常'}
+          />
+          <StatCard
+            title="内存使用率"
+            value={`${systemStats.memory_usage.toFixed(1)}%`}
+            icon={<MemoryStick size={24} style={{ color: 'var(--accent-star)' }} />}
+            iconBg="rgba(217,119,6,0.12)"
+            footer={`${(systemStats.memory_used / 1024 / 1024 / 1024).toFixed(2)} GB / ${(systemStats.memory_total / 1024 / 1024 / 1024).toFixed(2)} GB`}
+          />
+          <StatCard
+            title="活跃协程"
+            value={systemStats.goroutines}
+            icon={<Activity size={24} style={{ color: '#34d399' }} />}
+            iconBg="rgba(16,185,129,0.12)"
+            footer="Goroutines"
+          />
+        </div>
       )}
     </div>
   );

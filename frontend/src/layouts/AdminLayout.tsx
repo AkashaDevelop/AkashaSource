@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box, ArrowLeft, Crown, Database, Boxes, Wrench } from 'lucide-react';
+import { LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box, ArrowLeft, Crown, Database, Boxes, Wrench, Network } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 import { useSystemStore } from '../store/system';
 import ThemeToggle from '../components/ThemeToggle';
@@ -27,6 +27,7 @@ const navGroups = [
     label: 'AI资源',
     items: [
       { key: '/admin/channel', icon: Server, label: '渠道管理' },
+      { key: '/admin/channel-affinity', icon: Network, label: '渠道亲和性' },
       { key: '/admin/model', icon: Box, label: '模型管理' },
       { key: '/admin/model-meta', icon: Boxes, label: '模型元数据' },
       { key: '/admin/group', icon: Layers, label: '分组管理' },

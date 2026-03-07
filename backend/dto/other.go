@@ -47,9 +47,20 @@ type CompletionResponse struct {
 
 // --- Rerank ---
 
+type RerankRequest struct {
+	Documents       []interface{} `json:"documents"`
+	Query           string        `json:"query"`
+	Model           string        `json:"model"`
+	TopN            *int          `json:"top_n,omitempty"`
+	ReturnDocuments *bool         `json:"return_documents,omitempty"`
+	MaxChunkPerDoc  *int          `json:"max_chunk_per_doc,omitempty"`
+	OverlapTokens   *int          `json:"overlap_tokens,omitempty"`
+}
+
 type RerankResult struct {
-	Index          int     `json:"index"`
-	RelevanceScore float64 `json:"relevance_score"`
+	Document       interface{} `json:"document,omitempty"`
+	Index          int         `json:"index"`
+	RelevanceScore float64     `json:"relevance_score"`
 }
 
 type RerankResponse struct {

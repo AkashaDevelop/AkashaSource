@@ -1,5 +1,10 @@
 package model
 
+import (
+	"encoding/json"
+	"STfreApi/dto"
+)
+
 type User struct {
 	Id                int    `json:"id" gorm:"primaryKey;autoIncrement"`
 	Username          string `json:"username" gorm:"unique;index"`
@@ -30,6 +35,9 @@ type User struct {
 	BackupCodes   string `json:"-" gorm:"type:text"` // JSON array of hashed backup codes
 	TOTPFailCount int    `json:"totp_fail_count" gorm:"default:0"`
 	TOTPLockedAt  int64  `json:"totp_locked_at" gorm:"default:0"`
+
+	// User Settings
+	Setting string `json:"setting" gorm:"type:text"`
 }
 
 const (
@@ -42,3 +50,20 @@ const (
 	UserStatusActive = 1
 	UserStatusBanned = 2
 )
+
+func (u *User) GetSetting() dto.UserSetting {
+	var setting dto.UserSetting
+	if u.Setting != "" {
+		json.Unmarshal([]byte(u.Setting), &setting)
+	}
+	return setting
+}
+
+func (u *User) SetSetting(setting dto.UserSetting) error {
+	data, err := json.Marshal(setting)
+	if err != nil {
+		return err
+	}
+	u.Setting = string(data)
+	return nil
+}

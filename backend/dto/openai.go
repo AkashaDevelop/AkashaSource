@@ -45,20 +45,26 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
-	CachedTokens     int `json:"cached_tokens,omitempty"` // OpenAI cached_tokens or Claude cache_read_input_tokens
+	CachedTokens     int `json:"cached_tokens,omitempty"`
+
+	// Claude format
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
+
+	// DeepSeek/Qwen format
+	PromptCacheHitTokens int `json:"prompt_cache_hit_tokens,omitempty"`
+
+	// Detailed token breakdown
+	PromptTokensDetails *PromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+	InputTokensDetails  *InputTokensDetails  `json:"input_tokens_details,omitempty"`
 }
 
-// PromptTokensDetails for OpenAI's detailed token breakdown
 type PromptTokensDetails struct {
 	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
-// UsageWithDetails extends Usage with OpenAI's prompt_tokens_details
-type UsageWithDetails struct {
-	PromptTokens        int                  `json:"prompt_tokens"`
-	CompletionTokens    int                  `json:"completion_tokens"`
-	TotalTokens         int                  `json:"total_tokens"`
-	PromptTokensDetail  *PromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+type InputTokensDetails struct {
+	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
 type OpenAIError struct {

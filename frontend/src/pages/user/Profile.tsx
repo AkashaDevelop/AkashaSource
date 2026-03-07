@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import PageHeader from '../../components/PageHeader';
 import {
-  Card, CardBody, Input, Button, Divider, Chip,
+  Card, CardBody, Input, Button, Divider, Chip, Select, Switch,
 } from '../../components/ui';
-import { User as UserIcon, Mail, Lock, Save, Shield, ShieldCheck, ShieldOff } from 'lucide-react';
+import { User as UserIcon, Mail, Lock, Save, Shield, ShieldCheck, ShieldOff, Bell } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 
@@ -30,6 +30,18 @@ export default function Profile() {
   const [disablePassword, setDisablePassword] = useState('');
   const [disableCode, setDisableCode] = useState('');
 
+  // 通知设置状态
+  const [notifySettings, setNotifySettings] = useState({
+    notify_type: 'email',
+    notification_email: '',
+    webhook_url: '',
+    webhook_secret: '',
+    bark_url: '',
+    gotify_url: '',
+    gotify_token: '',
+    gotify_priority: 5,
+  });
+
   const fetchProfile = async () => {
     if (!token) return;
     try {
@@ -38,6 +50,13 @@ export default function Profile() {
       if (data.code === 0) {
         setFormData({ ...data.data, password: '' });
         updateUser(data.data);
+        // 获取通知设置
+        if (data.data.setting) {
+          try {
+            const settings = typeof data.data.setting === 'string' ? JSON.parse(data.data.setting) : data.data.setting;
+            setNotifySettings({ ...notifySettings, ...settings });
+          } catch {}
+        }
       }
     } catch (e) { console.error(e); }
   };
@@ -54,6 +73,7 @@ export default function Profile() {
           display_name: formData.display_name,
           email: formData.email,
           password: formData.password || undefined,
+          setting: JSON.stringify(notifySettings),
         }),
       });
       const data = await res.json();
@@ -300,6 +320,96 @@ export default function Profile() {
                     isLoading={totpLoading} onPress={handleTotpDisable}>
                     禁用两步验证
                   </Button>
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
+          {/* 通知设置 */}
+          <Card>
+            <CardBody className="gap-4 p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <Bell size={16} style={{ color: 'var(--accent-primary)' }} />
+                <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>通知设置</span>
+              </div>
+              <Divider />
+
+              <div>
+                <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)', display: 'block', marginBottom: '8px' }}>
+                  通知方式
+                </label>
+                <select
+                  value={notifySettings.notify_type}
+                  onChange={(e) => setNotifySettings({ ...notifySettings, notify_type: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--bg-elevated)',
+                    color: 'var(--text-primary)',
+                    fontSize: '14px',
+                  }}
+                >
+                  <option value="email">邮件通知</option>
+                  <option value="webhook">Webhook</option>
+                  <option value="bark">Bark (iOS)</option>
+                  <option value="gotify">Gotify</option>
+                </select>
+              </div>
+
+              {notifySettings.notify_type === 'email' && (
+                <Input
+                  label="邮箱地址"
+                  type="email"
+                  value={notifySettings.notification_email}
+                  onValueChange={(v) => setNotifySettings({ ...notifySettings, notification_email: v })}
+                  placeholder="your@email.com"
+                />
+              )}
+
+              {notifySettings.notify_type === 'webhook' && (
+                <div className="space-y-3">
+                  <Input
+                    label="Webhook URL"
+                    value={notifySettings.webhook_url}
+                    onValueChange={(v) => setNotifySettings({ ...notifySettings, webhook_url: v })}
+                    placeholder="https://your-server.com/webhook"
+                  />
+                  <Input
+                    label="密钥 (可选)"
+                    type="password"
+                    value={notifySettings.webhook_secret}
+                    onValueChange={(v) => setNotifySettings({ ...notifySettings, webhook_secret: v })}
+                    description="用于 HMAC-SHA256 签名验证"
+                  />
+                </div>
+              )}
+
+              {notifySettings.notify_type === 'bark' && (
+                <Input
+                  label="Bark URL"
+                  value={notifySettings.bark_url}
+                  onValueChange={(v) => setNotifySettings({ ...notifySettings, bark_url: v })}
+                  placeholder="https://api.day.app/your_key/"
+                  description="从 Bark App 中获取推送 URL"
+                />
+              )}
+
+              {notifySettings.notify_type === 'gotify' && (
+                <div className="space-y-3">
+                  <Input
+                    label="Gotify 服务器"
+                    value={notifySettings.gotify_url}
+                    onValueChange={(v) => setNotifySettings({ ...notifySettings, gotify_url: v })}
+                    placeholder="https://gotify.example.com"
+                  />
+                  <Input
+                    label="应用 Token"
+                    type="password"
+                    value={notifySettings.gotify_token}
+                    onValueChange={(v) => setNotifySettings({ ...notifySettings, gotify_token: v })}
+                  />
                 </div>
               )}
             </CardBody>

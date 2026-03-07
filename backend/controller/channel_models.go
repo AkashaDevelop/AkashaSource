@@ -111,3 +111,30 @@ func TestAllChannels(c *gin.Context) {
 	wg.Wait()
 	c.JSON(http.StatusOK, gin.H{"data": results})
 }
+
+// TestChannelModel tests a specific model on a channel
+func TestChannelModel(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Model  string `json:"model" binding:"required"`
+		Prompt string `json:"prompt"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, common.CodeParamError, "参数错误: "+err.Error())
+		return
+	}
+
+	var channel model.Channel
+	if err := common.DB.First(&channel, id).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "渠道不存在")
+		return
+	}
+
+	responseTime, err := service.CheckChannelWithPrompt(&channel, req.Model, req.Prompt)
+	if err != nil {
+		common.OK(c, gin.H{"success": false, "msg": err.Error(), "time": 0})
+		return
+	}
+
+	common.OK(c, gin.H{"success": true, "time": responseTime, "msg": "模型测试通过"})
+}

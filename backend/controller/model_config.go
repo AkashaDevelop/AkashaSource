@@ -48,7 +48,7 @@ func UpdateModelConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ID 必填"})
 		return
 	}
-	if err := common.DB.Model(&config).Updates(config).Error; err != nil {
+	if err := common.DB.Model(&config).Select("*").Updates(config).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败"})
 		return
 	}
@@ -62,6 +62,39 @@ func DeleteModelConfig(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
+}
+
+// BatchUpdateModelRatio 批量更新模型倍率
+func BatchUpdateModelRatio(c *gin.Context) {
+	var req struct {
+		IDs         []int   `json:"ids" binding:"required"`
+		InputRatio  float64 `json:"input_ratio"`
+		OutputRatio float64 `json:"output_ratio"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, common.CodeParamError, "参数错误")
+		return
+	}
+
+	updates := make(map[string]interface{})
+	if req.InputRatio > 0 {
+		updates["input_ratio"] = req.InputRatio
+	}
+	if req.OutputRatio > 0 {
+		updates["output_ratio"] = req.OutputRatio
+	}
+
+	if len(updates) == 0 {
+		common.Fail(c, common.CodeParamError, "请提供要更新的倍率")
+		return
+	}
+
+	if err := common.DB.Model(&model.ModelConfig{}).Where("id IN ?", req.IDs).Updates(updates).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "批量更新失败")
+		return
+	}
+
+	common.OK(c, gin.H{"updated": len(req.IDs)})
 }
 
 // SyncPricingFromModelConfig syncs model ratios from ModelConfig table to option map

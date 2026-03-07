@@ -128,6 +128,8 @@ func Relay(c *gin.Context) {
 			openAIReq.Model = "gpt-3.5-turbo-instruct"
 		} else if path == "/v1/moderations" {
 			openAIReq.Model = "text-moderation-latest"
+		} else if path == "/v1/rerank" {
+			openAIReq.Model = "rerank-1"
 		} else {
 			openAIReq.Model = common.DefaultModel
 		}

@@ -27,6 +27,7 @@ import FilesPage from './pages/user/Files';
 import TasksPage from './pages/admin/Tasks';
 import UserTasksPage from './pages/user/Tasks';
 import ModelMetaManagement from './pages/admin/ModelMeta';
+import ChannelAffinity from './pages/admin/ChannelAffinity';
 
 function PrivateRoute({ children, roleRequired }: { children: React.ReactElement, roleRequired?: number }) {
   const { token, user } = useAuthStore();
@@ -94,6 +95,7 @@ function App() {
         <Route path="tasks" element={<TasksPage />} />
         <Route path="ops" element={<TasksPage />} />
         <Route path="model-meta" element={<ModelMetaManagement />} />
+        <Route path="channel-affinity" element={<ChannelAffinity />} />
       </Route>
     </Routes>
   );

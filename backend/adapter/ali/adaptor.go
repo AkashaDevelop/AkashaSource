@@ -78,3 +78,17 @@ func (a *Adaptor) DoRequest(c *gin.Context, channel *model.Channel, request any)
 	client := common.NewHTTPClient(channel.Proxy)
 	return client.Do(req)
 }
+
+func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *model.Token) (usage *dto.Usage, err error) {
+	usage, err = a.Adaptor.DoResponse(c, resp, meta)
+	if err != nil || usage == nil {
+		return usage, err
+	}
+
+	// Qwen uses prompt_cache_hit_tokens format
+	if usage.PromptCacheHitTokens > 0 {
+		usage.CachedTokens = usage.PromptCacheHitTokens
+	}
+
+	return usage, nil
+}

@@ -257,6 +257,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			// 仪表盘
 			adminGroup.GET("/dashboard", controller.GetAdminDashboard)
+			adminGroup.GET("/admin/system/monitor", controller.GetSystemMonitor)
 
 			// 渠道管理 (仅管理员)
 			adminGroup.GET("/channel", controller.GetAllChannels)
@@ -265,8 +266,20 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.POST("/channel/batch", controller.AddChannels)
 			adminGroup.PUT("/channel", controller.UpdateChannel)
 			adminGroup.DELETE("/channel/:id", controller.DeleteChannel)
-			adminGroup.GET("/channel/test/:id", controller.TestChannel)
+			adminGroup.POST("/channel/test/:id", controller.TestChannel)
+			adminGroup.POST("/channel/test-model/:id", controller.TestChannelModel)
 			adminGroup.PATCH("/channel/:id/status", controller.ToggleChannelStatus)
+
+			// 渠道亲和性
+			adminGroup.GET("/admin/channel-affinity/rules", controller.GetChannelAffinityRules)
+			adminGroup.POST("/admin/channel-affinity/rules", controller.SaveChannelAffinityRules)
+			adminGroup.GET("/admin/channel-affinity/stats", controller.GetChannelAffinityStats)
+			adminGroup.POST("/admin/channel-affinity/cache/clear", controller.ClearChannelAffinityCacheAPI)
+
+			// 批量渠道操作
+			adminGroup.POST("/admin/channels/batch-status", controller.BatchUpdateChannelStatus)
+			adminGroup.POST("/admin/channels/batch-priority", controller.BatchUpdateChannelPriority)
+			adminGroup.POST("/admin/channels/batch-delete", controller.BatchDeleteChannels)
 
 			// 日志管理 (管理员)
 			adminGroup.GET("/log", controller.GetAllLogs)
@@ -359,7 +372,9 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.POST("/model", controller.AddModelConfig)
 			adminGroup.PUT("/model", controller.UpdateModelConfig)
 			adminGroup.DELETE("/model/:id", controller.DeleteModelConfig)
+			adminGroup.POST("/model/batch-ratio", controller.BatchUpdateModelRatio)
 			adminGroup.POST("/model/sync-pricing", controller.SyncPricingFromModelConfig)
+			adminGroup.POST("/model/sync-upstream", controller.SyncUpstreamPricing)
 
 			// 运维监控
 			adminGroup.DELETE("/log", controller.DeleteLogs)

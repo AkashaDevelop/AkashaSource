@@ -124,9 +124,36 @@ func IsSystemInitialized(c *gin.Context) {
 }
 
 func GetPublicPricing(c *gin.Context) {
-	common.OptionLock.RLock()
-	mr := common.OptionMap[model.OptionKeyModelRatio]
-	cr := common.OptionMap[model.OptionKeyCompletionRatio]
-	common.OptionLock.RUnlock()
-	common.OK(c, gin.H{"model_ratio": mr, "completion_ratio": cr})
+	// Get model configs from database
+	var configs []model.ModelConfig
+	if err := common.DB.Where("enabled = ?", true).Find(&configs).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "获取模型配置失败")
+		return
+	}
+
+	// Convert to array format
+	type ModelPrice struct {
+		Model               string  `json:"model"`
+		InputRatio          float64 `json:"input_ratio"`
+		OutputRatio         float64 `json:"output_ratio"`
+		UpstreamInputPrice  float64 `json:"upstream_input_price"`
+		UpstreamOutputPrice float64 `json:"upstream_output_price"`
+		ActualInputPrice    float64 `json:"actual_input_price"`
+		ActualOutputPrice   float64 `json:"actual_output_price"`
+	}
+
+	models := make([]ModelPrice, 0, len(configs))
+	for _, cfg := range configs {
+		models = append(models, ModelPrice{
+			Model:               cfg.ModelName,
+			InputRatio:          cfg.InputRatio,
+			OutputRatio:         cfg.OutputRatio,
+			UpstreamInputPrice:  cfg.UpstreamInputPrice,
+			UpstreamOutputPrice: cfg.UpstreamOutputPrice,
+			ActualInputPrice:    cfg.UpstreamInputPrice * cfg.InputRatio,
+			ActualOutputPrice:   cfg.UpstreamOutputPrice * cfg.OutputRatio,
+		})
+	}
+
+	common.OK(c, gin.H{"models": models})
 }

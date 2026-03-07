@@ -414,12 +414,18 @@ func ToggleChannelStatus(c *gin.Context) {
 
 func TestChannel(c *gin.Context) {
 	id := c.Param("id")
+	var req struct {
+		Model  string `json:"model"`
+		Prompt string `json:"prompt"`
+	}
+	c.ShouldBindJSON(&req)
+
 	var channel model.Channel
 	if err := common.DB.First(&channel, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, common.R{Code: common.CodeNotFound, Msg: "渠道不存在"})
 		return
 	}
-	responseTime, err := service.CheckChannel(&channel)
+	responseTime, err := service.CheckChannelWithPrompt(&channel, req.Model, req.Prompt)
 	if err != nil {
 		common.OK(c, gin.H{"success": false, "msg": err.Error(), "time": 0})
 		return
