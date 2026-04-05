@@ -51,6 +51,10 @@ func main() {
 	// 启动订阅过期检查
 	service.InitSubscriptionExpiry()
 
+	// 启动渠道签到和余额监控调度器
+	log.Printf("启动渠道签到和余额监控调度器...")
+	service.InitScheduler()
+
 	// Initialize Gin
 	r := gin.Default()
 

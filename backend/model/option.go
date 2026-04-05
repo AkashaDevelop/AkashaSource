@@ -113,6 +113,8 @@ func InitOptions() {
 	common.DB.AutoMigrate(&ModelMeta{})
 	common.DB.AutoMigrate(&Deployment{})
 	common.DB.AutoMigrate(&PrefillGroup{})
+	common.DB.AutoMigrate(&ChannelCheckinLog{})
+	common.DB.AutoMigrate(&ChannelBalanceLog{})
 	ApplyMigrations()
 	_ = ApplySQLFileMigrations()
 

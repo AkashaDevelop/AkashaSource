@@ -29,6 +29,13 @@ type Channel struct {
 	MultiKeyStatus         string  `json:"multi_key_status" gorm:"type:text"`          // JSON: {"0":1,"1":2}
 	MultiKeyDisabledTime   string  `json:"multi_key_disabled_time" gorm:"type:text"`   // JSON: {"1":1700000000}
 	MultiKeyDisabledReason string  `json:"multi_key_disabled_reason" gorm:"type:text"` // JSON: {"1":"manual"}
+	CheckinEnabled         int     `json:"checkin_enabled" gorm:"default:0"`           // 是否启用自动签到
+	LastCheckinAt          int64   `json:"last_checkin_at"`                            // 上次签到时间戳
+	BalanceRefreshAt       int64   `json:"balance_refresh_at"`                         // 上次余额刷新时间戳
+	AccountUsername        string  `json:"account_username" gorm:"type:varchar(255)"`  // 账号用户名
+	AccountPassword        string  `json:"account_password" gorm:"type:text"`          // 账号密码(加密存储)
+	AccessToken            string  `json:"access_token" gorm:"type:text"`              // 会话令牌
+	PlatformUserId         int     `json:"platform_user_id"`                           // 平台用户ID
 }
 
 const (

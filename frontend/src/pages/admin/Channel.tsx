@@ -10,6 +10,11 @@ import {
   ModalHeader,
   ModalBody,
   ModalFooter,
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerBody,
+  DrawerFooter,
   useDisclosure,
   Input,
   Select,
@@ -1329,14 +1334,14 @@ export default function ChannelManagement() {
         </table>
       </div>
 
-      <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="2xl" scrollBehavior="inside">
-        <ModalContent>
+      <Drawer isOpen={isOpen} onOpenChange={onOpenChange} size="lg">
+        <DrawerContent>
           {(onClose) => (
             <>
-              <ModalHeader className="flex flex-col gap-1">
+              <DrawerHeader onClose={onClose}>
                 {editingChannel ? '编辑渠道' : '添加新渠道'}
-              </ModalHeader>
-              <ModalBody>
+              </DrawerHeader>
+              <DrawerBody>
                 <Form className="grid grid-cols-2 gap-4">
                   <Input
                     label="渠道名称"
@@ -1402,6 +1407,7 @@ export default function ChannelManagement() {
                       <div className="flex items-center gap-2">
                         <span className="text-small font-medium">模型来源</span>
                         <Button
+                          type="button"
                           size="sm"
                           variant={modelSourceMode === 'manual' ? 'solid' : 'flat'}
                           color={modelSourceMode === 'manual' ? 'primary' : 'default'}
@@ -1410,6 +1416,7 @@ export default function ChannelManagement() {
                           手动输入
                         </Button>
                         <Button
+                          type="button"
                           size="sm"
                           variant={modelSourceMode === 'sync' ? 'solid' : 'flat'}
                           color={modelSourceMode === 'sync' ? 'secondary' : 'default'}
@@ -1423,6 +1430,7 @@ export default function ChannelManagement() {
                       <span className="text-small font-medium">模型列表 (逗号分隔)</span>
                       {editingChannel?.id ? (
                         <Button
+                          type="button"
                           size="sm"
                           variant="flat"
                           color="secondary"
@@ -1434,6 +1442,7 @@ export default function ChannelManagement() {
                         </Button>
                       ) : modelSourceMode === 'sync' ? (
                         <Button
+                          type="button"
                           size="sm"
                           variant="flat"
                           color="secondary"
@@ -1472,12 +1481,12 @@ export default function ChannelManagement() {
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
-                            // 支持粘贴逗号分隔的多个模型
                             newModelInput.split(',').forEach((m) => addModel(m));
                           }
                         }}
                       />
                       <Button
+                        type="button"
                         size="sm"
                         isIconOnly
                         color="primary"
@@ -1505,7 +1514,7 @@ export default function ChannelManagement() {
                         value={newMapping.to}
                         onValueChange={v => setNewMapping({...newMapping, to: v})}
                       />
-                      <Button isIconOnly size="sm" color="primary" variant="flat" onPress={handleAddMapping} className="mb-0.5">
+                      <Button type="button" isIconOnly size="sm" color="primary" variant="flat" onPress={handleAddMapping} className="mb-0.5">
                         <Plus size={16} />
                       </Button>
                     </div>
@@ -1526,19 +1535,19 @@ export default function ChannelManagement() {
                     </div>
                   </div>
                 </Form>
-              </ModalBody>
-              <ModalFooter>
+              </DrawerBody>
+              <DrawerFooter>
                 <Button color="danger" variant="light" onPress={onClose}>
                   取消
                 </Button>
                 <Button color="primary" isLoading={submitting} onPress={() => handleSubmit(onClose)}>
                   保存
                 </Button>
-              </ModalFooter>
+              </DrawerFooter>
             </>
           )}
-        </ModalContent>
-      </Modal>
+        </DrawerContent>
+      </Drawer>
 
       <Modal isOpen={isMultiKeyOpen} onOpenChange={onMultiKeyOpenChange} size="xl" scrollBehavior="inside">
         <ModalContent>

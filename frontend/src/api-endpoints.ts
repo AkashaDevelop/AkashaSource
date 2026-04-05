@@ -246,4 +246,201 @@
  *    - 调用 service/channel_affinity.go 的函数
  */
 
+// ==================== 渠道账号管理 API ====================
+/**
+ * POST /api/channel/checkin/trigger
+ * 触发全部渠道签到
+ *
+ * 响应格式：
+ * {
+ *   "code": 0,
+ *   "data": {
+ *     "total": 10,
+ *     "success": 8,
+ *     "failed": 1,
+ *     "skipped": 1,
+ *     "results": [...]
+ *   }
+ * }
+ */
+
+/**
+ * POST /api/channel/checkin/trigger/:id
+ * 触发单个渠道签到
+ *
+ * 响应格式：
+ * {
+ *   "code": 0,
+ *   "data": {
+ *     "success": true,
+ *     "message": "签到成功",
+ *     "reward": "10次对话额度"
+ *   }
+ * }
+ */
+
+/**
+ * POST /api/channel/balance/refresh
+ * 刷新全部渠道余额
+ *
+ * 响应格式：
+ * {
+ *   "code": 0,
+ *   "data": {
+ *     "total": 10,
+ *     "success": 10,
+ *     "failed": 0,
+ *     "results": [...]
+ *   }
+ * }
+ */
+
+/**
+ * POST /api/channel/balance/refresh/:id
+ * 刷新单个渠道余额
+ *
+ * 响应格式：
+ * {
+ *   "code": 0,
+ *   "data": {
+ *     "balance": 100.50,
+ *     "used": 50.25,
+ *     "quota": 500000
+ *   }
+ * }
+ */
+
+/**
+ * GET /api/channel/checkin/logs
+ * 获取签到日志
+ *
+ * 查询参数：
+ * - channel_id: 渠道ID（可选）
+ * - limit: 返回数量（默认50）
+ *
+ * 响应格式：
+ * {
+ *   "code": 0,
+ *   "data": [
+ *     {
+ *       "id": 1,
+ *       "channel_id": 1,
+ *       "status": "success",
+ *       "message": "签到成功",
+ *       "reward": "10次对话额度",
+ *       "created_at": 1678123456
+ *     }
+ *   ]
+ * }
+ */
+
+/**
+ * GET /api/channel/balance/logs
+ * 获取余额日志
+ *
+ * 查询参数：
+ * - channel_id: 渠道ID（可选）
+ * - limit: 返回数量（默认50）
+ *
+ * 响应格式：
+ * {
+ *   "code": 0,
+ *   "data": [
+ *     {
+ *       "id": 1,
+ *       "channel_id": 1,
+ *       "balance": 100.50,
+ *       "used": 50.25,
+ *       "quota": 500000,
+ *       "message": "",
+ *       "created_at": 1678123456
+ *     }
+ *   ]
+ * }
+ */
+
+/**
+ * GET /api/channel/scheduler/status
+ * 获取调度器状态
+ *
+ * 响应格式：
+ * {
+ *   "code": 0,
+ *   "data": {
+ *     "running": true,
+ *     "checkin_cron": "0 8 * * *",
+ *     "balance_refresh_cron": "0 */6 * * *",
+ *     "checkin_interval_hours": 24
+ *   }
+ * }
+ */
+
+/**
+ * PUT /api/channel/scheduler/config
+ * 更新调度器配置
+ *
+ * 请求体：
+ * {
+ *   "checkin_interval_hours": 24,
+ *   "checkin_cron": "0 8 * * *",
+ *   "balance_refresh_cron": "0 */6 * * *"
+ * }
+ *
+ * 响应格式：
+ * {
+ *   "code": 0,
+ *   "message": "配置已更新"
+ * }
+ */
+
+/**
+ * PUT /api/channel/account/:id
+ * 更新渠道账号配置
+ *
+ * 请求体：
+ * {
+ *   "account_username": "user@example.com",
+ *   "account_password": "password",
+ *   "access_token": "sk-xxx",
+ *   "platform_user_id": 1,
+ *   "checkin_enabled": true
+ * }
+ *
+ * 响应格式：
+ * {
+ *   "code": 0,
+ *   "message": "保存成功"
+ * }
+ */
+
+/**
+ * POST /api/channel/login/:id
+ * 测试渠道登录
+ *
+ * 响应格式：
+ * {
+ *   "code": 0,
+ *   "data": {
+ *     "success": true,
+ *     "token": "sk-xxx"
+ *   }
+ * }
+ */
+
+/**
+ * GET /api/channel/balance/:id
+ * 获取渠道余额状态
+ *
+ * 响应格式：
+ * {
+ *   "code": 0,
+ *   "data": {
+ *     "balance": 100.50,
+ *     "used": 50.25,
+ *     "quota": 500000,
+ *     "last_refresh_at": 1678123456
+ *   }
+ * }
+ */
+
 export {};

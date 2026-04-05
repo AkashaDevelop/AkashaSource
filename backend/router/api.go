@@ -404,6 +404,21 @@ func SetApiRouter(router *gin.Engine) {
 			// 任务管理
 			adminGroup.GET("/tasks/mj", controller.AdminGetMJTasks)
 			adminGroup.GET("/tasks/suno", controller.AdminGetSunoTasks)
+
+			// 渠道账号管理（签到、余额监控）
+			adminGroup.POST("/channel/checkin/trigger", controller.TriggerChannelCheckin)
+			adminGroup.POST("/channel/checkin/trigger/:id", controller.CheckinSingleChannel)
+			adminGroup.POST("/channel/balance/refresh", controller.TriggerChannelBalanceRefresh)
+			adminGroup.POST("/channel/balance/refresh/:id", controller.RefreshSingleChannelBalance)
+			adminGroup.GET("/channel/checkin/logs", controller.GetChannelCheckinLogs)
+			adminGroup.GET("/channel/balance/logs", controller.GetChannelBalanceLogs)
+			adminGroup.GET("/channel/scheduler/status", controller.GetSchedulerStatus)
+			adminGroup.PUT("/channel/scheduler/config", controller.UpdateSchedulerConfig)
+			adminGroup.POST("/channel/scheduler/start", controller.StartScheduler)
+			adminGroup.POST("/channel/scheduler/stop", controller.StopScheduler)
+			adminGroup.PUT("/channel/account/:id", controller.UpdateChannelAccount)
+			adminGroup.POST("/channel/login/:id", controller.TestChannelLogin)
+			adminGroup.GET("/channel/balance/status/:id", controller.GetChannelBalanceStatus)
 			// Vendors
 			adminGroup.GET("/vendors", controller.GetAllVendors)
 			adminGroup.GET("/vendors/search", controller.SearchVendors)

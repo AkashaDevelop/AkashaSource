@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"STfreApi/adapter"
 	"STfreApi/common"
 	"STfreApi/model"
 	"STfreApi/service"
@@ -16,6 +17,13 @@ import (
 )
 
 func fetchAndPersistChannelBalance(channel *model.Channel) (float64, error) {
+	if channel.AccessToken != "" && adapter.SupportsAccountFeatures(channel.Type) {
+		balanceInfo, err := service.RefreshChannelBalance(channel)
+		if err == nil && balanceInfo != nil {
+			return balanceInfo.Balance, nil
+		}
+	}
+
 	baseUrl := strings.TrimSuffix(channel.BaseURL, "/")
 	key := service.GetNextKey(channel.Key)
 	client := common.NewHTTPClient(channel.Proxy)
