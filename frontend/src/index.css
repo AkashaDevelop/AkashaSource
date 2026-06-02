@@ -4,6 +4,16 @@
   --font-sans: "Inter", "Noto Sans SC", sans-serif;
 }
 
+/* ===== 圆角 Token（主题无关）===== */
+:root {
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-2xl:  20px;
+  --radius-full: 9999px;
+}
+
 /* ===== CSS 变量 — 白天主题 ===== */
 :root, [data-theme="light"] {
   --bg-base:        #f8f5ff;
@@ -33,6 +43,19 @@
   --table-hover:    rgba(124,58,237,0.04);
   --table-text:     #1e1b4b;
   --table-muted:    #6b7280;
+  /* ── 语义色 ── */
+  --color-success:    #10b981;
+  --color-success-fg: #34d399;
+  --color-success-bg: rgba(16,185,129,0.1);
+  --color-warning:    #d97706;
+  --color-warning-fg: #fbbf24;
+  --color-warning-bg: rgba(245,158,11,0.1);
+  --color-danger:     #dc2626;
+  --color-danger-fg:  #f87171;
+  --color-danger-bg:  rgba(239,68,68,0.1);
+  --color-info:       #0891b2;
+  --color-info-fg:    #22d3ee;
+  --color-info-bg:    rgba(8,145,178,0.1);
 }
 
 /* ===== CSS 变量 — 暗夜主题 ===== */
@@ -54,7 +77,7 @@
   --shadow-card:    0 4px 24px rgba(0,0,0,0.4);
   --shadow-hover:   0 8px 32px rgba(167,139,250,0.2);
   --scrollbar-track:#14102e;
-  --scrollbar-thumb:linear-gradient(180deg,#7c3aed,#0891b2);
+  --scrollbar-thumb:linear-gradient(180deg,#7c3aed,0891b2);
   --nav-active-bg:  linear-gradient(135deg,rgba(167,139,250,0.2),rgba(34,211,238,0.12));
   --nav-active-color:#c4b5fd;
   --nav-hover-bg:   rgba(167,139,250,0.1);
@@ -64,6 +87,19 @@
   --table-hover:    rgba(167,139,250,0.05);
   --table-text:     #e2e8f0;
   --table-muted:    #94a3b8;
+  /* ── 语义色（暗色主题亮度更高）── */
+  --color-success:    #34d399;
+  --color-success-fg: #6ee7b7;
+  --color-success-bg: rgba(52,211,153,0.12);
+  --color-warning:    #fbbf24;
+  --color-warning-fg: #fcd34d;
+  --color-warning-bg: rgba(251,191,36,0.12);
+  --color-danger:     #f87171;
+  --color-danger-fg:  #fca5a5;
+  --color-danger-bg:  rgba(248,113,113,0.12);
+  --color-info:       #22d3ee;
+  --color-info-fg:    #67e8f9;
+  --color-info-bg:    rgba(34,211,238,0.12);
 }
 
 /* ===== 全局背景 ===== */
@@ -71,6 +107,10 @@ body {
   background: var(--bg-base);
   color: var(--text-primary);
   min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   transition: background 0.3s ease, color 0.3s ease;
 }
 
@@ -121,6 +161,9 @@ body {
   0%,100% { opacity: 0.5; }
   50%     { opacity: 1; }
 }
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
 /* ===== 骨架屏 ===== */
 .skeleton-shimmer {
@@ -157,7 +200,7 @@ body {
 .akasha-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-card);
   backdrop-filter: blur(12px);
   transition: box-shadow 0.25s ease, transform 0.25s ease;
@@ -263,7 +306,7 @@ body {
 .btn-akasha {
   background: linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic));
   color: white;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   transition: opacity 0.2s, transform 0.2s;
 }
 .btn-akasha:hover { opacity: 0.9; transform: translateY(-1px); }
@@ -304,3 +347,281 @@ input:-webkit-autofill:active {
 }
 .confirm-backdrop { animation: backdropIn 0.2s ease forwards; }
 .confirm-dialog   { animation: confirmIn 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+
+/* ===== 导航项 CSS 类（替换 JS onMouseEnter/Leave） ===== */
+.nav-item {
+  color: var(--text-secondary);
+  background: transparent;
+  transition: background 0.15s, color 0.15s;
+  border: none;
+  cursor: pointer;
+}
+.nav-item:hover:not(.active) {
+  background: var(--nav-hover-bg);
+  color: var(--text-primary);
+}
+.nav-item.active {
+  background: var(--nav-active-bg);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+/* ===== 底部操作按钮 CSS 变量化 ===== */
+:root, [data-theme="light"] {
+  --btn-primary-bg:       rgba(124,58,237,0.1);
+  --btn-primary-bg-hover: rgba(124,58,237,0.18);
+  --btn-primary-color:    var(--accent-primary);
+  --btn-danger-bg:        rgba(248,113,113,0.1);
+  --btn-danger-bg-hover:  rgba(248,113,113,0.18);
+  --btn-danger-color:     #f87171;
+}
+[data-theme="dark"], .dark {
+  --btn-primary-bg:       rgba(167,139,250,0.12);
+  --btn-primary-bg-hover: rgba(167,139,250,0.22);
+  --btn-primary-color:    var(--accent-primary);
+  --btn-danger-bg:        rgba(248,113,113,0.12);
+  --btn-danger-bg-hover:  rgba(248,113,113,0.22);
+  --btn-danger-color:     #f87171;
+}
+
+.btn-sidebar-primary {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-color);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-sidebar-primary:hover { background: var(--btn-primary-bg-hover); }
+
+.btn-sidebar-danger {
+  background: var(--btn-danger-bg);
+  color: var(--btn-danger-color);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-sidebar-danger:hover { background: var(--btn-danger-bg-hover); }
+
+/* ===== 移动端侧边栏抽屉 ===== */
+@keyframes sidebarSlideIn {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes sidebarSlideOut {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-100%); }
+}
+
+.sidebar-mobile-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 40;
+  backdrop-filter: blur(2px);
+  animation: backdropIn 0.2s ease forwards;
+}
+
+.sidebar-mobile-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 240px;
+  z-index: 50;
+  transform: translateX(-100%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sidebar-mobile-drawer.open {
+  transform: translateX(0);
+}
+
+/* ===== 日期输入框统一样式 ===== */
+.akasha-date-input {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  color-scheme: light dark;
+  transition: border-color 0.15s;
+  cursor: pointer;
+}
+.akasha-date-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+[data-theme="dark"] .akasha-date-input,
+.dark .akasha-date-input {
+  color-scheme: dark;
+}
+
+/* ===== 预设日期范围快捷按钮 ===== */
+.date-preset-btn {
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.date-preset-btn:hover {
+  background: var(--nav-hover-bg);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+.date-preset-btn.active {
+  background: var(--nav-active-bg);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+/* ===== 分页选择器 ===== */
+.akasha-select {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.akasha-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+/* ===== 趋势标签 ===== */
+.trend-up   { color: var(--color-success-fg); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 2px; }
+.trend-down { color: var(--color-danger-fg);  font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 2px; }
+.trend-label { color: var(--text-muted); font-weight: 400; margin-left: 4px; font-size: 11px; }
+
+/* ===== 表单字段错误提示 ===== */
+.field-error {
+  font-size: 12px;
+  color: var(--color-danger-fg);
+  margin-top: 4px;
+  display: block;
+  animation: fadeInUp 0.2s ease-out;
+}
+
+/* ===== 字体语义类 ===== */
+.text-caption  { font-size: 11px; line-height: 1.4; }
+.text-label    { font-size: 12px; line-height: 1.4; }
+.text-subtitle { font-size: 15px; line-height: 1.5; font-weight: 500; }
+
+/* ===== 令牌管理抽屉 ===== */
+.token-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 100;
+  backdrop-filter: blur(3px);
+  animation: backdropIn 0.2s ease forwards;
+}
+
+.token-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(100vw, 480px);
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-color);
+  backdrop-filter: blur(20px);
+  box-shadow: -8px 0 40px rgba(0,0,0,0.3);
+  transform: translateX(100%);
+  transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
+}
+.token-drawer.open { transform: translateX(0); }
+
+.token-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.token-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.token-drawer-section {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+.token-drawer-section:last-child { border-bottom: none; }
+
+.token-drawer-section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+}
+
+.token-drawer-footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+  background: var(--bg-surface);
+}
+
+/* 快速过期预设按钮 */
+.expiry-preset-btn {
+  padding: 5px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.expiry-preset-btn:hover,
+.expiry-preset-btn.active {
+  border-color: var(--accent-primary);
+  background: var(--nav-active-bg);
+  color: var(--accent-primary);
+}
+
+/* 模型多选标签 */
+.model-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--color-info-bg);
+  color: var(--accent-primary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.model-tag:hover { background: var(--color-danger-bg); color: var(--color-danger-fg); }
+@keyframes dropdownIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+.header-dropdown {
+  animation: dropdownIn 0.18s cubic-bezier(0.34,1.56,0.64,1) forwards;
+}

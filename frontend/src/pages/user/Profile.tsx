@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import PageHeader from '../../components/PageHeader';
 import {
-  Card, CardBody, Input, Button, Divider, Chip, Select, Switch,
+  Card, CardBody, Input, Button, Divider, Chip, Select, SelectItem, Switch,
 } from '../../components/ui';
 import { User as UserIcon, Mail, Lock, Save, Shield, ShieldCheck, ShieldOff, Bell } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
@@ -164,7 +164,7 @@ export default function Profile() {
               background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: '28px', fontWeight: 700, color: 'white',
-              boxShadow: '0 0 24px rgba(124,58,237,0.35)',
+              boxShadow: '0 0 0 4px var(--color-info-bg), 0 4px 24px var(--accent-glow)',
             }}>
               {initials}
             </div>
@@ -197,7 +197,7 @@ export default function Profile() {
                 background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
               }}>
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>已用额度</span>
-                <span style={{ fontSize: '13px', fontWeight: 700, color: '#f87171' }}>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-danger-fg)' }}>
                   ${(formData.used_quota / 500000).toFixed(4)}
                 </span>
               </div>
@@ -309,7 +309,7 @@ export default function Profile() {
 
               {formData.totp_enabled && totpStep === 'idle' && (
                 <div className="space-y-3">
-                  <p style={{ fontSize: '13px', color: '#34d399' }}>两步验证已启用，每次登录需要输入验证码。</p>
+                  <p style={{ fontSize: '13px', color: 'var(--color-success-fg)' }}>两步验证已启用，每次登录需要输入验证码。</p>
                   <Divider />
                   <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>禁用两步验证</p>
                   <Input label="当前密码" type="password" value={disablePassword}
@@ -334,29 +334,16 @@ export default function Profile() {
               </div>
               <Divider />
 
-              <div>
-                <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)', display: 'block', marginBottom: '8px' }}>
-                  通知方式
-                </label>
-                <select
-                  value={notifySettings.notify_type}
-                  onChange={(e) => setNotifySettings({ ...notifySettings, notify_type: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-color)',
-                    background: 'var(--bg-elevated)',
-                    color: 'var(--text-primary)',
-                    fontSize: '14px',
-                  }}
-                >
-                  <option value="email">邮件通知</option>
-                  <option value="webhook">Webhook</option>
-                  <option value="bark">Bark (iOS)</option>
-                  <option value="gotify">Gotify</option>
-                </select>
-              </div>
+              <Select
+                label="通知方式"
+                selectedKeys={[notifySettings.notify_type]}
+                onSelectionChange={keys => setNotifySettings({ ...notifySettings, notify_type: [...keys][0] as string || 'email' })}
+              >
+                <SelectItem key="email">邮件通知</SelectItem>
+                <SelectItem key="webhook">Webhook</SelectItem>
+                <SelectItem key="bark">Bark (iOS)</SelectItem>
+                <SelectItem key="gotify">Gotify</SelectItem>
+              </Select>
 
               {notifySettings.notify_type === 'email' && (
                 <Input

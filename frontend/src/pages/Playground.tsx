@@ -131,7 +131,7 @@ export default function Playground() {
   };
 
   return (
-    <div className="space-y-5 max-w-[1400px] mx-auto">
+    <div className="space-y-5">
       <PageHeader title="API 调试台" description="在线测试模型接口，支持流式输出" />
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
@@ -254,7 +254,8 @@ export default function Playground() {
                     <Tooltip content={copied ? '已复制' : '复制响应'}>
                       <button onClick={handleCopy} style={{
                         background: 'none', border: 'none', cursor: 'pointer',
-                        color: copied ? '#34d399' : 'var(--text-muted)', padding: '4px',
+                        color: copied ? 'var(--color-success-fg)' : 'var(--text-muted)', padding: '4px',
+                        transition: 'color 0.2s',
                       }}>
                         {copied ? <Check size={16} /> : <Copy size={16} />}
                       </button>
@@ -270,7 +271,7 @@ export default function Playground() {
                   maxHeight: '520px',
                   overflowY: 'auto',
                   padding: '14px',
-                  borderRadius: '12px',
+                  borderRadius: 'var(--radius-lg)',
                   background: 'var(--bg-elevated)',
                   border: '1px solid var(--border-color)',
                   fontFamily: 'monospace',
@@ -281,7 +282,12 @@ export default function Playground() {
                   color: response ? 'var(--text-primary)' : 'var(--text-faint)',
                 }}
               >
-                {response || (loading ? '▋' : '响应将显示在这里...')}
+                {response
+                  ? (<>{response}{loading && <span className="animate-nebula-pulse" style={{ opacity: 0.7 }}>▋</span>}</>)
+                  : loading
+                    ? <span className="animate-nebula-pulse" style={{ color: 'var(--accent-primary)' }}>▋</span>
+                    : '响应将显示在这里...'
+                }
               </div>
             </CardBody>
           </Card>

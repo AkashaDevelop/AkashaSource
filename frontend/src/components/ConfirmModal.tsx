@@ -23,22 +23,22 @@ export default function ConfirmModal() {
         className="confirm-dialog"
         style={{
           background: 'var(--bg-surface)',
-          border: `1px solid ${isDanger ? 'rgba(239,68,68,0.3)' : 'var(--border-color)'}`,
-          borderRadius: '20px',
+          border: `1px solid ${isDanger ? 'var(--color-danger-bg)' : 'var(--border-color)'}`,
+          borderRadius: 'var(--radius-2xl)',
           padding: '28px 28px 24px',
           width: '100%',
           maxWidth: '400px',
           backdropFilter: 'blur(20px)',
           boxShadow: isDanger
-            ? '0 24px 64px rgba(239,68,68,0.2), 0 4px 24px rgba(0,0,0,0.4)'
+            ? `0 24px 64px var(--color-danger-bg), 0 4px 24px rgba(0,0,0,0.4)`
             : '0 24px 64px rgba(0,0,0,0.35), 0 4px 24px rgba(0,0,0,0.3)',
         }}
       >
         {/* Icon */}
         <div style={{
-          width: '48px', height: '48px', borderRadius: '14px',
-          background: isDanger ? 'rgba(239,68,68,0.12)' : 'rgba(124,58,237,0.12)',
-          border: `1px solid ${isDanger ? 'rgba(239,68,68,0.3)' : 'var(--border-color)'}`,
+          width: '48px', height: '48px', borderRadius: 'var(--radius-lg)',
+          background: isDanger ? 'var(--color-danger-bg)' : 'rgba(124,58,237,0.12)',
+          border: `1px solid ${isDanger ? 'var(--color-danger-fg)' : 'var(--border-color)'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: '22px', marginBottom: '16px',
         }}>
@@ -49,7 +49,7 @@ export default function ConfirmModal() {
         {options.title && (
           <h3 style={{
             fontSize: '17px', fontWeight: 700,
-            color: isDanger ? '#f87171' : 'var(--text-primary)',
+            color: isDanger ? 'var(--color-danger-fg)' : 'var(--text-primary)',
             marginBottom: '8px',
           }}>
             {options.title}
@@ -72,7 +72,7 @@ export default function ConfirmModal() {
             style={{
               background: 'var(--bg-elevated)',
               color: 'var(--text-secondary)',
-              borderRadius: '12px',
+              borderRadius: 'var(--radius-lg)',
               border: '1px solid var(--border-color)',
             }}
           >
@@ -82,10 +82,10 @@ export default function ConfirmModal() {
             onPress={() => close(true)}
             style={{
               background: isDanger
-                ? 'linear-gradient(135deg, #ef4444, #dc2626)'
+                ? 'linear-gradient(135deg, var(--color-danger-fg), var(--color-danger))'
                 : 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))',
               color: 'white',
-              borderRadius: '12px',
+              borderRadius: 'var(--radius-lg)',
               fontWeight: 600,
             }}
           >

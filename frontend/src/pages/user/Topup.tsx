@@ -91,24 +91,24 @@ export default function TopupPage() {
   const usedUsd = (usedQuota / 500000).toFixed(4);
 
   return (
-    <div className="space-y-6 max-w-2xl mx-auto">
+    <div className="space-y-5 max-w-2xl mx-auto">
       <PageHeader title="充值中心" description="管理您的账户余额与兑换码" />
 
       {/* 余额主卡 */}
       <div style={{
-        borderRadius: '20px',
-        background: 'linear-gradient(135deg, rgba(124,58,237,0.18) 0%, rgba(8,145,178,0.14) 100%)',
-        border: '1px solid rgba(124,58,237,0.25)',
+        borderRadius: 'var(--radius-2xl)',
+        background: 'linear-gradient(135deg, rgba(124,58,237,0.15) 0%, rgba(8,145,178,0.12) 100%)',
+        border: '1px solid var(--border-strong)',
         padding: '28px',
         position: 'relative',
         overflow: 'hidden',
       }}>
-        <div style={{ position: 'absolute', top: '-40px', right: '-40px', width: '160px', height: '160px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(124,58,237,0.2) 0%, transparent 70%)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: '-30px', left: '20%', width: '120px', height: '120px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(8,145,178,0.15) 0%, transparent 70%)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', top: '-40px', right: '-40px', width: '160px', height: '160px', borderRadius: '50%', background: 'radial-gradient(circle, var(--accent-glow) 0%, transparent 70%)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', bottom: '-30px', left: '20%', width: '120px', height: '120px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(8,145,178,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
         <div className="flex items-start justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div style={{ width: '46px', height: '46px', borderRadius: '14px', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(124,58,237,0.35)' }}>
+            <div style={{ width: '46px', height: '46px', borderRadius: 'var(--radius-lg)', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px var(--accent-glow)' }}>
               <Wallet size={22} color="white" />
             </div>
             <div>
@@ -116,9 +116,9 @@ export default function TopupPage() {
               <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0 }}>1 USD = 500,000 额度</p>
             </div>
           </div>
-          <div style={{ padding: '4px 10px', borderRadius: '20px', background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)', display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <Zap size={11} color="#34d399" />
-            <span style={{ fontSize: '11px', color: '#34d399', fontWeight: 600 }}>活跃</span>
+          <div style={{ padding: '4px 10px', borderRadius: 'var(--radius-full)', background: 'var(--color-success-bg)', border: '1px solid var(--color-success-fg)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <Zap size={11} style={{ color: 'var(--color-success-fg)' }} />
+            <span style={{ fontSize: '11px', color: 'var(--color-success-fg)', fontWeight: 600 }}>活跃</span>
           </div>
         </div>
 
@@ -128,7 +128,7 @@ export default function TopupPage() {
             <span style={{ fontSize: '48px', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1, letterSpacing: '-1px' }}>{usd}</span>
           </div>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            已消耗 <span style={{ color: '#f87171', fontWeight: 600 }}>${usedUsd}</span>
+            已消耗 <span style={{ color: 'var(--color-danger-fg)', fontWeight: 600 }}>${usedUsd}</span>
           </p>
         </div>
 
@@ -137,17 +137,23 @@ export default function TopupPage() {
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>额度使用率</span>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>{usedPct.toFixed(1)}%</span>
           </div>
-          <div style={{ height: '6px', borderRadius: '99px', background: 'var(--bg-elevated)', overflow: 'hidden' }}>
-            <div style={{ height: '100%', borderRadius: '99px', width: `${usedPct}%`, background: usedPct > 80 ? 'linear-gradient(90deg, #f87171, #ef4444)' : 'linear-gradient(90deg, var(--accent-primary), var(--accent-cosmic))', transition: 'width 0.6s ease' }} />
+          <div style={{ height: '6px', borderRadius: 'var(--radius-full)', background: 'var(--bg-elevated)', overflow: 'hidden' }}>
+            <div style={{
+              height: '100%', borderRadius: 'var(--radius-full)', width: `${usedPct}%`,
+              background: usedPct > 80
+                ? 'linear-gradient(90deg, var(--color-danger-fg), var(--color-danger))'
+                : 'linear-gradient(90deg, var(--accent-primary), var(--accent-cosmic))',
+              transition: 'width 0.6s ease',
+            }} />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3 mt-5">
           {[
             { label: '剩余额度', value: quota.toLocaleString(), color: 'var(--accent-cosmic)', icon: <Wallet size={14} /> },
-            { label: '累计消耗', value: usedQuota.toLocaleString(), color: '#f87171', icon: <TrendingUp size={14} /> },
+            { label: '累计消耗', value: usedQuota.toLocaleString(), color: 'var(--color-danger-fg)', icon: <TrendingUp size={14} /> },
           ].map(item => (
-            <div key={item.label} style={{ padding: '12px 14px', borderRadius: '12px', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', backdropFilter: 'blur(8px)' }}>
+            <div key={item.label} style={{ padding: '12px 14px', borderRadius: 'var(--radius-lg)', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', backdropFilter: 'blur(8px)' }}>
               <div className="flex items-center gap-1.5 mb-1" style={{ color: 'var(--text-secondary)' }}>
                 {item.icon}
                 <span style={{ fontSize: '11px' }}>{item.label}</span>
@@ -160,9 +166,9 @@ export default function TopupPage() {
 
       {/* 在线充值 */}
       {enableTopup && (
-        <div style={{ borderRadius: '20px', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', padding: '24px' }}>
+        <div style={{ borderRadius: 'var(--radius-2xl)', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', padding: '24px' }}>
           <div className="flex items-center gap-3 mb-5">
-            <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(8,145,178,0.12)', border: '1px solid rgba(8,145,178,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-lg)', background: 'var(--color-info-bg)', border: '1px solid var(--color-info-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <CreditCard size={18} style={{ color: 'var(--accent-cosmic)' }} />
             </div>
             <div>
@@ -189,7 +195,7 @@ export default function TopupPage() {
               onPress={handleTopup}
               isLoading={paying}
               isDisabled={!amount}
-              style={{ borderRadius: '12px', minWidth: '96px', background: 'linear-gradient(135deg, var(--accent-cosmic), var(--accent-primary))' }}
+              style={{ borderRadius: 'var(--radius-lg)', minWidth: '96px', background: 'linear-gradient(135deg, var(--accent-cosmic), var(--accent-primary))' }}
             >
               立即充值
             </Button>
@@ -198,9 +204,9 @@ export default function TopupPage() {
       )}
 
       {/* 兑换码 */}
-      <div style={{ borderRadius: '20px', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', padding: '24px' }}>
+      <div style={{ borderRadius: 'var(--radius-2xl)', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', padding: '24px' }}>
         <div className="flex items-center gap-3 mb-5">
-          <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(124,58,237,0.12)', border: '1px solid rgba(124,58,237,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: 'var(--radius-lg)', background: 'var(--color-info-bg)', border: '1px solid var(--color-info-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Gift size={18} style={{ color: 'var(--accent-primary)' }} />
           </div>
           <div>
@@ -224,7 +230,7 @@ export default function TopupPage() {
             onPress={handleRedeem}
             isLoading={loading}
             isDisabled={!code.trim()}
-            style={{ borderRadius: '12px', minWidth: '96px', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))' }}
+            style={{ borderRadius: 'var(--radius-lg)', minWidth: '96px', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))' }}
           >
             兑换
           </Button>

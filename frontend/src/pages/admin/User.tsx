@@ -50,6 +50,7 @@ export default function UserManagement() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const { token } = useAuthStore();
@@ -73,7 +74,7 @@ export default function UserManagement() {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      let url = `/api/user?p=${page}&size=10`;
+      let url = `/api/user?p=${page}&size=${pageSize}`;
       if (search.trim()) url = `/api/user/search?keyword=${encodeURIComponent(search.trim())}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
@@ -89,7 +90,7 @@ export default function UserManagement() {
     }
   };
 
-  useEffect(() => { fetchUsers(); }, [page]);
+  useEffect(() => { fetchUsers(); }, [page, pageSize]);
   useEffect(() => { if (!search.trim()) fetchUsers(); }, [search]);
 
   const handleEdit = (user: User) => {
@@ -273,8 +274,24 @@ export default function UserManagement() {
           </tbody>
         </table>
       </div>
-      <div className="flex justify-center mt-4">
-        <Pagination page={page} total={Math.ceil(total / 10) || 1} onChange={(p) => setPage(p)} />
+      <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+        <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+          共 <strong style={{ color: 'var(--text-primary)' }}>{total}</strong> 位用户，
+          第 {page}/{Math.ceil(total / pageSize) || 1} 页
+        </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>每页</span>
+            <select
+              className="akasha-select"
+              value={pageSize}
+              onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+            >
+              {[10, 20, 50].map(n => <option key={n} value={n}>{n} 条</option>)}
+            </select>
+          </div>
+          <Pagination page={page} total={Math.ceil(total / pageSize) || 1} onChange={(p) => setPage(p)} />
+        </div>
       </div>
 
       <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="2xl">

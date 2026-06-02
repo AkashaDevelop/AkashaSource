@@ -2,14 +2,35 @@ import { useState, useEffect } from 'react';
 import { Button, Card, CardBody, CardHeader, Input, Link, Form, Alert } from '../components/ui';
 import { useNavigate } from 'react-router-dom';
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function Register() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
   const [invitationCode, setInvitationCode] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  const validateField = (name: string, value: string) => {
+    let msg = '';
+    if (name === 'username' && !value.trim()) msg = '用户名不能为空';
+    if (name === 'email' && value && !EMAIL_RE.test(value)) msg = '邮箱格式不正确';
+    if (name === 'password' && value.length > 0 && value.length < 6) msg = '密码至少 6 位';
+    setFieldErrors(prev => ({ ...prev, [name]: msg }));
+    return msg;
+  };
+
+  const validateAll = () => {
+    const errs: Record<string, string> = {};
+    if (!username.trim()) errs.username = '用户名不能为空';
+    if (email && !EMAIL_RE.test(email)) errs.email = '邮箱格式不正确';
+    if (password.length < 6) errs.password = '密码至少 6 位';
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
 
   const [captchaProvider, setCaptchaProvider] = useState('');
   const [turnstileEnabled, setTurnstileEnabled] = useState(false);
@@ -103,6 +124,7 @@ export default function Register() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validateAll()) return;
     const useGeetest = captchaProvider === 'geetest' && geetestEnabled;
     const useTurnstile = captchaProvider === 'turnstile' ? turnstileEnabled : (!captchaProvider && turnstileEnabled);
 
@@ -176,8 +198,31 @@ export default function Register() {
           <CardBody className="overflow-visible py-6 px-8">
             {error && <Alert color="danger" className="mb-4">{error}</Alert>}
             <Form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-              <Input isRequired label="用户名" placeholder="请输入用户名" value={username} onValueChange={setUsername} />
-              <Input isRequired label="邮箱" placeholder="请输入邮箱" type="email" value={email} onValueChange={setEmail} />
+              <div>
+                <Input
+                  isRequired
+                  label="用户名"
+                  placeholder="请输入用户名"
+                  value={username}
+                  onValueChange={v => { setUsername(v); if (fieldErrors.username) validateField('username', v); }}
+                  onBlur={() => validateField('username', username)}
+                  isInvalid={!!fieldErrors.username}
+                />
+                {fieldErrors.username && <span className="field-error">{fieldErrors.username}</span>}
+              </div>
+              <div>
+                <Input
+                  isRequired
+                  label="邮箱"
+                  placeholder="请输入邮箱"
+                  type="email"
+                  value={email}
+                  onValueChange={v => { setEmail(v); if (fieldErrors.email) validateField('email', v); }}
+                  onBlur={() => validateField('email', email)}
+                  isInvalid={!!fieldErrors.email}
+                />
+                {fieldErrors.email && <span className="field-error">{fieldErrors.email}</span>}
+              </div>
               {emailVerifyEnabled && (
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <Input label="邮箱验证码" placeholder="6位验证码" value={emailCode} onValueChange={setEmailCode} style={{ flex: 1 }} />
@@ -187,7 +232,12 @@ export default function Register() {
                   </Button>
                 </div>
               )}
-              <Input isRequired label="密码" placeholder="请设置密码" type="password" value={password} onValueChange={setPassword} />
+              <Input isRequired label="密码" placeholder="请设置密码（至少 6 位）" type="password" value={password}
+                onValueChange={v => { setPassword(v); if (fieldErrors.password) validateField('password', v); }}
+                onBlur={() => validateField('password', password)}
+                isInvalid={!!fieldErrors.password}
+              />
+              {fieldErrors.password && <span className="field-error">{fieldErrors.password}</span>}
               <Input label="邀请码" placeholder="邀请码（选填）" value={invitationCode} onValueChange={setInvitationCode} />
 
               {turnstileEnabled && captchaProvider !== 'geetest' && (

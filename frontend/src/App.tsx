@@ -17,6 +17,7 @@ import LogPage from './pages/Log';
 import TokenManagement from './pages/user/Token';
 import RedemptionManagement from './pages/admin/Redemption';
 import TopupPage from './pages/user/Topup';
+import BillingPage from './pages/user/Billing';
 import ProfilePage from './pages/user/Profile';
 import UserInvitation from './pages/user/Invitation';
 import SubscriptionManagement from './pages/admin/Subscription';
@@ -56,9 +57,10 @@ function App() {
         <Route index element={<UserDashboard />} />
         <Route path="token" element={<TokenManagement />} />
         <Route path="log" element={<LogPage />} />
-        <Route path="topup" element={<TopupPage />} />
+        <Route path="topup" element={<BillingPage />} />
+        <Route path="billing" element={<BillingPage />} />
         <Route path="invitation" element={<UserInvitation />} />
-        <Route path="subscription" element={<SubscriptionPage />} />
+        <Route path="subscription" element={<BillingPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="playground" element={<Playground />} />
         <Route path="files" element={<FilesPage />} />

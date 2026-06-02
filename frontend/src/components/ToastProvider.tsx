@@ -11,28 +11,28 @@ const icons: Record<ToastType, string> = {
 
 const colors: Record<ToastType, { bg: string; border: string; icon: string; title: string }> = {
   success: {
-    bg: 'rgba(16,185,129,0.12)',
-    border: 'rgba(16,185,129,0.35)',
-    icon: '#34d399',
-    title: '#34d399',
+    bg:     'var(--color-success-bg)',
+    border: 'var(--color-success-bg)',
+    icon:   'var(--color-success-fg)',
+    title:  'var(--color-success-fg)',
   },
   error: {
-    bg: 'rgba(239,68,68,0.12)',
-    border: 'rgba(239,68,68,0.35)',
-    icon: '#f87171',
-    title: '#f87171',
+    bg:     'var(--color-danger-bg)',
+    border: 'var(--color-danger-bg)',
+    icon:   'var(--color-danger-fg)',
+    title:  'var(--color-danger-fg)',
   },
   warning: {
-    bg: 'rgba(245,158,11,0.12)',
-    border: 'rgba(245,158,11,0.35)',
-    icon: '#fbbf24',
-    title: '#fbbf24',
+    bg:     'var(--color-warning-bg)',
+    border: 'var(--color-warning-bg)',
+    icon:   'var(--color-warning-fg)',
+    title:  'var(--color-warning-fg)',
   },
   info: {
-    bg: 'rgba(8,145,178,0.12)',
-    border: 'rgba(8,145,178,0.35)',
-    icon: '#22d3ee',
-    title: '#22d3ee',
+    bg:     'var(--color-info-bg)',
+    border: 'var(--color-info-bg)',
+    icon:   'var(--color-info-fg)',
+    title:  'var(--color-info-fg)',
   },
 };
 

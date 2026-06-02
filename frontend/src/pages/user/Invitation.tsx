@@ -81,16 +81,15 @@ export default function UserInvitation() {
       />
 
       {/* 统计 */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-3">
         {[
-          { label: '总邀请码', value: invitations.length, color: 'var(--accent-primary)' },
-          { label: '未使用', value: unused, color: '#34d399' },
-          { label: '已使用', value: used, color: 'var(--text-muted)' },
+          { label: '总邀请码', value: invitations.length, color: 'var(--accent-primary)', bg: 'var(--nav-active-bg)' },
+          { label: '未使用', value: unused, color: 'var(--color-success-fg)', bg: 'var(--color-success-bg)' },
+          { label: '已使用', value: used, color: 'var(--text-muted)', bg: 'var(--bg-elevated)' },
         ].map(s => (
           <div key={s.label} style={{
-            padding: '16px', borderRadius: '14px',
+            padding: '16px', borderRadius: 'var(--radius-xl)',
             background: 'var(--bg-surface)', border: '1px solid var(--border-color)',
-            backdropFilter: 'blur(12px)',
           }}>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 6px' }}>{s.label}</p>
             <p style={{ fontSize: '24px', fontWeight: 700, color: s.color, margin: 0 }}>{s.value}</p>

@@ -45,6 +45,7 @@ export default function LogPage() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState<'list' | 'stat'>('list');
@@ -65,9 +66,22 @@ export default function LogPage() {
 
   const buildParams = (includePage = true) => {
     const p = new URLSearchParams();
-    if (includePage) { p.set('page', page.toString()); p.set('size', '20'); }
+    if (includePage) { p.set('page', page.toString()); p.set('size', pageSize.toString()); }
     Object.entries(filters).forEach(([k, v]) => { if (v) p.set(k, v); });
     return p;
+  };
+
+  const setDatePreset = (days: number) => {
+    const now = new Date();
+    const end = now.toISOString().split('T')[0];
+    if (days === 0) {
+      setFilter('start_time', end);
+      setFilter('end_time', end);
+    } else {
+      const start = new Date(now.getTime() - days * 86400000).toISOString().split('T')[0];
+      setFilter('start_time', start);
+      setFilter('end_time', end);
+    }
   };
 
   const fetchLogs = async () => {
@@ -96,7 +110,7 @@ export default function LogPage() {
     finally { setStatLoading(false); }
   };
 
-  useEffect(() => { if (token) fetchLogs(); }, [page, token]);
+  useEffect(() => { if (token) fetchLogs(); }, [page, pageSize, token]);
 
   const getTypeInfo = (type: number) => TYPE_OPTIONS.find(t => t.key === String(type)) ?? { label: '未知', color: 'default' as const };
 
@@ -209,8 +223,20 @@ export default function LogPage() {
               <Input size="sm" label="模型名称" value={filters.model_name} onValueChange={v => setFilter('model_name', v)} />
               <Input size="sm" label="令牌名称" value={filters.token_name} onValueChange={v => setFilter('token_name', v)} />
               <Input size="sm" label="内容关键词" value={filters.content} onValueChange={v => setFilter('content', v)} />
-              <Input size="sm" type="date" label="开始日期" value={filters.start_time} onValueChange={v => setFilter('start_time', v)} />
-              <Input size="sm" type="date" label="结束日期" value={filters.end_time} onValueChange={v => setFilter('end_time', v)} />
+              <div>
+                <label className="text-xs mb-1 block" style={{ color: 'var(--text-secondary)' }}>开始日期</label>
+                <div className="flex flex-col gap-1">
+                  <input type="date" className="akasha-date-input w-full" value={filters.start_time}
+                    onChange={e => setFilter('start_time', e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs mb-1 block" style={{ color: 'var(--text-secondary)' }}>结束日期</label>
+                <div className="flex flex-col gap-1">
+                  <input type="date" className="akasha-date-input w-full" value={filters.end_time}
+                    onChange={e => setFilter('end_time', e.target.value)} />
+                </div>
+              </div>
               <Input size="sm" label="最小额度" value={filters.min_quota} onValueChange={v => setFilter('min_quota', v)} />
               <Input size="sm" label="最大额度" value={filters.max_quota} onValueChange={v => setFilter('max_quota', v)} />
               {isGlobalLog && (
@@ -218,6 +244,20 @@ export default function LogPage() {
                   <Input size="sm" label="用户 ID" value={filters.user_id} onValueChange={v => setFilter('user_id', v)} />
                   <Input size="sm" label="渠道 ID" value={filters.channel_id} onValueChange={v => setFilter('channel_id', v)} />
                 </>
+              )}
+            </div>
+            {/* 日期快捷预设 */}
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>快捷：</span>
+              {[{ label: '今日', days: 0 }, { label: '近7天', days: 7 }, { label: '近30天', days: 30 }].map(p => (
+                <button key={p.label} className="date-preset-btn" onClick={() => setDatePreset(p.days)}>
+                  {p.label}
+                </button>
+              ))}
+              {(filters.start_time || filters.end_time) && (
+                <button className="date-preset-btn" onClick={() => { setFilter('start_time', ''); setFilter('end_time', ''); }}>
+                  清除日期
+                </button>
               )}
             </div>
             <div className="flex gap-2 mt-3">
@@ -321,9 +361,25 @@ export default function LogPage() {
         </table>
       </div>)}
 
-      {activeTab === 'list' && total > 20 && (
-        <div className="flex justify-center">
-          <Pagination page={page} total={Math.ceil(total / 20)} onChange={setPage} />
+      {activeTab === 'list' && total > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-1">
+          <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+            共 <strong style={{ color: 'var(--text-primary)' }}>{total}</strong> 条，
+            第 {page}/{Math.ceil(total / pageSize)} 页
+          </span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>每页</span>
+              <select
+                className="akasha-select"
+                value={pageSize}
+                onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+              >
+                {[20, 50, 100].map(n => <option key={n} value={n}>{n} 条</option>)}
+              </select>
+            </div>
+            <Pagination page={page} total={Math.ceil(total / pageSize)} onChange={setPage} />
+          </div>
         </div>
       )}
     </div>
