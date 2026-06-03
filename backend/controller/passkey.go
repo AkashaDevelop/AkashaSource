@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -146,6 +147,25 @@ func PasskeyDelete(c *gin.Context) {
 		return
 	}
 	common.OKMsg(c, "Passkey 已解绑", nil)
+}
+
+// AdminResetPasskey 管理员重置指定用户的 Passkey。
+func AdminResetPasskey(c *gin.Context) {
+	userID, err := strconv.Atoi(strings.TrimSpace(c.Param("id")))
+	if err != nil || userID == 0 {
+		common.Fail(c, common.CodeParamError, "用户 ID 无效")
+		return
+	}
+	var user model.User
+	if err := common.DB.First(&user, userID).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "用户不存在")
+		return
+	}
+	if err := model.DeletePasskeyByUserID(userID); err != nil {
+		common.Fail(c, common.CodeServerError, "重置 Passkey 失败")
+		return
+	}
+	common.OKMsg(c, "已重置该用户 Passkey", nil)
 }
 
 func PasskeyLoginBegin(c *gin.Context) {

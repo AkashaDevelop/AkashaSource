@@ -303,6 +303,7 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.DELETE("/user/:id/oauth/bindings/:provider_id", controller.UnbindCustomOAuthByAdmin)
 			adminGroup.GET("/user/2fa/stats", controller.Admin2FAStats)
 			adminGroup.DELETE("/user/:id/2fa", controller.AdminDisable2FA)
+			adminGroup.DELETE("/user/:id/passkey", controller.AdminResetPasskey)
 
 			// 兑换码管理
 			adminGroup.GET("/redemption", controller.GetAllRedemptions)
