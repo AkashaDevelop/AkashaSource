@@ -4,6 +4,7 @@ import (
 	"STfreApi/common"
 	"STfreApi/dto"
 	"STfreApi/model"
+	contextsanitizer "STfreApi/service/context_sanitizer"
 	"bufio"
 	"bytes"
 	"encoding/json"
@@ -114,6 +115,24 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *model.To
 
 func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage, error) {
 	body, _ := io.ReadAll(resp.Body)
+	if policyValue, exists := c.Get("context_sanitization_policy"); exists {
+		if policy, ok := policyValue.(contextsanitizer.ResolvedPolicy); ok {
+			var rc contextsanitizer.ResponseContext
+			if rcValue, ok := c.Get("context_sanitization_request_context"); ok {
+				if reqCtx, ok := rcValue.(contextsanitizer.RequestContext); ok {
+					rc.RequestContext = reqCtx
+				}
+			}
+			if v, ok := c.Get("context_sanitization_user_requested_ads"); ok {
+				if b, ok := v.(bool); ok {
+					rc.UserRequestedAds = b
+				}
+			}
+			if result, err := contextsanitizer.ApplyOpenAIResponse(c.Request.Context(), body, rc, policy); err == nil && result != nil {
+				body = result.Body
+			}
+		}
+	}
 
 	// Write back to client
 	for k, v := range resp.Header {

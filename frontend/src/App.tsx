@@ -30,6 +30,7 @@ import UserTasksPage from './pages/user/Tasks';
 import ModelMetaManagement from './pages/admin/ModelMeta';
 import ChannelAffinity from './pages/admin/ChannelAffinity';
 import ChannelAccountManagement from './pages/admin/ChannelAccount';
+import ContextSanitization from './pages/admin/ContextSanitization';
 
 function PrivateRoute({ children, roleRequired }: { children: React.ReactElement, roleRequired?: number }) {
   const { token, user } = useAuthStore();
@@ -100,6 +101,7 @@ function App() {
         <Route path="model-meta" element={<ModelMetaManagement />} />
         <Route path="channel-affinity" element={<ChannelAffinity />} />
         <Route path="channel-account" element={<ChannelAccountManagement />} />
+        <Route path="context-sanitization" element={<ContextSanitization />} />
       </Route>
     </Routes>
   );

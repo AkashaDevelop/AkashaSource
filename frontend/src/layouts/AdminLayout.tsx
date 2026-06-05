@@ -3,7 +3,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box,
   Crown, Database, Boxes, Network, UserCheck, Ticket, ListTodo,
-  ArrowLeft, LogOut, User as UserIcon,
+  ArrowLeft, LogOut, User as UserIcon, Shield,
 } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 import { useSystemStore } from '../store/system';
@@ -33,6 +33,7 @@ const navGroups: NavGroup[] = [
       { key: '/admin/channel', icon: Server, label: '渠道管理' },
       { key: '/admin/channel-account', icon: UserCheck, label: '渠道账号' },
       { key: '/admin/channel-affinity', icon: Network, label: '渠道亲和性' },
+      { key: '/admin/context-sanitization', icon: Shield, label: '上下文净化' },
       { key: '/admin/model', icon: Box, label: '模型管理' },
       { key: '/admin/model-meta', icon: Boxes, label: '模型元数据' },
       { key: '/admin/group', icon: Layers, label: '分组管理' },

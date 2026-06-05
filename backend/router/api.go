@@ -276,6 +276,17 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.GET("/admin/channel-affinity/stats", controller.GetChannelAffinityStats)
 			adminGroup.POST("/admin/channel-affinity/cache/clear", controller.ClearChannelAffinityCacheAPI)
 
+			// 上下文净化
+			adminGroup.GET("/admin/sanitization/policies", controller.GetContextSanitizationPolicies)
+			adminGroup.POST("/admin/sanitization/policies", controller.CreateContextSanitizationPolicy)
+			adminGroup.PUT("/admin/sanitization/policies", controller.UpdateContextSanitizationPolicy)
+			adminGroup.DELETE("/admin/sanitization/policies/:id", controller.DeleteContextSanitizationPolicy)
+			adminGroup.GET("/admin/sanitization/policies/:id/revisions", controller.GetContextSanitizationPolicyRevisions)
+			adminGroup.POST("/admin/sanitization/policies/:id/rollback", controller.RollbackContextSanitizationPolicy)
+			adminGroup.POST("/admin/sanitization/reload", controller.ReloadContextSanitizationPolicyCache)
+			adminGroup.GET("/admin/sanitization/events", controller.GetContextSanitizationEvents)
+			adminGroup.GET("/admin/sanitization/stats", controller.GetContextSanitizationStats)
+
 			// 批量渠道操作
 			adminGroup.POST("/admin/channels/batch-status", controller.BatchUpdateChannelStatus)
 			adminGroup.POST("/admin/channels/batch-priority", controller.BatchUpdateChannelPriority)

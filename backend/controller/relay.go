@@ -16,6 +16,7 @@ import (
 	"STfreApi/middleware"
 	"STfreApi/model"
 	"STfreApi/service"
+	contextsanitizer "STfreApi/service/context_sanitizer"
 
 	"github.com/gin-gonic/gin"
 )
@@ -222,23 +223,66 @@ func Relay(c *gin.Context) {
 		return
 	}
 
+	requestedModel := openAIReq.Model
+	baseReq := openAIReq
+
 	// 重试循环
 	var lastError error
 	for i, channel := range channels {
 		mappedModel := mappedModels[i]
+		attemptReq, copyErr := contextsanitizer.DeepCopyOpenAIRequest(&baseReq)
+		if copyErr != nil {
+			lastError = copyErr
+			continue
+		}
 
 		// 更新本次请求模型
-		openAIReq.Model = mappedModel
+		attemptReq.Model = mappedModel
 
 		// 多 Key 轮换
 		channel.Key = service.GetNextKey(channel.Key)
+
+		policy := contextsanitizer.ResolvePolicy(channel.Id, requestedModel, mappedModel)
+		reqCtx := contextsanitizer.RequestContext{
+			RequestId:      c.GetHeader("X-Request-Id"),
+			UserId:         user.Id,
+			TokenId:        token.Id,
+			TokenName:      token.Name,
+			ChannelId:      channel.Id,
+			ChannelName:    channel.Name,
+			ChannelType:    channel.Type,
+			RequestedModel: requestedModel,
+			MappedModel:    mappedModel,
+			UserGroup:      user.Group,
+			ClientIP:       c.ClientIP(),
+		}
+		sanitizeResult, sanitizeErr := contextsanitizer.ApplyRequest(c.Request.Context(), attemptReq, reqCtx, policy)
+		if sanitizeErr != nil {
+			lastError = sanitizeErr
+			continue
+		}
+		if sanitizeResult.Blocked {
+			msg := sanitizeResult.Message
+			if msg == "" {
+				msg = "请求被安全策略拒绝，如有疑问请联系管理员"
+			}
+			go RecordFailLog(c, token, mappedModel, msg)
+			c.JSON(http.StatusBadRequest, dto.OpenAIErrorResponse{Error: dto.OpenAIError{Message: msg, Type: "invalid_request_error", Code: "context_sanitization_blocked"}})
+			return
+		}
+		if sanitizeResult.Changed {
+			attemptReq.RawBody = nil
+		}
+		c.Set("context_sanitization_policy", policy)
+		c.Set("context_sanitization_request_context", reqCtx)
+		c.Set("context_sanitization_user_requested_ads", contextsanitizer.IsUserRequestingAds(attemptReq))
 
 		// 获取适配器
 		adaptor := adapter.GetAdaptor(channel.Type)
 
 		// 转换请求
 		var convertedReq any
-		convertedReq, err = adaptor.ConvertRequest(c, &openAIReq)
+		convertedReq, err = adaptor.ConvertRequest(c, attemptReq)
 		if err != nil {
 			lastError = err
 			continue
@@ -301,9 +345,9 @@ func Relay(c *gin.Context) {
 		cachedTokens := 0
 
 		// 处理图像模型配额
-		if strings.HasPrefix(openAIReq.Model, "dall-e") {
+		if strings.HasPrefix(attemptReq.Model, "dall-e") {
 			// 图像模型使用固定配额
-			if strings.HasPrefix(openAIReq.Model, "dall-e-3") {
+			if strings.HasPrefix(attemptReq.Model, "dall-e-3") {
 				promptTokens = common.QuotaDalle3
 			} else {
 				promptTokens = common.QuotaDalle2
@@ -315,15 +359,15 @@ func Relay(c *gin.Context) {
 			cachedTokens = usage.CachedTokens
 		} else {
 			// 适配器未返回用量时估算
-			if openAIReq.Input != nil {
-				promptTokens = common.CountToken(fmt.Sprint(openAIReq.Input))
+			if attemptReq.Input != nil {
+				promptTokens = common.CountToken(fmt.Sprint(attemptReq.Input))
 			} else {
-				promptTokens = common.CountToken(fmt.Sprint(openAIReq.Messages))
+				promptTokens = common.CountToken(fmt.Sprint(attemptReq.Messages))
 			}
 			// 流式返回无法准确统计输出用量
 		}
 
-		go RecordConsumeLog(c, token, openAIReq.Model, promptTokens, completionTokens, cachedTokens)
+		go RecordConsumeLog(c, token, attemptReq.Model, promptTokens, completionTokens, cachedTokens)
 		go upsertChannelAffinity(
 			defaultChannelAffinityRule,
 			user.Group,
