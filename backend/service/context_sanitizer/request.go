@@ -76,6 +76,12 @@ func ApplyRequest(ctx context.Context, req *dto.OpenAIRequest, rc RequestContext
 		result.Blocked = true
 		result.Message = "请求被安全策略拒绝，如有疑问请联系管理员"
 		result.RiskScore = maxScore(result.Findings)
+
+		// 记录 token 级触发
+		payloadHash := HashContent(collectSnippet(req))
+		riskFloor := RecordTokenTrigger(rc.TokenId, payloadHash, result.RiskScore)
+		result.RiskScore += riskFloor
+
 		RecordEventAsync(buildRequestEvent(rc, policy, "tool_validate", "block", result, collectSnippet(req), time.Since(start).Milliseconds(), circuitState))
 		return result, nil
 	}
@@ -91,7 +97,37 @@ func ApplyRequest(ctx context.Context, req *dto.OpenAIRequest, rc RequestContext
 
 	findings, timedOut := detectWithTimeout(req, policy)
 	result.Findings = append(result.Findings, findings...)
-	result.RiskScore = maxScore(result.Findings)
+
+	// 应用 token 级风险基线
+	riskFloor := GetTokenRiskFloor(rc.TokenId)
+	result.RiskScore = maxScore(result.Findings) + riskFloor
+
+	// 检测规则探测行为
+	if IsTokenProbing(rc.TokenId) {
+		result.Findings = append(result.Findings, Finding{
+			Type:     "adversarial_probing",
+			Severity: "high",
+			Score:    70,
+			Path:     "meta",
+			Evidence: "multiple payload variants detected",
+			Action:   "monitor",
+		})
+		result.RiskScore += 30
+	}
+
+	// 检测是否应该升级模式
+	if ShouldEscalateMode(rc.TokenId, 10) && policy.Policy.Mode == ModeProtect {
+		result.Findings = append(result.Findings, Finding{
+			Type:     "auto_escalation",
+			Severity: "high",
+			Score:    0,
+			Path:     "meta",
+			Evidence: "token trigger threshold exceeded, escalating to balanced mode",
+			Action:   "escalate",
+		})
+		// 这里可以考虑动态升级策略模式
+	}
+
 	if timedOut {
 		result.Degraded = true
 		RecordCircuitFailure(policy)
@@ -104,7 +140,18 @@ func ApplyRequest(ctx context.Context, req *dto.OpenAIRequest, rc RequestContext
 	}
 	RecordCircuitSuccess(policy)
 
+	// 记录触发事件
+	if len(result.Findings) > 0 {
+		payloadHash := HashContent(collectSnippet(req))
+		RecordTokenTrigger(rc.TokenId, payloadHash, result.RiskScore)
+	}
+
 	if policy.Policy.Mode == ModeProtect && policy.Config.Request.InjectGuard && len(req.Messages) > 0 {
+		// 增强 guard for thinking 模型
+		originalGuard := ""
+		enhancedGuard := enhanceGuardForThinking(originalGuard, req, rc)
+		_ = enhancedGuard // guard 增强将在 injectGuard 中应用
+
 		injectGuard(req, rc, policy)
 		result.Changed = true
 		RecordEventAsync(buildRequestEvent(rc, policy, "guard_inject", "inject_guard", result, collectSnippet(req), time.Since(start).Milliseconds(), circuitState))
@@ -132,15 +179,71 @@ func detectWithTimeout(req *dto.OpenAIRequest, policy ResolvedPolicy) ([]Finding
 func detectRequest(req *dto.OpenAIRequest, policy ResolvedPolicy) []Finding {
 	segments := extractTextSegments(req)
 	findings := make([]Finding, 0)
+
+	// 估算 token 总量和上下文窗口风险
+	totalTokens := 0
 	for _, seg := range segments {
+		totalTokens += estimateTokenCount(seg.Text)
+	}
+	maxContext := 128000 // 默认值,可以从模型配置读取
+	contextFindings := detectContextWindowRisks(segments, totalTokens, maxContext)
+	findings = append(findings, contextFindings...)
+
+	// 多模态风险检测
+	if policy.Config.Response.DetectMultimodal {
+		multimodalFindings := detectMultimodalRisks(req.Messages, policy)
+		findings = append(findings, multimodalFindings...)
+	}
+
+	// 文本检测
+	for i, seg := range segments {
 		views := detectionViews(seg.Text, policy.Config)
-		for i, view := range views {
-			findings = append(findings, detectText(view, seg, i > 0)...)
+		isLast := isLastUserMessage(segments, i)
+		contextUsage := float64(totalTokens) / float64(maxContext)
+
+		for j, view := range views {
+			obfuscated := j > 0
+
+			// 基础检测
+			segFindings := detectText(view, seg, obfuscated)
+
+			// 应用上下文窗口加权
+			segFindings = applyContextWindowWeighting(segFindings, seg, isLast, contextUsage)
+
+			// Thinking 操控检测
+			if policy.Config.Response.DetectThinkingAttacks {
+				thinkingFindings := detectThinkingManipulation(view)
+				segFindings = append(segFindings, thinkingFindings...)
+			}
+
+			// 高级混淆检测
+			normalized := normalizeConfusables(view)
+			if normalized != view {
+				obfuscationScore := detectObfuscationLayer(view, normalized)
+				if obfuscationScore > 0 {
+					segFindings = append(segFindings, Finding{
+						Type:     "advanced_obfuscation",
+						Severity: severity(obfuscationScore),
+						Score:    obfuscationScore,
+						Path:     seg.Path,
+						Evidence: "RTL/homoglyph/fullwidth/combining marks detected",
+						Action:   "monitor",
+					})
+				}
+
+				// 对规范化后的文本再次检测
+				normalizedFindings := detectText(normalized, seg, true)
+				segFindings = append(segFindings, normalizedFindings...)
+			}
+
+			findings = append(findings, segFindings...)
+
 			if len(findings) >= 50 {
 				return findings
 			}
 		}
 	}
+
 	return findings
 }
 
@@ -385,6 +488,10 @@ func injectGuard(req *dto.OpenAIRequest, rc RequestContext, policy ResolvedPolic
 	if shouldUseChineseGuard(rc, policy) {
 		guard = chineseGuard
 	}
+
+	// 为 thinking/reasoning 模型增强 guard
+	guard = enhanceGuardForThinking(guard, req, rc)
+
 	msg := map[string]any{"role": "system", "content": guard}
 	req.Messages = append([]interface{}{msg}, req.Messages...)
 }

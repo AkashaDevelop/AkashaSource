@@ -64,12 +64,18 @@ type ToolsConfig struct {
 }
 
 type ResponseConfig struct {
-	DetectAds             bool     `json:"detect_ads"`
-	AdPolicy              string   `json:"ad_policy"`
-	AdConfidenceThreshold int      `json:"ad_confidence_threshold"`
-	KnownAdPatterns       []string `json:"known_ad_patterns"`
-	PreserveCodeBlocks    bool     `json:"preserve_code_blocks"`
-	PreserveJSONOutput    bool     `json:"preserve_json_output"`
+	DetectAds                bool     `json:"detect_ads"`
+	AdPolicy                 string   `json:"ad_policy"`
+	AdConfidenceThreshold    int      `json:"ad_confidence_threshold"`
+	KnownAdPatterns          []string `json:"known_ad_patterns"`
+	PreserveCodeBlocks       bool     `json:"preserve_code_blocks"`
+	PreserveJSONOutput       bool     `json:"preserve_json_output"`
+	ValidateOutputToolCalls  bool     `json:"validate_output_tool_calls"`
+	BlockInvalidToolCalls    bool     `json:"block_invalid_output_tool_calls"`
+	StreamTailBufferSize     int      `json:"stream_tail_buffer_size"`
+	DetectPromptInjection    bool     `json:"detect_prompt_injection"`
+	DetectMultimodal         bool     `json:"detect_multimodal"`
+	DetectThinkingAttacks    bool     `json:"detect_thinking_attacks"`
 }
 
 type LoggingConfig struct {
@@ -125,7 +131,19 @@ func DefaultConfig() PolicyConfig {
 			MaxToolSchemaBytes:         65536,
 			MaxToolArgumentsBytes:      262144,
 		},
-		Response:       ResponseConfig{DetectAds: true, AdPolicy: "monitor", AdConfidenceThreshold: 75, PreserveCodeBlocks: true, PreserveJSONOutput: true},
+		Response: ResponseConfig{
+			DetectAds:               true,
+			AdPolicy:                "monitor",
+			AdConfidenceThreshold:   75,
+			PreserveCodeBlocks:      true,
+			PreserveJSONOutput:      true,
+			ValidateOutputToolCalls: true,
+			BlockInvalidToolCalls:   false,
+			StreamTailBufferSize:    2048,
+			DetectPromptInjection:   true,
+			DetectMultimodal:        true,
+			DetectThinkingAttacks:   true,
+		},
 		Logging:        LoggingConfig{LogEvents: true, LogSnippetChars: 160, HashContent: true},
 		CircuitBreaker: CircuitBreakerConfig{Enabled: true, FailureThreshold: 5, TimeoutPerReqMs: 500, CooldownSeconds: 30},
 		Degradation:    DegradationConfig{MonitorTimeoutAction: "skip", ProtectTimeoutAction: "fallback_to_guard"},

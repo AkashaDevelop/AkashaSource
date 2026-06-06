@@ -276,6 +276,7 @@ func Relay(c *gin.Context) {
 		c.Set("context_sanitization_policy", policy)
 		c.Set("context_sanitization_request_context", reqCtx)
 		c.Set("context_sanitization_user_requested_ads", contextsanitizer.IsUserRequestingAds(attemptReq))
+		c.Set("context_sanitization_request_tools", attemptReq.Tools)
 
 		// 获取适配器
 		adaptor := adapter.GetAdaptor(channel.Type)

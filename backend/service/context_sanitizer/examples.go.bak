@@ -1,0 +1,480 @@
+package context_sanitizer
+
+import (
+	"context"
+
+	"STfreApi/dto"
+)
+
+// 集成示例: 在 relay controller 中的使用方式
+
+// Example1_RequestSideIntegration 请求侧集成示例
+func Example1_RequestSideIntegration() {
+	// 伪代码示例，展示在 backend/controller/relay.go 中的集成点
+
+	/*
+		// 1. 在 SelectChannelWithAffinity 之后，adaptor.ConvertRequest 之前
+
+		// 深拷贝请求，避免重试时重复注入
+		baseReq := openAIRequest
+		for i, channel := range channels {
+			attemptReq, err := context_sanitizer.DeepCopyOpenAIRequest(&baseReq)
+			if err != nil {
+				continue
+			}
+
+			requestedModel := baseReq.Model
+			mappedModel := mappedModels[i]
+			attemptReq.Model = mappedModel
+
+			// 解析策略
+			policy := context_sanitizer.ResolvePolicy(channel.Id, requestedModel, mappedModel)
+
+			// 应用请求侧净化
+			rc := context_sanitizer.RequestContext{
+				RequestId:      c.GetString("X-Request-Id"),
+				UserId:         meta.UserId,
+				TokenId:        meta.Id,
+				TokenName:      meta.Name,
+				ChannelId:      channel.Id,
+				ChannelName:    channel.Name,
+				ChannelType:    channel.Type,
+				RequestedModel: requestedModel,
+				MappedModel:    mappedModel,
+				UserGroup:      meta.Group,
+				ClientIP:       c.ClientIP(),
+			}
+
+			result, err := context_sanitizer.ApplyRequest(c.Request.Context(), attemptReq, rc, policy)
+			if err != nil {
+				// 记录错误
+				common.LogError(c.Request.Context(), "context_sanitizer error: "+err.Error())
+				// 降级: 继续处理
+			}
+
+			if result.Blocked {
+				// 阻断请求
+				c.JSON(http.StatusForbidden, gin.H{
+					"error": gin.H{
+						"message": result.Message,
+						"type":    "context_sanitization_blocked",
+						"code":    "security_policy_violation",
+					},
+				})
+				return
+			}
+
+			if result.Changed {
+				// 请求已被修改 (注入了 guard)
+				common.LogDebug(c.Request.Context(), "request modified by sanitizer")
+			}
+
+			// 继续正常流程: ConvertRequest, DoRequest...
+			convertedReq, err := adaptor.ConvertRequest(c, attemptReq)
+			// ...
+		}
+	*/
+}
+
+// Example2_ResponseSideIntegration 响应侧集成示例
+func Example2_ResponseSideIntegration() {
+	// 伪代码示例
+
+	/*
+		// 2. 在 adaptor.DoResponse 之后，返回给客户端之前
+
+		// 非流式响应
+		if !isStream {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+
+			// 解析策略
+			policy := context_sanitizer.ResolvePolicy(channel.Id, requestedModel, mappedModel)
+
+			// 构建响应上下文
+			rc := context_sanitizer.ResponseContext{
+				RequestContext: context_sanitizer.RequestContext{
+					RequestId:      c.GetString("X-Request-Id"),
+					UserId:         meta.UserId,
+					TokenId:        meta.Id,
+					TokenName:      meta.Name,
+					ChannelId:      channel.Id,
+					ChannelName:    channel.Name,
+					RequestedModel: requestedModel,
+					MappedModel:    mappedModel,
+				},
+				UserRequestedAds: context_sanitizer.IsUserRequestingAds(originalRequest),
+				RequestTools:     originalRequest.Tools,
+			}
+
+			// 应用响应侧净化
+			result, err := context_sanitizer.ApplyOpenAIResponse(
+				c.Request.Context(),
+				bodyBytes,
+				rc,
+				policy,
+			)
+
+			if err != nil {
+				common.LogError(c.Request.Context(), "response sanitizer error: "+err.Error())
+				// 降级: 使用原始响应
+				result = &context_sanitizer.ResponseResult{Body: bodyBytes}
+			}
+
+			if result.Blocked {
+				c.JSON(http.StatusForbidden, gin.H{
+					"error": gin.H{
+						"message": result.Message,
+						"type":    "invalid_response_content",
+					},
+				})
+				return
+			}
+
+			// 使用净化后的响应
+			c.Data(http.StatusOK, "application/json", result.Body)
+			return
+		}
+
+		// 流式响应
+		if isStream {
+			policy := context_sanitizer.ResolvePolicy(channel.Id, requestedModel, mappedModel)
+			processor := context_sanitizer.NewStreamProcessor(policy, originalRequest.Tools)
+
+			c.Stream(func(w io.Writer) bool {
+				chunk, err := readSSEChunk(resp.Body)
+				if err != nil {
+					return false
+				}
+
+				// 处理流式块 (一期: 只监控，不修改)
+				processed, err := processor.ProcessChunk(chunk)
+				if err != nil {
+					processed = chunk // 降级
+				}
+
+				w.Write(processed)
+				return true
+			})
+
+			// 流结束后检测
+			findings := processor.Finalize()
+			if len(findings) > 0 {
+				// 异步记录事件
+				go func() {
+					// RecordEventAsync(...)
+				}()
+			}
+		}
+	*/
+}
+
+// Example3_MainInitialization 服务启动初始化示例
+func Example3_MainInitialization() {
+	// 伪代码示例: backend/main.go
+
+	/*
+		func main() {
+			// ... 现有初始化代码 ...
+
+			// 初始化上下文净化模块
+			if err := context_sanitizer.Init(); err != nil {
+				log.Fatal("Failed to initialize context sanitizer: " + err.Error())
+			}
+
+			log.Info("Context sanitizer initialized")
+			log.Info("Enabled features: ", context_sanitizer.GetFeatures())
+
+			// ... 启动服务 ...
+		}
+	*/
+}
+
+// Example4_PolicyManagement 策略管理示例
+func Example4_PolicyManagement() {
+	// 伪代码示例: 创建策略
+
+	/*
+		// 创建全局默认策略
+		globalPolicy := &model.ContextSanitizationPolicy{
+			Name:    "全局默认",
+			Enabled: true,
+			Scope:   model.ContextSanitizationScopeGlobal,
+			Mode:    model.ContextSanitizationModeMonitor,
+			Config: `{
+				"request": {
+					"inject_guard": false
+				},
+				"response": {
+					"detect_ads": true,
+					"ad_policy": "monitor",
+					"detect_multimodal": true,
+					"detect_thinking_attacks": true
+				}
+			}`,
+		}
+
+		// 创建不可信渠道策略
+		untrustedChannelPolicy := &model.ContextSanitizationPolicy{
+			Name:      "不可信中转渠道",
+			Enabled:   true,
+			Scope:     model.ContextSanitizationScopeChannel,
+			ChannelId: &channelId,
+			Mode:      model.ContextSanitizationModeBalanced,
+			Config: `{
+				"request": {
+					"inject_guard": true,
+					"guard_language": "auto"
+				},
+				"response": {
+					"detect_ads": true,
+					"ad_policy": "strip_known_suffix",
+					"ad_confidence_threshold": 80,
+					"known_ad_patterns": [
+						"由.*提供",
+						"访问.*注册",
+						"充值享优惠"
+					],
+					"validate_output_tool_calls": true,
+					"block_invalid_output_tool_calls": false
+				},
+				"tools": {
+					"validate_tool_schema": true,
+					"validate_tool_choice": true,
+					"validate_assistant_tool_calls": true
+				}
+			}`,
+		}
+
+		// 创建高风险模型策略
+		highRiskModelPolicy := &model.ContextSanitizationPolicy{
+			Name:      "DeepSeek-R1 严格模式",
+			Enabled:   true,
+			Scope:     model.ContextSanitizationScopeChannelModel,
+			ChannelId: &channelId,
+			ModelName: "deepseek-reasoner",
+			Mode:      model.ContextSanitizationModeStrict,
+			Config: `{
+				"request": {
+					"inject_guard": true,
+					"guard_language": "auto"
+				},
+				"response": {
+					"detect_ads": true,
+					"ad_policy": "strip",
+					"validate_output_tool_calls": true,
+					"block_invalid_output_tool_calls": true,
+					"detect_thinking_attacks": true
+				},
+				"risk": {
+					"block_threshold": 75
+				}
+			}`,
+		}
+	*/
+}
+
+// Example5_MonitoringIntegration 监控集成示例
+func Example5_MonitoringIntegration() {
+	// 伪代码示例: 监控指标
+
+	/*
+		// 定期收集指标
+		func collectSanitizerMetrics() {
+			// 缓存状态
+			cacheStats := context_sanitizer.CacheStats()
+			metrics.Gauge("sanitizer.cache.policies", cacheStats["model_policies"].(int))
+
+			// 熔断器状态
+			circuitStats := context_sanitizer.CircuitStats()
+			metrics.Gauge("sanitizer.circuit.open", circuitStats["states"].(map[string]int)["open"])
+
+			// Token 风险统计 (示例: 监控 token 1234)
+			tokenStats := context_sanitizer.GetTokenRiskStats(1234)
+			if tokenStats != nil {
+				metrics.Gauge("sanitizer.token.risk_floor", tokenStats["risk_floor"].(int))
+				metrics.Counter("sanitizer.token.trigger_count", tokenStats["trigger_count"].(int))
+			}
+
+			// 查询最近的高风险事件
+			var events []model.ContextSanitizationEvent
+			common.DB.Where("risk_score > ?", 80).
+				Where("created_at > ?", time.Now().Add(-time.Hour).Unix()).
+				Order("created_at desc").
+				Limit(10).
+				Find(&events)
+
+			metrics.Counter("sanitizer.high_risk_events.1h", len(events))
+		}
+
+		// 告警规则
+		func checkSanitizerAlerts() {
+			// 阻断率突增告警
+			var blockCount int64
+			common.DB.Model(&model.ContextSanitizationEvent{}).
+				Where("action = ?", "block").
+				Where("created_at > ?", time.Now().Add(-5*time.Minute).Unix()).
+				Count(&blockCount)
+
+			if blockCount > 100 {
+				sendAlert("阻断率异常: 5分钟内 " + strconv.Itoa(int(blockCount)) + " 次阻断")
+			}
+
+			// 熔断器打开告警
+			circuitStats := context_sanitizer.CircuitStats()
+			if circuitStats["states"].(map[string]int)["open"] > 0 {
+				sendAlert("熔断器已打开，上下文净化进入降级模式")
+			}
+		}
+	*/
+}
+
+// Example6_APIIntegration API 接口集成示例
+func Example6_APIIntegration() {
+	// 伪代码示例: 管理 API 端点
+
+	/*
+		// backend/router/api.go 中增加路由
+
+		adminGroup := router.Group("/api/admin")
+		{
+			// 策略管理
+			adminGroup.GET("/context-sanitization/policies", controller.GetContextSanitizationPolicies)
+			adminGroup.POST("/context-sanitization/policies", controller.CreateContextSanitizationPolicy)
+			adminGroup.PUT("/context-sanitization/policies/:id", controller.UpdateContextSanitizationPolicy)
+			adminGroup.DELETE("/context-sanitization/policies/:id", controller.DeleteContextSanitizationPolicy)
+
+			// 策略版本
+			adminGroup.GET("/context-sanitization/policies/:id/revisions", controller.GetContextSanitizationPolicyRevisions)
+			adminGroup.POST("/context-sanitization/policies/:id/rollback", controller.RollbackContextSanitizationPolicy)
+
+			// 缓存管理
+			adminGroup.POST("/context-sanitization/reload-cache", controller.ReloadContextSanitizationPolicyCache)
+
+			// 事件日志
+			adminGroup.GET("/context-sanitization/events", controller.GetContextSanitizationEvents)
+			adminGroup.GET("/context-sanitization/stats", controller.GetContextSanitizationStats)
+
+			// Token 风险查询 (新增)
+			adminGroup.GET("/context-sanitization/token-risk/:tokenId", func(c *gin.Context) {
+				tokenId, _ := strconv.Atoi(c.Param("tokenId"))
+				stats := context_sanitizer.GetTokenRiskStats(tokenId)
+				c.JSON(http.StatusOK, gin.H{"data": stats})
+			})
+
+			// 功能列表 (新增)
+			adminGroup.GET("/context-sanitization/features", func(c *gin.Context) {
+				features := context_sanitizer.GetFeatures()
+				c.JSON(http.StatusOK, gin.H{"data": features, "version": context_sanitizer.GetVersion()})
+			})
+		}
+	*/
+}
+
+// Example7_TestCases 测试用例示例
+func Example7_TestCases() {
+	// 伪代码示例: 单元测试
+
+	/*
+		// 测试 1: 响应工具调用校验
+		func TestValidateResponseToolCalls(t *testing.T) {
+			requestTools := []interface{}{
+				map[string]any{
+					"type": "function",
+					"function": map[string]any{
+						"name": "get_weather",
+					},
+				},
+			}
+
+			// 合法工具调用
+			validToolCall := dto.Tool{
+				Function: dto.FunctionCall{
+					Name:      "get_weather",
+					Arguments: `{"city": "Beijing"}`,
+				},
+			}
+			findings := validateResponseToolCalls([]dto.Tool{validToolCall}, requestTools, defaultPolicy())
+			assert.Equal(t, 0, len(findings))
+
+			// 非法工具调用: 未声明
+			invalidToolCall := dto.Tool{
+				Function: dto.FunctionCall{
+					Name:      "delete_user",
+					Arguments: `{}`,
+				},
+			}
+			findings = validateResponseToolCalls([]dto.Tool{invalidToolCall}, requestTools, defaultPolicy())
+			assert.Greater(t, len(findings), 0)
+			assert.Equal(t, "undeclared_response_tool_call", findings[0].Type)
+		}
+
+		// 测试 2: 多模态检测
+		func TestMultimodalDetection(t *testing.T) {
+			messages := []interface{}{
+				map[string]any{
+					"role": "user",
+					"content": []any{
+						map[string]any{"type": "text", "text": "Describe this image"},
+						map[string]any{
+							"type": "image_url",
+							"image_url": map[string]any{
+								"url": "https://untrusted.example.com/image.jpg",
+							},
+						},
+					},
+				},
+			}
+
+			findings := detectMultimodalRisks(messages, defaultPolicy())
+			assert.Greater(t, len(findings), 0)
+			assert.Equal(t, "multimodal_blind_spot", findings[0].Type)
+		}
+
+		// 测试 3: Token 风险累积
+		func TestTokenRiskTracking(t *testing.T) {
+			tokenId := 12345
+
+			// 初始风险基线应为 0
+			assert.Equal(t, 0, GetTokenRiskFloor(tokenId))
+
+			// 触发 5 次
+			for i := 0; i < 5; i++ {
+				RecordTokenTrigger(tokenId, "payload_"+strconv.Itoa(i), 60)
+			}
+
+			// 风险基线应已提升
+			riskFloor := GetTokenRiskFloor(tokenId)
+			assert.Greater(t, riskFloor, 0)
+
+			// 触发次数应为 5
+			assert.Equal(t, 5, GetTokenTriggerCount(tokenId))
+		}
+
+		// 测试 4: 混淆字符规范化
+		func TestConfusablesNormalization(t *testing.T) {
+			// Cyrillic а (U+0430) -> Latin a
+			input := "tool_саlls" // 其中 'c' 是 Cyrillic с
+			normalized := normalizeConfusables(input)
+			assert.Contains(t, normalized, "tool_calls")
+
+			// RTL override
+			inputRTL := "ignore‮previous"
+			normalizedRTL := normalizeConfusables(inputRTL)
+			assert.NotContains(t, normalizedRTL, "‮")
+		}
+	*/
+}
+
+// 辅助函数示例
+func defaultPolicy() ResolvedPolicy {
+	return ResolvedPolicy{
+		Policy: &model.ContextSanitizationPolicy{
+			Mode:    ModeProtect,
+			Enabled: true,
+		},
+		Config: DefaultConfig(),
+	}
+}
+
+// 注意: 这些示例代码是伪代码,展示集成点和使用方式
+// 实际集成时需要根据项目实际结构调整
