@@ -31,6 +31,7 @@ import ModelMetaManagement from './pages/admin/ModelMeta';
 import ChannelAffinity from './pages/admin/ChannelAffinity';
 import ChannelAccountManagement from './pages/admin/ChannelAccount';
 import ContextSanitization from './pages/admin/ContextSanitization';
+import CustomChannelConfig from './pages/admin/CustomChannelConfig';
 
 function PrivateRoute({ children, roleRequired }: { children: React.ReactElement, roleRequired?: number }) {
   const { token, user } = useAuthStore();
@@ -80,6 +81,7 @@ function App() {
       >
         <Route index element={<AdminDashboard />} />
         <Route path="channel" element={<ChannelManagement />} />
+        <Route path="custom-channel-config" element={<CustomChannelConfig />} />
         <Route path="user" element={<UserManagement />} />
         <Route path="redemption" element={<RedemptionManagement />} />
         <Route path="group" element={<GroupManagement />} />

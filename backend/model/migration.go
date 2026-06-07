@@ -100,6 +100,13 @@ func ApplyMigrations() {
 				return common.DB.AutoMigrate(&ContextSanitizationPolicy{}, &ContextSanitizationPolicyRevision{}, &ContextSanitizationEvent{})
 			},
 		},
+		{
+			Version: 8,
+			Name:    "新增自定义渠道支持字段",
+			Apply: func() error {
+				return common.DB.AutoMigrate(&Channel{}, &CustomChannelConfig{})
+			},
+		},
 	}
 
 	for _, step := range steps {

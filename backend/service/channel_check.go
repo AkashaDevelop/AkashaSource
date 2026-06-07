@@ -58,7 +58,7 @@ func CheckChannelWithPrompt(channel *model.Channel, modelName string, prompt str
 		MaxTokens: 1,
 	}
 
-	adaptor := adapter.GetAdaptor(channel.Type)
+	adaptor := adapter.GetAdaptor(channel.Type, channel)
 	// Passing nil context as these adaptors don't strictly require it for conversion/request
 	convertedReq, err := adaptor.ConvertRequest(nil, req)
 	if err != nil {

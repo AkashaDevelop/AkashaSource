@@ -240,6 +240,7 @@ func SetApiRouter(router *gin.Engine) {
 			// 绘图/音乐任务
 			authGroup.GET("/user/tasks/mj", controller.UserGetMJTasks)
 			authGroup.GET("/user/tasks/suno", controller.UserGetSunoTasks)
+			authGroup.GET("/user/tasks", controller.GetUserTasks) // 统一任务接口
 
 			// 订阅
 			authGroup.GET("/subscription/plans", controller.GetPublicSubscriptionPlans)
@@ -291,6 +292,14 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.POST("/admin/channels/batch-status", controller.BatchUpdateChannelStatus)
 			adminGroup.POST("/admin/channels/batch-priority", controller.BatchUpdateChannelPriority)
 			adminGroup.POST("/admin/channels/batch-delete", controller.BatchDeleteChannels)
+
+			// 自定义渠道配置管理
+			adminGroup.GET("/custom-channel-config", controller.GetAllCustomConfigs)
+			adminGroup.GET("/custom-channel-config/:id", controller.GetCustomConfig)
+			adminGroup.POST("/custom-channel-config", controller.CreateCustomConfig)
+			adminGroup.PUT("/custom-channel-config", controller.UpdateCustomConfig)
+			adminGroup.DELETE("/custom-channel-config/:id", controller.DeleteCustomConfig)
+			adminGroup.POST("/custom-channel-config/:id/test", controller.TestCustomConfig)
 
 			// 日志管理 (管理员)
 			adminGroup.GET("/log", controller.GetAllLogs)
@@ -416,6 +425,7 @@ func SetApiRouter(router *gin.Engine) {
 			// 任务管理
 			adminGroup.GET("/tasks/mj", controller.AdminGetMJTasks)
 			adminGroup.GET("/tasks/suno", controller.AdminGetSunoTasks)
+			adminGroup.GET("/tasks", controller.GetAllTasks) // 统一任务接口
 
 			// 渠道账号管理（签到、余额监控）
 			adminGroup.POST("/channel/checkin/trigger", controller.TriggerChannelCheckin)
