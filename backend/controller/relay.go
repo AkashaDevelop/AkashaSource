@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"STfreApi/adapter"
 	"STfreApi/common"
@@ -17,6 +17,7 @@ import (
 	"STfreApi/model"
 	"STfreApi/service"
 	contextsanitizer "STfreApi/service/context_sanitizer"
+	"STfreApi/service/moderation"
 
 	"github.com/gin-gonic/gin"
 )
@@ -184,11 +185,10 @@ func Relay(c *gin.Context) {
 	}
 
 	common.OptionLock.RLock()
-	moderationApi := common.ContentModerationApi
 	moderationTimeout := common.ContentModerationTimeout
 	common.OptionLock.RUnlock()
-	if moderationEnabled && !whitelisted && moderationApi != "" {
-		allowed, reason := checkModerationApi(moderationApi, moderationTimeout, &openAIReq)
+	if moderationEnabled && !whitelisted {
+		allowed, reason := checkTencentModeration(moderationTimeout, buildModerationText(&openAIReq))
 		if !allowed {
 			msg := "内容审查未通过"
 			if reason != "" {
@@ -244,7 +244,7 @@ func Relay(c *gin.Context) {
 
 		policy := contextsanitizer.ResolvePolicy(channel.Id, requestedModel, mappedModel)
 		reqCtx := contextsanitizer.RequestContext{
-			RequestId:      c.GetHeader("X-Request-Id"),
+			RequestId:      c.GetString("request_id"),
 			UserId:         user.Id,
 			TokenId:        token.Id,
 			TokenName:      token.Name,
@@ -482,49 +482,30 @@ func buildModerationText(req *dto.OpenAIRequest) string {
 	return strings.Join(texts, "\n")
 }
 
-func checkModerationApi(api string, timeout int, req *dto.OpenAIRequest) (bool, string) {
-	if api == "" {
-		return true, ""
+// checkTencentModeration ～请腾讯云天御大人来给这段文字把把关，判定是否放行～
+func checkTencentModeration(timeout int, text string) (bool, string) {
+	common.OptionLock.RLock()
+	cfg := moderation.TMSConfig{
+		SecretId:  common.OptionMap[model.OptionKeyTencentModerationSecretId],
+		SecretKey: common.OptionMap[model.OptionKeyTencentModerationSecretKey],
+		Region:    common.OptionMap[model.OptionKeyTencentModerationRegion],
+		BizType:   common.OptionMap[model.OptionKeyTencentModerationBizType],
+		Timeout:   timeout,
 	}
-	if timeout <= 0 {
-		timeout = 5
-	}
-	payload := map[string]string{
-		"text":  buildModerationText(req),
-		"model": req.Model,
-	}
-	body, err := json.Marshal(payload)
+	common.OptionLock.RUnlock()
+
+	result, err := moderation.ModerateText(cfg, text)
 	if err != nil {
+		// 调用失败不能拖住正常业务，放行本次请求并把原因打进日志方便排查
+		log.Printf("[内容审查] 腾讯云天御调用失败，本次请求放行: %v", err)
 		return true, ""
 	}
-	client := &http.Client{Timeout: time.Duration(timeout) * time.Second}
-	request, err := http.NewRequest("POST", api, bytes.NewBuffer(body))
-	if err != nil {
+	if result.Suggestion != "Block" {
 		return true, ""
 	}
-	request.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(request)
-	if err != nil {
-		return true, ""
+	reason := result.Label
+	if result.SubLabel != "" {
+		reason += "/" + result.SubLabel
 	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return true, ""
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return true, ""
-	}
-	if allowVal, ok := result["allow"]; ok {
-		if allow, ok := allowVal.(bool); ok {
-			if allow {
-				return true, ""
-			}
-		}
-	}
-	if reason, ok := result["reason"]; ok {
-		return false, fmt.Sprint(reason)
-	}
-	return false, ""
+	return false, reason
 }

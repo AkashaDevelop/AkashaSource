@@ -30,7 +30,6 @@ var (
 	EmailVerificationEnabled = false
 	TurnstileSiteKey         = ""
 	TurnstileSecretKey       = ""
-	ContentModerationApi     = ""
 	ContentModerationTimeout = 5
 	// LinuxDO Level Quota (Map level 0-5 to quota)
 	LinuxDOLevelQuota = map[int]int64{

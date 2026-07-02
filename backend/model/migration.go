@@ -100,6 +100,13 @@ func ApplyMigrations() {
 				return common.DB.AutoMigrate(&ContextSanitizationPolicy{}, &ContextSanitizationPolicyRevision{}, &ContextSanitizationEvent{})
 			},
 		},
+		{
+			Version: 8,
+			Name:    "新增日志审计字段与管理员操作审计表",
+			Apply: func() error {
+				return common.DB.AutoMigrate(&Log{}, &AdminAuditLog{})
+			},
+		},
 	}
 
 	for _, step := range steps {

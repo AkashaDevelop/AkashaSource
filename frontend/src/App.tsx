@@ -16,12 +16,12 @@ import AdminLayout from './layouts/AdminLayout';
 import LogPage from './pages/Log';
 import TokenManagement from './pages/user/Token';
 import RedemptionManagement from './pages/admin/Redemption';
-import TopupPage from './pages/user/Topup';
+
 import BillingPage from './pages/user/Billing';
 import ProfilePage from './pages/user/Profile';
 import UserInvitation from './pages/user/Invitation';
 import SubscriptionManagement from './pages/admin/Subscription';
-import SubscriptionPage from './pages/user/Subscription';
+
 import AdminInvitation from './pages/admin/Invitation';
 import MigrationPage from './pages/admin/Migration';
 import FilesPage from './pages/user/Files';
@@ -31,6 +31,7 @@ import ModelMetaManagement from './pages/admin/ModelMeta';
 import ChannelAffinity from './pages/admin/ChannelAffinity';
 import ChannelAccountManagement from './pages/admin/ChannelAccount';
 import ContextSanitization from './pages/admin/ContextSanitization';
+import AdminAuditLog from './pages/admin/AdminAuditLog';
 
 function PrivateRoute({ children, roleRequired }: { children: React.ReactElement, roleRequired?: number }) {
   const { token, user } = useAuthStore();
@@ -102,6 +103,14 @@ function App() {
         <Route path="channel-affinity" element={<ChannelAffinity />} />
         <Route path="channel-account" element={<ChannelAccountManagement />} />
         <Route path="context-sanitization" element={<ContextSanitization />} />
+        <Route
+          path="audit-log"
+          element={
+            <PrivateRoute roleRequired={100}>
+              <AdminAuditLog />
+            </PrivateRoute>
+          }
+        />
       </Route>
     </Routes>
   );

@@ -83,9 +83,6 @@ func UpdateOptionMap(key string, value string) {
 	if key == "checkin_captcha" {
 		CheckinCaptcha = (value == "true")
 	}
-	if key == "content_moderation_api" {
-		ContentModerationApi = value
-	}
 	if key == "content_moderation_timeout" {
 		timeout, err := strconv.Atoi(value)
 		if err == nil && timeout > 0 {

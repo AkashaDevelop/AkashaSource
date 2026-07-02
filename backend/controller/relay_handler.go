@@ -69,6 +69,8 @@ func RecordConsumeLog(c *gin.Context, token *model.Token, modelName string, prom
 			PromptTokens:     promptTokens,
 			CompletionTokens: completionTokens,
 			CachedTokens:     cached,
+			IP:               c.ClientIP(),
+			RequestId:        c.GetString("request_id"),
 		}
 		service.EnqueueLog(log)
 		return nil
@@ -84,6 +86,8 @@ func RecordFailLog(c *gin.Context, token *model.Token, modelName string, errCont
 		TokenName: token.Name,
 		ModelName: modelName,
 		Quota:     0,
+		IP:        c.ClientIP(),
+		RequestId: c.GetString("request_id"),
 	}
 	service.EnqueueLog(log)
 }

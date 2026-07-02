@@ -11,6 +11,9 @@ import (
 )
 
 func SetApiRouter(router *gin.Engine) {
+	// ～先给所有请求盖上追踪印章，后面写日志的时候才能对上号～
+	router.Use(middleware.RequestIDMiddleware())
+
 	// Relay Route (OpenAI Compatible)
 	router.POST("/v1/chat/completions", middleware.RateLimitMiddleware(), controller.Relay)
 	router.POST("/v1/embeddings", middleware.RateLimitMiddleware(), controller.Relay)
@@ -254,6 +257,7 @@ func SetApiRouter(router *gin.Engine) {
 		// 需要管理员权限的接口
 		adminGroup := apiRouter.Group("/")
 		adminGroup.Use(middleware.AuthMiddleware(), middleware.AdminAuthMiddleware())
+		adminGroup.Use(middleware.AuditLogMiddleware()) // ～管理员的每一步写操作都要留下小脚印哦～
 		{
 			// 仪表盘
 			adminGroup.GET("/dashboard", controller.GetAdminDashboard)
@@ -481,6 +485,9 @@ func SetApiRouter(router *gin.Engine) {
 			rootGroup.PUT("/option", controller.UpdateOption)
 			rootGroup.GET("/option/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			rootGroup.DELETE("/option/channel_affinity_cache", controller.ClearChannelAffinityCache)
+
+			// 操作审计（仅超管可查，避免普通管理员翻看/干扰审计记录）
+			rootGroup.GET("/admin/audit-log", controller.GetAdminAuditLogs)
 
 			// 自定义 OAuth 提供商管理
 			rootGroup.POST("/custom-oauth-provider/discovery", controller.FetchCustomOAuthDiscovery)

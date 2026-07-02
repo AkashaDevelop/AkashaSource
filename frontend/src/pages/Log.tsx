@@ -32,6 +32,8 @@ interface Log {
   user_id: number;
   username: string;
   channel_id: number;
+  ip?: string;
+  request_id?: string;
 }
 
 const TYPE_OPTIONS = [
@@ -328,14 +330,15 @@ export default function LogPage() {
               <th>令牌</th>
               <th>提示 / 补全</th>
               <th>额度消耗</th>
+              {isGlobalLog && <th>IP</th>}
               <th>详情</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <LoadingRows cols={isGlobalLog ? 8 : 7} rows={8} />
+              <LoadingRows cols={isGlobalLog ? 9 : 7} rows={8} />
             ) : logs.length === 0 ? (
-              <tr><td colSpan={isGlobalLog ? 8 : 7}>
+              <tr><td colSpan={isGlobalLog ? 9 : 7}>
                 <EmptyState icon="📋" title="暂无日志" description={activeFilterCount > 0 ? '当前筛选条件下没有记录' : '暂时没有请求记录'} />
               </td></tr>
             ) : logs.map((log) => {
@@ -351,6 +354,7 @@ export default function LogPage() {
                   <td style={{ fontWeight: 600, color: log.type === 4 ? '#f87171' : 'var(--text-primary)' }}>
                     ${(log.quota / 500000).toFixed(6)}
                   </td>
+                  {isGlobalLog && <td style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{log.ip || '-'}</td>}
                   <td style={{ maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px', color: 'var(--text-muted)' }}>
                     {log.content || '-'}
                   </td>

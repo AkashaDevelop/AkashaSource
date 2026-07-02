@@ -35,11 +35,19 @@ const (
 	OptionKeyContentModerationEnabled  = "content_moderation_enabled"
 	OptionKeyContentModerationKeywords = "content_moderation_keywords"
 
-	OptionKeyContentModerationApi             = "content_moderation_api"
 	OptionKeyContentModerationTimeout         = "content_moderation_timeout"
 	OptionKeyContentModerationWhitelistUsers  = "content_moderation_whitelist_users"
 	OptionKeyContentModerationWhitelistModels = "content_moderation_whitelist_models"
 	OptionKeyContentModerationWhitelistIPs    = "content_moderation_whitelist_ips"
+
+	// ～内容审查只认腾讯云天御这一位真身，密钥小纸条放这里保管好～
+	OptionKeyTencentModerationSecretId  = "tencent_moderation_secret_id"
+	OptionKeyTencentModerationSecretKey = "tencent_moderation_secret_key"
+	OptionKeyTencentModerationRegion    = "tencent_moderation_region"
+	OptionKeyTencentModerationBizType   = "tencent_moderation_biz_type"
+
+	// ～日志乖乖留一留，别急着删掉它们呀～
+	OptionKeyLogRetentionDays = "log_retention_days"
 
 	OptionKeyPaymentProvider     = "payment_provider"
 	OptionKeyPaymentNotifySecret = "payment_notify_secret"
