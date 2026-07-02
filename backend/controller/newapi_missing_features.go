@@ -16,6 +16,7 @@ import (
 	oauthctl "STfreApi/controller/oauth"
 	"STfreApi/model"
 	"STfreApi/service"
+	passkeysvc "STfreApi/service/passkey"
 
 	"github.com/gin-gonic/gin"
 )
@@ -190,8 +191,15 @@ func GetChannelAffinityUsageCacheStats(c *gin.Context) {
 	common.OK(c, stats)
 }
 
-// Logout 对齐 new-api 的 /api/user/logout（当前为 JWT 无状态，服务端无需失效会话）。
+// Logout 对齐 new-api 的 /api/user/logout：将当前 JWT 拉黑，使其在到期前立即失效。
 func Logout(c *gin.Context) {
+	tokenString, _ := c.Get("jwt_token")
+	expiresAt, _ := c.Get("jwt_expires_at")
+	if ts, ok := tokenString.(string); ok && ts != "" {
+		if exp, ok := expiresAt.(time.Time); ok {
+			common.BlacklistToken(ts, exp)
+		}
+	}
 	common.OKMsg(c, "登出成功", nil)
 }
 
@@ -307,9 +315,36 @@ func RequestStripeAmount(c *gin.Context) {
 	RequestAmount(c)
 }
 
-// TransferAffQuota 当前仓库暂无邀请返利余额体系，返回明确提示避免 404。
+// TransferAffQuota 将当前用户的邀请返利余额（aff_quota）转入可用额度（quota）。
 func TransferAffQuota(c *gin.Context) {
-	common.Fail(c, common.CodeForbidden, "当前版本未启用邀请返利转账")
+	userID := c.GetInt("id")
+	if userID <= 0 {
+		common.Fail(c, common.CodeUnauthorized, "未登录")
+		return
+	}
+
+	var req struct {
+		Quota int64 `json:"quota" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Quota <= 0 {
+		common.Fail(c, common.CodeParamError, "转移额度必须大于 0")
+		return
+	}
+
+	if err := model.TransferAffQuotaToQuota(userID, req.Quota); err != nil {
+		common.Fail(c, common.CodeParamError, err.Error())
+		return
+	}
+
+	var user model.User
+	if err := common.DB.Select("id", "username").First(&user, userID).Error; err == nil {
+		_ = common.DB.Create(&model.Log{
+			UserId: userID, Username: user.Username, CreatedAt: time.Now().Unix(),
+			Type: model.LogTypeSystem, Content: "邀请返利转入可用额度", Quota: req.Quota, ModelName: "system",
+		}).Error
+	}
+
+	common.OKMsg(c, "转账成功", nil)
 }
 
 // UpdateUserSetting 对齐 new-api 的 /api/user/setting，复用 UpdateSelf。
@@ -374,13 +409,105 @@ func RegenerateBackupCodes(c *gin.Context) {
 	common.OK(c, gin.H{"backup_codes": codes})
 }
 
-// Passkey verify 兼容路由，复用现有 passkey 注册流程的挑战/完成接口。
+// PasskeyVerifyBegin 已登录用户用 Passkey 做二次验证（assertion flow），
+// 与登录的 discoverable login 不同，这里针对特定用户的凭证发起 BeginLogin。
 func PasskeyVerifyBegin(c *gin.Context) {
-	PasskeyRegisterBegin(c)
+	userID := c.GetInt("id")
+	if userID == 0 {
+		common.Fail(c, common.CodeUnauthorized, "未登录")
+		return
+	}
+
+	credential, err := model.GetPasskeyByUserID(userID)
+	if err != nil {
+		common.Fail(c, common.CodeNotFound, "该用户尚未绑定 Passkey")
+		return
+	}
+
+	var user model.User
+	if err := common.DB.First(&user, userID).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "用户不存在")
+		return
+	}
+
+	wa, err := passkeysvc.BuildWebAuthn(c.Request)
+	if err != nil {
+		common.Fail(c, common.CodeServerError, err.Error())
+		return
+	}
+
+	waUser := passkeysvc.NewWebAuthnUser(&user, credential)
+	assertion, sessionData, err := wa.BeginLogin(waUser)
+	if err != nil {
+		common.Fail(c, common.CodeServerError, fmt.Sprintf("生成 Passkey 验证参数失败: %v", err))
+		return
+	}
+
+	sessionID, err := passkeysvc.SaveVerifySession(sessionData)
+	if err != nil {
+		common.Fail(c, common.CodeServerError, "保存 Passkey 会话失败")
+		return
+	}
+
+	common.OK(c, gin.H{"session_id": sessionID, "options": assertion})
 }
 
+// PasskeyVerifyFinish 完成 Passkey 二次验证，校验通过后仅返回成功，不重新发 token。
 func PasskeyVerifyFinish(c *gin.Context) {
-	PasskeyRegisterFinish(c)
+	userID := c.GetInt("id")
+	if userID == 0 {
+		common.Fail(c, common.CodeUnauthorized, "未登录")
+		return
+	}
+
+	var req struct {
+		SessionID string `json:"session_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, common.CodeParamError, "缺少 session_id")
+		return
+	}
+
+	sessionData, err := passkeysvc.PopVerifySession(req.SessionID)
+	if err != nil {
+		common.Fail(c, common.CodeParamError, err.Error())
+		return
+	}
+
+	credential, err := model.GetPasskeyByUserID(userID)
+	if err != nil {
+		common.Fail(c, common.CodeNotFound, "该用户尚未绑定 Passkey")
+		return
+	}
+
+	var user model.User
+	if err := common.DB.First(&user, userID).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "用户不存在")
+		return
+	}
+
+	wa, err := passkeysvc.BuildWebAuthn(c.Request)
+	if err != nil {
+		common.Fail(c, common.CodeServerError, err.Error())
+		return
+	}
+
+	waUser := passkeysvc.NewWebAuthnUser(&user, credential)
+	updatedCred, err := wa.FinishLogin(waUser, *sessionData, c.Request)
+	if err != nil {
+		common.Fail(c, common.CodeUnauthorized, fmt.Sprintf("Passkey 验证失败: %v", err))
+		return
+	}
+
+	// 更新凭证最后使用时间
+	updated := model.NewPasskeyCredentialFromWebAuthn(userID, updatedCred)
+	if updated != nil {
+		now := time.Now()
+		updated.LastUsedAt = &now
+		_ = model.UpsertPasskeyCredential(updated)
+	}
+
+	common.OKMsg(c, "Passkey 验证成功", nil)
 }
 
 // Admin2FAStats 对齐 new-api 的管理员 2FA 统计接口。

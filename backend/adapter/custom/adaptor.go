@@ -17,7 +17,8 @@ import (
 )
 
 type Adaptor struct {
-	Config *model.CustomChannelConfig
+	Config           *model.CustomChannelConfig
+	promptTokenCount int // ConvertRequest 时预先计算，供 stream 响应使用
 }
 
 func (a *Adaptor) GetChannelName() string {
@@ -29,7 +30,11 @@ func (a *Adaptor) GetModelList() []string {
 }
 
 func (a *Adaptor) ConvertRequest(c *gin.Context, request *dto.OpenAIRequest) (any, error) {
-	// 将 OpenAI 格式请求转换为目标 API 格式
+	// 预先统计 prompt tokens，供流式响应使用
+	if raw, err := json.Marshal(request.Messages); err == nil {
+		a.promptTokenCount = common.CountToken(string(raw))
+	}
+
 	result := make(map[string]any)
 
 	// 基础字段映射
@@ -301,9 +306,12 @@ func (a *Adaptor) handleStreamResponse(c *gin.Context, resp *http.Response, meta
 		}
 	}
 
-	// 估算 token 使用（简单按字符数估算）
-	completionTokens = len(totalContent.String()) / 4
-	promptTokens = 10 // 简化估算
+	// 估算 token 使用：completion 用 tiktoken 精确计数，prompt 用 ConvertRequest 时预算的值
+	completionTokens = common.CountToken(totalContent.String())
+	promptTokens = a.promptTokenCount
+	if promptTokens == 0 {
+		promptTokens = completionTokens / 2 // 兜底估算
+	}
 
 	return &dto.Usage{
 		PromptTokens:     promptTokens,

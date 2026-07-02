@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"STfreApi/common"
 	"STfreApi/model"
 	"net/http"
 	"strings"
@@ -48,10 +49,20 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		if common.IsTokenBlacklisted(tokenString) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "令牌已失效，请重新登录"})
+			c.Abort()
+			return
+		}
+
 		// 将用户信息存入上下文
 		c.Set("id", claims.UserId)
 		c.Set("username", claims.Username)
 		c.Set("role", claims.Role)
+		c.Set("jwt_token", tokenString)
+		if claims.ExpiresAt != nil {
+			c.Set("jwt_expires_at", claims.ExpiresAt.Time)
+		}
 		c.Next()
 	}
 }

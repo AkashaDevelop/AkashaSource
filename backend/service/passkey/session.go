@@ -97,3 +97,12 @@ func SaveRegisterSession(data *webauthn.SessionData) (string, error) {
 func PopRegisterSession(sessionID string) (*webauthn.SessionData, error) {
 	return popSession("passkey:register:", sessionID)
 }
+
+// SaveVerifySession/PopVerifySession 用于已登录用户的 Passkey 二次验证（assertion flow）
+func SaveVerifySession(data *webauthn.SessionData) (string, error) {
+	return saveSession("passkey:verify:", data)
+}
+
+func PopVerifySession(sessionID string) (*webauthn.SessionData, error) {
+	return popSession("passkey:verify:", sessionID)
+}

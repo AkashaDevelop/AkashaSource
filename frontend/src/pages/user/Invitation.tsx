@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import LoadingRows from '../../components/LoadingRows';
-import { Button, Chip, Snippet } from '../../components/ui';
-import { Plus, RefreshCw } from 'lucide-react';
+import { Button, Chip, Snippet, Input, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure } from '../../components/ui';
+import { Plus, RefreshCw, ArrowRightLeft } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 
@@ -21,7 +21,11 @@ export default function UserInvitation() {
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const { token } = useAuthStore();
+  const [affQuota, setAffQuota] = useState(0);
+  const [transferAmount, setTransferAmount] = useState('');
+  const [transferring, setTransferring] = useState(false);
+  const { token, updateUser } = useAuthStore();
+  const { isOpen, onOpen, onOpenChange } = useDisclosure();
 
   const fetchInvitations = async () => {
     setLoading(true);
@@ -37,7 +41,20 @@ export default function UserInvitation() {
     }
   };
 
-  useEffect(() => { fetchInvitations(); }, []);
+  const fetchAffQuota = async () => {
+    try {
+      const res = await fetch('/api/user/self', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.code === 0) {
+        setAffQuota(data.data?.aff_quota ?? 0);
+        updateUser(data.data);
+      }
+    } catch (e: any) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => { fetchInvitations(); fetchAffQuota(); }, []);
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -60,6 +77,33 @@ export default function UserInvitation() {
     }
   };
 
+  const handleTransfer = async () => {
+    const quota = Math.floor(parseFloat(transferAmount) || 0);
+    if (quota <= 0) { toast.error('请输入有效的转账额度'); return; }
+    if (quota > affQuota) { toast.error('转账额度不能超过邀请返利余额'); return; }
+    setTransferring(true);
+    try {
+      const res = await fetch('/api/user/aff_transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ quota }),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success('转账成功');
+        setTransferAmount('');
+        onOpenChange(false);
+        fetchAffQuota();
+      } else {
+        toast.error(data.msg || '转账失败');
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setTransferring(false);
+    }
+  };
+
   const unused = invitations.filter(i => i.status === 1).length;
   const used = invitations.filter(i => i.status === 2).length;
 
@@ -70,7 +114,7 @@ export default function UserInvitation() {
         description="生成并管理您的邀请码，邀请好友注册"
         actions={
           <div className="flex gap-2">
-            <Button variant="flat" startContent={<RefreshCw size={16} />} onPress={fetchInvitations} isLoading={loading}>
+            <Button variant="flat" startContent={<RefreshCw size={16} />} onPress={() => { fetchInvitations(); fetchAffQuota(); }} isLoading={loading}>
               刷新
             </Button>
             <Button color="primary" startContent={<Plus size={16} />} isLoading={generating} onPress={handleGenerate}>
@@ -79,6 +123,26 @@ export default function UserInvitation() {
           </div>
         }
       />
+
+      {/* 邀请返利余额 */}
+      <div style={{
+        padding: '16px', borderRadius: 'var(--radius-xl)',
+        background: 'var(--bg-surface)', border: '1px solid var(--border-color)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px',
+      }}>
+        <div>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 6px' }}>邀请返利余额（待转入可用额度）</p>
+          <p style={{ fontSize: '24px', fontWeight: 700, color: 'var(--accent-primary)', margin: 0 }}>{affQuota.toLocaleString()}</p>
+        </div>
+        <Button
+          color="primary" variant="flat"
+          startContent={<ArrowRightLeft size={16} />}
+          isDisabled={affQuota <= 0}
+          onPress={onOpen}
+        >
+          转入可用额度
+        </Button>
+      </div>
 
       {/* 统计 */}
       <div className="grid grid-cols-3 gap-3">
@@ -133,6 +197,28 @@ export default function UserInvitation() {
           </tbody>
         </table>
       </div>
+
+      <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="sm">
+        <ModalContent>
+          <ModalHeader>转入可用额度</ModalHeader>
+          <ModalBody>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 12px' }}>
+              当前邀请返利余额：{affQuota.toLocaleString()}
+            </p>
+            <Input
+              type="number"
+              label="转账额度"
+              placeholder={`最多 ${affQuota}`}
+              value={transferAmount}
+              onValueChange={setTransferAmount}
+            />
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="flat" onPress={() => onOpenChange(false)}>取消</Button>
+            <Button color="primary" isLoading={transferring} onPress={handleTransfer}>确认转账</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }

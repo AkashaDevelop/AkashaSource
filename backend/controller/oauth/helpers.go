@@ -119,13 +119,13 @@ func createOAuthUser(idField, idValue string, buildUser func() model.User, invit
 			if invitationReward > 0 {
 				var inviter model.User
 				if err := tx.First(&inviter, invitation.InviterId).Error; err == nil {
-					tx.Model(&inviter).Update("quota", gorm.Expr("quota + ?", int64(invitationReward)))
+					tx.Model(&inviter).Update("aff_quota", gorm.Expr("aff_quota + ?", int64(invitationReward)))
 					tx.Create(&model.Log{
 						UserId:    inviter.Id,
 						Username:  inviter.Username,
 						CreatedAt: time.Now().Unix(),
 						Type:      model.LogTypeSystem,
-						Content:   fmt.Sprintf("邀请奖励: %s", newUser.Username),
+						Content:   fmt.Sprintf("邀请返利（待转账）: %s", newUser.Username),
 						Quota:     int64(invitationReward),
 						ModelName: "system",
 					})
