@@ -117,7 +117,7 @@ func RelayResponses(c *gin.Context) {
 		openAIReq.Model = mappedModels[i]
 		channel.Key = service.GetNextKey(channel.Key)
 
-		adaptor := adapter.GetAdaptor(channel.Type)
+		adaptor := adapter.GetAdaptor(channel.Type, channel)
 		converted, err := adaptor.ConvertRequest(c, openAIReq)
 		if err != nil {
 			lastError = err

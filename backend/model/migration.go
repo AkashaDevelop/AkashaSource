@@ -107,6 +107,13 @@ func ApplyMigrations() {
 				return common.DB.AutoMigrate(&Log{}, &AdminAuditLog{})
 			},
 		},
+		{
+			Version: 9,
+			Name:    "新增自定义渠道支持字段",
+			Apply: func() error {
+				return common.DB.AutoMigrate(&Channel{}, &CustomChannelConfig{})
+			},
+		},
 	}
 
 	for _, step := range steps {

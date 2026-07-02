@@ -4,6 +4,7 @@ import (
 	"STfreApi/adapter/ali"
 	"STfreApi/adapter/baidu"
 	"STfreApi/adapter/claude"
+	"STfreApi/adapter/custom"
 	"STfreApi/adapter/deepseek"
 	"STfreApi/adapter/dify"
 	"STfreApi/adapter/gemini"
@@ -19,10 +20,19 @@ import (
 	"STfreApi/adapter/xai"
 	"STfreApi/adapter/xunfei"
 	"STfreApi/adapter/zhipu"
+	"STfreApi/common"
 	"STfreApi/model"
 )
 
-func GetAdaptor(channelType int) Adaptor {
+func GetAdaptor(channelType int, channel *model.Channel) Adaptor {
+	// 检查是否为自定义渠道
+	if channel.IsCustom == 1 && channel.CustomConfigId > 0 {
+		var config model.CustomChannelConfig
+		if err := common.DB.First(&config, channel.CustomConfigId).Error; err == nil {
+			return &custom.Adaptor{Config: &config}
+		}
+	}
+
 	switch channelType {
 	case model.ChannelTypeAnthropic:
 		return &claude.Adaptor{}

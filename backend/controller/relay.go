@@ -279,7 +279,7 @@ func Relay(c *gin.Context) {
 		c.Set("context_sanitization_request_tools", attemptReq.Tools)
 
 		// 获取适配器
-		adaptor := adapter.GetAdaptor(channel.Type)
+		adaptor := adapter.GetAdaptor(channel.Type, channel)
 
 		// 转换请求
 		var convertedReq any

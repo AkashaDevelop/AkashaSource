@@ -255,7 +255,7 @@ func relayClaudeViaOpenAI(c *gin.Context, channel *model.Channel, req *claude.Cl
 	openAIReq := claudeToOpenAIRequest(req)
 
 	// Use the adapter system
-	adaptor := adapter.GetAdaptor(channel.Type)
+	adaptor := adapter.GetAdaptor(channel.Type, channel)
 	converted, err := adaptor.ConvertRequest(c, openAIReq)
 	if err != nil {
 		return nil, err
