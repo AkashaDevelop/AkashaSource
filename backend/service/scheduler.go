@@ -19,6 +19,7 @@ var (
 	schedulerMutex      sync.Mutex
 	checkinTicker       *time.Ticker
 	balanceTicker       *time.Ticker
+	logCleanupTicker    *time.Ticker
 	stopChan            chan struct{}
 	currentConfig       SchedulerConfig
 )
@@ -96,13 +97,16 @@ func StartScheduler() {
 func runScheduler() {
 	checkinInterval := time.Duration(currentConfig.CheckinIntervalHours) * time.Hour
 	balanceInterval := 6 * time.Hour
+	logCleanupInterval := 24 * time.Hour // ～日志清理每天巡逻一次就够啦～
 
 	checkinTicker = time.NewTicker(checkinInterval)
 	balanceTicker = time.NewTicker(balanceInterval)
+	logCleanupTicker = time.NewTicker(logCleanupInterval)
 
 	defer func() {
 		checkinTicker.Stop()
 		balanceTicker.Stop()
+		logCleanupTicker.Stop()
 	}()
 
 	log.Printf("[调度器] 签到间隔: %v, 余额刷新间隔: %v", checkinInterval, balanceInterval)
@@ -149,6 +153,16 @@ func runScheduler() {
 					}
 				}
 				log.Printf("[调度器] 余额刷新任务完成: 成功 %d, 失败 %d", success, failed)
+			}()
+		case <-logCleanupTicker.C:
+			log.Println("[调度器] 执行定时日志清理任务...")
+			go func() {
+				deleted, err := CleanupExpiredLogs()
+				if err != nil {
+					log.Printf("[调度器] 日志清理任务失败: %v", err)
+					return
+				}
+				log.Printf("[调度器] 日志清理任务完成: 清理 %d 条", deleted)
 			}()
 		}
 	}

@@ -2,7 +2,6 @@ package controller
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -119,56 +118,6 @@ func findSunoTask(taskID string) (*model.SunoTask, bool) {
 		return &t, true
 	}
 	return nil, false
-}
-
-func normalizeTaskStatus(status string) string {
-	s := strings.ToLower(strings.TrimSpace(status))
-	switch s {
-	case "success", "completed", "succeeded":
-		return "succeeded"
-	case "failed", "failure", "error":
-		return "failed"
-	default:
-		return "processing"
-	}
-}
-
-func extractResultURL(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") || strings.HasPrefix(raw, "data:") {
-		return raw
-	}
-	var payload any
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return ""
-	}
-	return findURL(payload)
-}
-
-func findURL(v any) string {
-	switch x := v.(type) {
-	case map[string]any:
-		for _, vv := range x {
-			if u := findURL(vv); u != "" {
-				return u
-			}
-		}
-	case []any:
-		for _, vv := range x {
-			if u := findURL(vv); u != "" {
-				return u
-			}
-		}
-	case string:
-		s := strings.TrimSpace(x)
-		if strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "data:") {
-			return s
-		}
-	}
-	return ""
 }
 
 func writeDataURL(c *gin.Context, dataURL string) {

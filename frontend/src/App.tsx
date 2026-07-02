@@ -16,12 +16,12 @@ import AdminLayout from './layouts/AdminLayout';
 import LogPage from './pages/Log';
 import TokenManagement from './pages/user/Token';
 import RedemptionManagement from './pages/admin/Redemption';
-import TopupPage from './pages/user/Topup';
+
 import BillingPage from './pages/user/Billing';
 import ProfilePage from './pages/user/Profile';
 import UserInvitation from './pages/user/Invitation';
 import SubscriptionManagement from './pages/admin/Subscription';
-import SubscriptionPage from './pages/user/Subscription';
+
 import AdminInvitation from './pages/admin/Invitation';
 import MigrationPage from './pages/admin/Migration';
 import FilesPage from './pages/user/Files';
@@ -33,6 +33,9 @@ import ChannelAccountManagement from './pages/admin/ChannelAccount';
 import SystemMonitor from './pages/admin/SystemMonitor';
 import VendorManagement from './pages/admin/Vendor';
 import DeploymentManagement from './pages/admin/Deployment';
+import ContextSanitization from './pages/admin/ContextSanitization';
+import AdminAuditLog from './pages/admin/AdminAuditLog';
+import CustomChannelConfig from './pages/admin/CustomChannelConfig';
 
 function PrivateRoute({ children, roleRequired }: { children: React.ReactElement, roleRequired?: number }) {
   const { token, user } = useAuthStore();
@@ -82,6 +85,7 @@ function App() {
       >
         <Route index element={<AdminDashboard />} />
         <Route path="channel" element={<ChannelManagement />} />
+        <Route path="custom-channel-config" element={<CustomChannelConfig />} />
         <Route path="user" element={<UserManagement />} />
         <Route path="redemption" element={<RedemptionManagement />} />
         <Route path="group" element={<GroupManagement />} />
@@ -106,6 +110,15 @@ function App() {
         <Route path="model-meta" element={<ModelMetaManagement />} />
         <Route path="channel-affinity" element={<ChannelAffinity />} />
         <Route path="channel-account" element={<ChannelAccountManagement />} />
+        <Route path="context-sanitization" element={<ContextSanitization />} />
+        <Route
+          path="audit-log"
+          element={
+            <PrivateRoute roleRequired={100}>
+              <AdminAuditLog />
+            </PrivateRoute>
+          }
+        />
       </Route>
     </Routes>
   );

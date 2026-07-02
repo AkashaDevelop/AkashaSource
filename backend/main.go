@@ -10,6 +10,7 @@ import (
 	"STfreApi/model"
 	"STfreApi/router"
 	"STfreApi/service"
+	contextsanitizer "STfreApi/service/context_sanitizer"
 
 	"github.com/gin-gonic/gin"
 )
@@ -54,6 +55,20 @@ func main() {
 	// 启动渠道签到和余额监控调度器
 	log.Printf("启动渠道签到和余额监控调度器...")
 	service.InitScheduler()
+
+	// 初始化上下文净化模块
+	log.Printf("初始化上下文净化模块...")
+	if err := contextsanitizer.Init(); err != nil {
+		log.Fatalf("上下文净化模块初始化失败: %v", err)
+	}
+	features := contextsanitizer.GetFeatures()
+	enabledCount := 0
+	for _, enabled := range features {
+		if enabled {
+			enabledCount++
+		}
+	}
+	log.Printf("上下文净化模块已启用 %d 个功能 (版本: %s)", enabledCount, contextsanitizer.GetVersion())
 
 	// Initialize Gin
 	r := gin.Default()

@@ -82,9 +82,11 @@ export default function SystemSettings() {
       'payment_provider','epay_api_url','epay_pid','epay_key','epay_type',
       'enable_topup',
       // 风控
-      'content_moderation_enabled','content_moderation_keywords','content_moderation_api',
+      'content_moderation_enabled','content_moderation_keywords',
       'content_moderation_timeout','content_moderation_whitelist_users',
       'content_moderation_whitelist_models','content_moderation_whitelist_ips',
+      'tencent_moderation_secret_id','tencent_moderation_secret_key',
+      'tencent_moderation_region','tencent_moderation_biz_type',
       // 缓存
       'redis_addr','redis_password','redis_db',
       // OAuth
@@ -110,6 +112,8 @@ export default function SystemSettings() {
       'thinking_to_content','model_rpm',
       // 邮件域名限制
       'email_domain_restriction_enabled','email_domain_whitelist',
+      // 日志留存
+      'log_retention_days',
     ];
     const options = [
       ...keys.map(k => ({ key: k, value: get(k) })),
@@ -215,12 +219,28 @@ export default function SystemSettings() {
           <div className="space-y-4">
             <Card>
               <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>内容审查</p>
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>日志留存</p>
+                <Input
+                  label="日志留存天数"
+                  type="number"
+                  value={get('log_retention_days', '180')}
+                  onValueChange={v => set('log_retention_days', v)}
+                  description="根据《网络安全法》第 21 条，网络日志留存不少于 6 个月（180 天）；低于 180 的配置将被系统强制按 180 天执行，超期日志由定时任务自动清理"
+                />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>内容审查（腾讯云天御）</p>
                 <Switch isSelected={get('content_moderation_enabled') === 'true'} onValueChange={v => set('content_moderation_enabled', String(v))}>
                   启用内容审查
                 </Switch>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input label="审查接口地址" value={get('content_moderation_api')} onValueChange={v => set('content_moderation_api', v)} />
+                  <Input label="腾讯云 SecretId" value={get('tencent_moderation_secret_id')} onValueChange={v => set('tencent_moderation_secret_id', v)} />
+                  <Input label="腾讯云 SecretKey" type="password" value={get('tencent_moderation_secret_key')} onValueChange={v => set('tencent_moderation_secret_key', v)} />
+                  <Input label="腾讯云地域" value={get('tencent_moderation_region')} onValueChange={v => set('tencent_moderation_region', v)} placeholder="ap-guangzhou" />
+                  <Input label="审核策略 BizType" value={get('tencent_moderation_biz_type')} onValueChange={v => set('tencent_moderation_biz_type', v)} description="在腾讯云控制台配置的策略编号，留空则使用账号默认策略" />
                   <Input label="审查超时（秒）" type="number" value={get('content_moderation_timeout')} onValueChange={v => set('content_moderation_timeout', v)} />
                 </div>
                 <Textarea label="敏感词（逗号分隔）" value={get('content_moderation_keywords')} onValueChange={v => set('content_moderation_keywords', v)} minRows={2} />

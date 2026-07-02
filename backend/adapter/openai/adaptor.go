@@ -4,6 +4,7 @@ import (
 	"STfreApi/common"
 	"STfreApi/dto"
 	"STfreApi/model"
+	contextsanitizer "STfreApi/service/context_sanitizer"
 	"bufio"
 	"bytes"
 	"encoding/json"
@@ -115,6 +116,44 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *model.To
 func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage, error) {
 	body, _ := io.ReadAll(resp.Body)
 
+	// 应用响应侧上下文净化
+	if policyValue, exists := c.Get("context_sanitization_policy"); exists {
+		if policy, ok := policyValue.(contextsanitizer.ResolvedPolicy); ok {
+			var rc contextsanitizer.ResponseContext
+			if rcValue, ok := c.Get("context_sanitization_request_context"); ok {
+				if reqCtx, ok := rcValue.(contextsanitizer.RequestContext); ok {
+					rc.RequestContext = reqCtx
+				}
+			}
+			if v, ok := c.Get("context_sanitization_user_requested_ads"); ok {
+				if b, ok := v.(bool); ok {
+					rc.UserRequestedAds = b
+				}
+			}
+			// 传递请求工具列表用于响应工具调用校验
+			if v, ok := c.Get("context_sanitization_request_tools"); ok {
+				if tools, ok := v.([]interface{}); ok {
+					rc.RequestTools = tools
+				}
+			}
+
+			if result, err := contextsanitizer.ApplyOpenAIResponse(c.Request.Context(), body, rc, policy); err == nil && result != nil {
+				if result.Blocked {
+					// 响应被阻断
+					c.JSON(http.StatusForbidden, dto.OpenAIErrorResponse{
+						Error: dto.OpenAIError{
+							Message: result.Message,
+							Type:    "invalid_response_content",
+							Code:    "response_sanitization_blocked",
+						},
+					})
+					return nil, fmt.Errorf("response blocked by sanitizer")
+				}
+				body = result.Body
+			}
+		}
+	}
+
 	// Write back to client
 	for k, v := range resp.Header {
 		c.Writer.Header().Set(k, v[0])
@@ -176,6 +215,29 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage, error) {
 	common.SetEventStreamHeaders(c)
 
+	// 获取上下文净化策略
+	var policy contextsanitizer.ResolvedPolicy
+	var requestTools []interface{}
+	shouldSanitize := false
+
+	if policyValue, exists := c.Get("context_sanitization_policy"); exists {
+		if p, ok := policyValue.(contextsanitizer.ResolvedPolicy); ok {
+			policy = p
+			shouldSanitize = true
+		}
+	}
+	if v, ok := c.Get("context_sanitization_request_tools"); ok {
+		if tools, ok := v.([]interface{}); ok {
+			requestTools = tools
+		}
+	}
+
+	// 创建流式处理器
+	var processor *contextsanitizer.StreamProcessor
+	if shouldSanitize && contextsanitizer.IsEnabled(policy) {
+		processor = contextsanitizer.NewStreamProcessor(policy, requestTools)
+	}
+
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
 		if atEOF && len(data) == 0 {
@@ -191,8 +253,6 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 	})
 
 	usage := &dto.Usage{}
-	// We need to count tokens manually for stream if usage is not provided in stream end
-	// For simplicity, we just return empty usage or rely on estimation outside
 
 	for scanner.Scan() {
 		data := scanner.Text()
@@ -200,11 +260,58 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 			continue
 		}
 
-		c.Writer.Write([]byte(data + "\n\n"))
-		c.Writer.Flush()
+		// 流式处理: 一期只监控,不修改
+		chunkToWrite := []byte(data + "\n\n")
+		if processor != nil {
+			// 处理流式块 (一期: 原样输出,只聚合内容)
+			if processed, err := processor.ProcessChunk([]byte(data + "\n")); err == nil {
+				chunkToWrite = processed
+			}
+		}
 
-		// Logic to extract usage from stream_options: include_usage (OpenAI feature)
-		// Or count tokens from content
+		c.Writer.Write(chunkToWrite)
+		c.Writer.Flush()
+	}
+
+	// 流结束后检测
+	if processor != nil {
+		findings := processor.Finalize()
+		if len(findings) > 0 {
+			// 异步记录事件
+			go func() {
+				var rc contextsanitizer.RequestContext
+				if rcValue, ok := c.Get("context_sanitization_request_context"); ok {
+					if reqCtx, ok := rcValue.(contextsanitizer.RequestContext); ok {
+						rc = reqCtx
+					}
+				}
+
+				maxScore := 0
+				for _, f := range findings {
+					if f.Score > maxScore {
+						maxScore = f.Score
+					}
+				}
+
+				contextsanitizer.RecordEventAsync(contextsanitizer.EventInput{
+					RequestId:      rc.RequestId,
+					UserId:         rc.UserId,
+					TokenId:        rc.TokenId,
+					TokenName:      rc.TokenName,
+					ChannelId:      rc.ChannelId,
+					ChannelName:    rc.ChannelName,
+					RequestedModel: rc.RequestedModel,
+					MappedModel:    rc.MappedModel,
+					Policy:         policy,
+					Direction:      "response",
+					Stage:          "stream_finalize",
+					Action:         "monitor",
+					RiskScore:      maxScore,
+					Findings:       findings,
+					SnippetSource:  processor.GetTailBuffer(),
+				})
+			}()
+		}
 	}
 
 	return usage, nil

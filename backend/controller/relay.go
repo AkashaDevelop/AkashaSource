@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"STfreApi/adapter"
 	"STfreApi/common"
@@ -16,6 +16,8 @@ import (
 	"STfreApi/middleware"
 	"STfreApi/model"
 	"STfreApi/service"
+	contextsanitizer "STfreApi/service/context_sanitizer"
+	"STfreApi/service/moderation"
 
 	"github.com/gin-gonic/gin"
 )
@@ -183,11 +185,10 @@ func Relay(c *gin.Context) {
 	}
 
 	common.OptionLock.RLock()
-	moderationApi := common.ContentModerationApi
 	moderationTimeout := common.ContentModerationTimeout
 	common.OptionLock.RUnlock()
-	if moderationEnabled && !whitelisted && moderationApi != "" {
-		allowed, reason := checkModerationApi(moderationApi, moderationTimeout, &openAIReq)
+	if moderationEnabled && !whitelisted {
+		allowed, reason := checkTencentModeration(moderationTimeout, buildModerationText(&openAIReq))
 		if !allowed {
 			msg := "内容审查未通过"
 			if reason != "" {
@@ -222,23 +223,67 @@ func Relay(c *gin.Context) {
 		return
 	}
 
+	requestedModel := openAIReq.Model
+	baseReq := openAIReq
+
 	// 重试循环
 	var lastError error
 	for i, channel := range channels {
 		mappedModel := mappedModels[i]
+		attemptReq, copyErr := contextsanitizer.DeepCopyOpenAIRequest(&baseReq)
+		if copyErr != nil {
+			lastError = copyErr
+			continue
+		}
 
 		// 更新本次请求模型
-		openAIReq.Model = mappedModel
+		attemptReq.Model = mappedModel
 
 		// 多 Key 轮换
 		channel.Key = service.GetNextKey(channel.Key)
 
+		policy := contextsanitizer.ResolvePolicy(channel.Id, requestedModel, mappedModel)
+		reqCtx := contextsanitizer.RequestContext{
+			RequestId:      c.GetString("request_id"),
+			UserId:         user.Id,
+			TokenId:        token.Id,
+			TokenName:      token.Name,
+			ChannelId:      channel.Id,
+			ChannelName:    channel.Name,
+			ChannelType:    channel.Type,
+			RequestedModel: requestedModel,
+			MappedModel:    mappedModel,
+			UserGroup:      user.Group,
+			ClientIP:       c.ClientIP(),
+		}
+		sanitizeResult, sanitizeErr := contextsanitizer.ApplyRequest(c.Request.Context(), attemptReq, reqCtx, policy)
+		if sanitizeErr != nil {
+			lastError = sanitizeErr
+			continue
+		}
+		if sanitizeResult.Blocked {
+			msg := sanitizeResult.Message
+			if msg == "" {
+				msg = "请求被安全策略拒绝，如有疑问请联系管理员"
+			}
+			go RecordFailLog(c, token, mappedModel, msg)
+			c.JSON(http.StatusBadRequest, dto.OpenAIErrorResponse{Error: dto.OpenAIError{Message: msg, Type: "invalid_request_error", Code: "context_sanitization_blocked"}})
+			return
+		}
+		if sanitizeResult.Changed {
+			attemptReq.RawBody = nil
+		}
+		c.Set("context_sanitization_policy", policy)
+		c.Set("context_sanitization_request_context", reqCtx)
+		c.Set("context_sanitization_user_requested_ads", contextsanitizer.IsUserRequestingAds(attemptReq))
+		c.Set("context_sanitization_request_tools", attemptReq.Tools)
+
 		// 获取适配器
-		adaptor := adapter.GetAdaptor(channel.Type)
+		adaptor := adapter.GetAdaptor(channel.Type, channel)
 
 		// 转换请求
 		var convertedReq any
-		convertedReq, err = adaptor.ConvertRequest(c, &openAIReq)
+		convertedReq, err = adaptor.ConvertRequest(c, attemptReq)
 		if err != nil {
 			lastError = err
 			continue
@@ -301,9 +346,9 @@ func Relay(c *gin.Context) {
 		cachedTokens := 0
 
 		// 处理图像模型配额
-		if strings.HasPrefix(openAIReq.Model, "dall-e") {
+		if strings.HasPrefix(attemptReq.Model, "dall-e") {
 			// 图像模型使用固定配额
-			if strings.HasPrefix(openAIReq.Model, "dall-e-3") {
+			if strings.HasPrefix(attemptReq.Model, "dall-e-3") {
 				promptTokens = common.QuotaDalle3
 			} else {
 				promptTokens = common.QuotaDalle2
@@ -315,15 +360,15 @@ func Relay(c *gin.Context) {
 			cachedTokens = usage.CachedTokens
 		} else {
 			// 适配器未返回用量时估算
-			if openAIReq.Input != nil {
-				promptTokens = common.CountToken(fmt.Sprint(openAIReq.Input))
+			if attemptReq.Input != nil {
+				promptTokens = common.CountToken(fmt.Sprint(attemptReq.Input))
 			} else {
-				promptTokens = common.CountToken(fmt.Sprint(openAIReq.Messages))
+				promptTokens = common.CountToken(fmt.Sprint(attemptReq.Messages))
 			}
 			// 流式返回无法准确统计输出用量
 		}
 
-		go RecordConsumeLog(c, token, openAIReq.Model, promptTokens, completionTokens, cachedTokens)
+		go RecordConsumeLog(c, token, attemptReq.Model, promptTokens, completionTokens, cachedTokens)
 		go upsertChannelAffinity(
 			defaultChannelAffinityRule,
 			user.Group,
@@ -437,49 +482,30 @@ func buildModerationText(req *dto.OpenAIRequest) string {
 	return strings.Join(texts, "\n")
 }
 
-func checkModerationApi(api string, timeout int, req *dto.OpenAIRequest) (bool, string) {
-	if api == "" {
-		return true, ""
+// checkTencentModeration ～请腾讯云天御大人来给这段文字把把关，判定是否放行～
+func checkTencentModeration(timeout int, text string) (bool, string) {
+	common.OptionLock.RLock()
+	cfg := moderation.TMSConfig{
+		SecretId:  common.OptionMap[model.OptionKeyTencentModerationSecretId],
+		SecretKey: common.OptionMap[model.OptionKeyTencentModerationSecretKey],
+		Region:    common.OptionMap[model.OptionKeyTencentModerationRegion],
+		BizType:   common.OptionMap[model.OptionKeyTencentModerationBizType],
+		Timeout:   timeout,
 	}
-	if timeout <= 0 {
-		timeout = 5
-	}
-	payload := map[string]string{
-		"text":  buildModerationText(req),
-		"model": req.Model,
-	}
-	body, err := json.Marshal(payload)
+	common.OptionLock.RUnlock()
+
+	result, err := moderation.ModerateText(cfg, text)
 	if err != nil {
+		// 调用失败不能拖住正常业务，放行本次请求并把原因打进日志方便排查
+		log.Printf("[内容审查] 腾讯云天御调用失败，本次请求放行: %v", err)
 		return true, ""
 	}
-	client := &http.Client{Timeout: time.Duration(timeout) * time.Second}
-	request, err := http.NewRequest("POST", api, bytes.NewBuffer(body))
-	if err != nil {
+	if result.Suggestion != "Block" {
 		return true, ""
 	}
-	request.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(request)
-	if err != nil {
-		return true, ""
+	reason := result.Label
+	if result.SubLabel != "" {
+		reason += "/" + result.SubLabel
 	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return true, ""
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return true, ""
-	}
-	if allowVal, ok := result["allow"]; ok {
-		if allow, ok := allowVal.(bool); ok {
-			if allow {
-				return true, ""
-			}
-		}
-	}
-	if reason, ok := result["reason"]; ok {
-		return false, fmt.Sprint(reason)
-	}
-	return false, ""
+	return false, reason
 }

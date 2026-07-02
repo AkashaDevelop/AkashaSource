@@ -36,6 +36,8 @@ type Channel struct {
 	AccountPassword        string  `json:"account_password" gorm:"type:text"`          // 账号密码(加密存储)
 	AccessToken            string  `json:"access_token" gorm:"type:text"`              // 会话令牌
 	PlatformUserId         int     `json:"platform_user_id"`                           // 平台用户ID
+	IsCustom               int     `json:"is_custom" gorm:"default:0"`                 // 是否为自定义渠道
+	CustomConfigId         int     `json:"custom_config_id" gorm:"default:0"`          // 关联的自定义配置ID
 }
 
 const (
@@ -62,6 +64,7 @@ const (
 	ChannelTypeTogether    = 56
 	ChannelTypePerplexity  = 57
 	ChannelTypeCodex       = 58
+	ChannelTypeCustomGeneric = 100 // 自定义渠道起始ID
 )
 
 const (

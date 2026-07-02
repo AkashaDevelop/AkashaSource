@@ -11,6 +11,9 @@ import (
 )
 
 func SetApiRouter(router *gin.Engine) {
+	// ～先给所有请求盖上追踪印章，后面写日志的时候才能对上号～
+	router.Use(middleware.RequestIDMiddleware())
+
 	// Relay Route (OpenAI Compatible)
 	router.POST("/v1/chat/completions", middleware.RateLimitMiddleware(), controller.Relay)
 	router.POST("/v1/embeddings", middleware.RateLimitMiddleware(), controller.Relay)
@@ -240,6 +243,7 @@ func SetApiRouter(router *gin.Engine) {
 			// 绘图/音乐任务
 			authGroup.GET("/user/tasks/mj", controller.UserGetMJTasks)
 			authGroup.GET("/user/tasks/suno", controller.UserGetSunoTasks)
+			authGroup.GET("/user/tasks", controller.GetUserTasks) // 统一任务接口
 
 			// 订阅
 			authGroup.GET("/subscription/plans", controller.GetPublicSubscriptionPlans)
@@ -254,6 +258,7 @@ func SetApiRouter(router *gin.Engine) {
 		// 需要管理员权限的接口
 		adminGroup := apiRouter.Group("/")
 		adminGroup.Use(middleware.AuthMiddleware(), middleware.AdminAuthMiddleware())
+		adminGroup.Use(middleware.AuditLogMiddleware()) // ～管理员的每一步写操作都要留下小脚印哦～
 		{
 			// 仪表盘
 			adminGroup.GET("/dashboard", controller.GetAdminDashboard)
@@ -276,10 +281,29 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.GET("/admin/channel-affinity/stats", controller.GetChannelAffinityStats)
 			adminGroup.POST("/admin/channel-affinity/cache/clear", controller.ClearChannelAffinityCacheAPI)
 
+			// 上下文净化
+			adminGroup.GET("/admin/sanitization/policies", controller.GetContextSanitizationPolicies)
+			adminGroup.POST("/admin/sanitization/policies", controller.CreateContextSanitizationPolicy)
+			adminGroup.PUT("/admin/sanitization/policies", controller.UpdateContextSanitizationPolicy)
+			adminGroup.DELETE("/admin/sanitization/policies/:id", controller.DeleteContextSanitizationPolicy)
+			adminGroup.GET("/admin/sanitization/policies/:id/revisions", controller.GetContextSanitizationPolicyRevisions)
+			adminGroup.POST("/admin/sanitization/policies/:id/rollback", controller.RollbackContextSanitizationPolicy)
+			adminGroup.POST("/admin/sanitization/reload", controller.ReloadContextSanitizationPolicyCache)
+			adminGroup.GET("/admin/sanitization/events", controller.GetContextSanitizationEvents)
+			adminGroup.GET("/admin/sanitization/stats", controller.GetContextSanitizationStats)
+
 			// 批量渠道操作
 			adminGroup.POST("/admin/channels/batch-status", controller.BatchUpdateChannelStatus)
 			adminGroup.POST("/admin/channels/batch-priority", controller.BatchUpdateChannelPriority)
 			adminGroup.POST("/admin/channels/batch-delete", controller.BatchDeleteChannels)
+
+			// 自定义渠道配置管理
+			adminGroup.GET("/custom-channel-config", controller.GetAllCustomConfigs)
+			adminGroup.GET("/custom-channel-config/:id", controller.GetCustomConfig)
+			adminGroup.POST("/custom-channel-config", controller.CreateCustomConfig)
+			adminGroup.PUT("/custom-channel-config", controller.UpdateCustomConfig)
+			adminGroup.DELETE("/custom-channel-config/:id", controller.DeleteCustomConfig)
+			adminGroup.POST("/custom-channel-config/:id/test", controller.TestCustomConfig)
 
 			// 日志管理 (管理员)
 			adminGroup.GET("/log", controller.GetAllLogs)
@@ -405,6 +429,7 @@ func SetApiRouter(router *gin.Engine) {
 			// 任务管理
 			adminGroup.GET("/tasks/mj", controller.AdminGetMJTasks)
 			adminGroup.GET("/tasks/suno", controller.AdminGetSunoTasks)
+			adminGroup.GET("/tasks", controller.GetAllTasks) // 统一任务接口
 
 			// 渠道账号管理（签到、余额监控）
 			adminGroup.POST("/channel/checkin/trigger", controller.TriggerChannelCheckin)
@@ -470,6 +495,9 @@ func SetApiRouter(router *gin.Engine) {
 			rootGroup.PUT("/option", controller.UpdateOption)
 			rootGroup.GET("/option/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			rootGroup.DELETE("/option/channel_affinity_cache", controller.ClearChannelAffinityCache)
+
+			// 操作审计（仅超管可查，避免普通管理员翻看/干扰审计记录）
+			rootGroup.GET("/admin/audit-log", controller.GetAdminAuditLogs)
 
 			// 自定义 OAuth 提供商管理
 			rootGroup.POST("/custom-oauth-provider/discovery", controller.FetchCustomOAuthDiscovery)

@@ -93,6 +93,27 @@ func ApplyMigrations() {
 				return common.DB.AutoMigrate(&ModelConfig{})
 			},
 		},
+		{
+			Version: 7,
+			Name:    "新增上下文净化策略与事件表",
+			Apply: func() error {
+				return common.DB.AutoMigrate(&ContextSanitizationPolicy{}, &ContextSanitizationPolicyRevision{}, &ContextSanitizationEvent{})
+			},
+		},
+		{
+			Version: 8,
+			Name:    "新增日志审计字段与管理员操作审计表",
+			Apply: func() error {
+				return common.DB.AutoMigrate(&Log{}, &AdminAuditLog{})
+			},
+		},
+		{
+			Version: 9,
+			Name:    "新增自定义渠道支持字段",
+			Apply: func() error {
+				return common.DB.AutoMigrate(&Channel{}, &CustomChannelConfig{})
+			},
+		},
 	}
 
 	for _, step := range steps {

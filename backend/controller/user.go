@@ -125,8 +125,13 @@ func UserRegister(c *gin.Context) {
 		common.Fail(c, common.CodeConflict, "用户名已存在")
 		return
 	}
+	hashedPassword, err := common.Password2Hash(req.Password)
+	if err != nil {
+		common.Fail(c, common.CodeServerError, "密码加密失败")
+		return
+	}
 	user := model.User{
-		Username: req.Username, Password: req.Password, Email: req.Email,
+		Username: req.Username, Password: hashedPassword, Email: req.Email,
 		DisplayName: req.Username, Role: model.RoleUser, Status: model.UserStatusActive,
 	}
 	newUserReward, _ := strconv.ParseFloat(common.OptionMap[model.OptionKeyNewUserReward], 64)
@@ -136,7 +141,7 @@ func UserRegister(c *gin.Context) {
 	if count == 0 {
 		user.Role = model.RoleRoot
 	}
-	err := common.DB.Transaction(func(tx *gorm.DB) error {
+	err = common.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}

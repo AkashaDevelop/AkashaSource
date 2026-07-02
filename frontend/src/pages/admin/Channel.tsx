@@ -26,8 +26,9 @@ import {
   Tab,
   Pagination,
   Checkbox,
+  Switch,
 } from '../../components/ui';
-import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap, Download, DollarSign, Search, KeyRound } from 'lucide-react';
+import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap, Download, DollarSign, Search, KeyRound, Settings } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
@@ -47,6 +48,14 @@ interface Channel {
   status: number;
   response_time: number;
   balance: number;
+  is_custom: number;
+  custom_config_id: number;
+}
+
+interface CustomChannelConfig {
+  id: number;
+  name: string;
+  description: string;
 }
 
 interface MultiKeyStatusItem {
@@ -91,6 +100,7 @@ const CHANNEL_TYPES = [
   { key: '56', label: 'Together AI' },
   { key: '57', label: 'Perplexity' },
   { key: '58', label: 'Codex' },
+  { key: '100', label: '🔧 自定义渠道' },
 ];
 
 export default function ChannelManagement() {
@@ -136,6 +146,27 @@ export default function ChannelManagement() {
   const [promptSubmitting, setPromptSubmitting] = useState(false);
   const promptResolveRef = useRef<((value: string | null) => void) | null>(null);
 
+  // 自定义配置相关状态
+  const { isOpen: isCustomConfigOpen, onOpen: onCustomConfigOpen, onOpenChange: onCustomConfigOpenChange } = useDisclosure();
+  const [editingCustomConfig, setEditingCustomConfig] = useState<CustomChannelConfig | null>(null);
+  const [customConfigFormData, setCustomConfigFormData] = useState({
+    name: '',
+    description: '',
+    request_endpoint: '/v1/chat/completions',
+    auth_header_template: 'Bearer {key}',
+    field_model: 'model',
+    field_messages: 'messages',
+    field_temperature: 'temperature',
+    field_max_tokens: 'max_tokens',
+    response_content_path: 'choices.0.message.content',
+    response_prompt_tokens_path: 'usage.prompt_tokens',
+    response_completion_tokens_path: 'usage.completion_tokens',
+    stream_enabled: 1,
+    stream_data_prefix: 'data: ',
+    stream_end_marker: '[DONE]',
+    stream_content_path: 'choices.0.delta.content',
+  });
+
   const channelSummary = useMemo(() => {
     const total = channels.length;
     const enabled = channels.filter((c) => c.status === 1).length;
@@ -162,11 +193,17 @@ export default function ChannelManagement() {
     priority: '10',
     weight: '1',
     tags: '',
+    is_custom: 0,
+    custom_config_id: 0,
   });
-  
+
   // Model Mapping State (Visual)
   const [modelMapping, setModelMapping] = useState<{from: string, to: string}[]>([]);
   const [newMapping, setNewMapping] = useState({from: '', to: ''});
+
+  // Custom Config State
+  const [customConfigs, setCustomConfigs] = useState<CustomChannelConfig[]>([]);
+  const [loadingConfigs, setLoadingConfigs] = useState(false);
 
   const fetchChannels = async () => {
     setLoading(true);
@@ -285,11 +322,92 @@ export default function ChannelManagement() {
 
   useEffect(() => {
     fetchChannels();
+    fetchCustomConfigs();
   }, []);
 
   useEffect(() => {
     setSelectedChannelIds((prev) => prev.filter((id) => channels.some((channel) => channel.id === id)));
   }, [channels]);
+
+  const fetchCustomConfigs = async () => {
+    setLoadingConfigs(true);
+    try {
+      const res = await fetch('/api/custom-channel-config', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        setCustomConfigs(data.data || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch custom configs:', error);
+    } finally {
+      setLoadingConfigs(false);
+    }
+  };
+
+  const handleCreateCustomConfig = () => {
+    setEditingCustomConfig(null);
+    setCustomConfigFormData({
+      name: '',
+      description: '',
+      request_endpoint: '/v1/chat/completions',
+      auth_header_template: 'Bearer {key}',
+      field_model: 'model',
+      field_messages: 'messages',
+      field_temperature: 'temperature',
+      field_max_tokens: 'max_tokens',
+      response_content_path: 'choices.0.message.content',
+      response_prompt_tokens_path: 'usage.prompt_tokens',
+      response_completion_tokens_path: 'usage.completion_tokens',
+      stream_enabled: 1,
+      stream_data_prefix: 'data: ',
+      stream_end_marker: '[DONE]',
+      stream_content_path: 'choices.0.delta.content',
+    });
+    onCustomConfigOpen();
+  };
+
+  const handleSubmitCustomConfig = async (onClose: () => void) => {
+    if (!customConfigFormData.name.trim()) {
+      toast.error('请输入配置名称');
+      return;
+    }
+
+    const url = '/api/custom-channel-config';
+    const method = editingCustomConfig ? 'PUT' : 'POST';
+
+    const body = editingCustomConfig
+      ? { ...customConfigFormData, id: editingCustomConfig.id }
+      : customConfigFormData;
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (data.code !== 0) {
+        toast.error(data.msg || '操作失败');
+        return;
+      }
+
+      toast.success(editingCustomConfig ? '配置更新成功' : '配置创建成功');
+      fetchCustomConfigs();
+      onClose();
+    } catch (error) {
+      console.error('Operation error:', error);
+      toast.error('请求失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const parseMapping = (jsonStr: string) => {
     try {
@@ -313,6 +431,8 @@ export default function ChannelManagement() {
       priority: channel.priority.toString(),
       weight: channel.weight.toString(),
       tags: channel.tags || '',
+      is_custom: channel.is_custom || 0,
+      custom_config_id: channel.custom_config_id || 0,
     });
     setModelMapping(parseMapping(channel.model_mapping));
     setModelSourceMode('manual');
@@ -332,6 +452,8 @@ export default function ChannelManagement() {
       priority: '10',
       weight: '1',
       tags: '',
+      is_custom: 0,
+      custom_config_id: 0,
     });
     setModelMapping([]);
     setModelSourceMode('manual');
@@ -357,6 +479,9 @@ export default function ChannelManagement() {
     const mappingObj: Record<string, string> = {};
     modelMapping.forEach(m => mappingObj[m.from] = m.to);
 
+    // 检查自定义渠道类型
+    const isCustomChannel = formData.type === '100';
+
     const body = {
       ...formData,
       id: editingChannel?.id,
@@ -364,6 +489,8 @@ export default function ChannelManagement() {
       priority: parseInt(formData.priority),
       weight: parseInt(formData.weight),
       model_mapping: JSON.stringify(mappingObj),
+      is_custom: isCustomChannel ? 1 : 0,
+      custom_config_id: isCustomChannel ? formData.custom_config_id : 0,
     };
 
     setSubmitting(true);
@@ -1389,15 +1516,60 @@ export default function ChannelManagement() {
                     isRequired
                     className="col-span-2"
                   />
-                  <Select 
-                    label="渠道类型" 
+                  <Select
+                    label="渠道类型"
                     defaultSelectedKeys={[formData.type]}
-                    onSelectionChange={(keys) => setFormData({...formData, type: [...keys][0] as string || '1'})}
+                    onSelectionChange={(keys) => {
+                      const newType = [...keys][0] as string || '1';
+                      setFormData({...formData, type: newType, custom_config_id: newType === '100' ? 0 : formData.custom_config_id});
+                    }}
                   >
                     {CHANNEL_TYPES.map((type) => (
                       <SelectItem key={type.key}>{type.label}</SelectItem>
                     ))}
                   </Select>
+
+                  {/* 自定义渠道配置选择器 */}
+                  {formData.type === '100' && (
+                    <div className="col-span-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-small font-medium">自定义配置</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="flat"
+                          color="primary"
+                          startContent={<Plus size={14} />}
+                          onPress={handleCreateCustomConfig}
+                        >
+                          创建新配置
+                        </Button>
+                      </div>
+                      <Select
+                        placeholder="选择配置模板"
+                        selectedKeys={formData.custom_config_id > 0 ? [formData.custom_config_id.toString()] : []}
+                        onSelectionChange={(keys) => {
+                          const configId = parseInt([...keys][0] as string || '0');
+                          setFormData({...formData, custom_config_id: configId});
+                        }}
+                        isRequired
+                        isLoading={loadingConfigs}
+                        description="选择或创建一个自定义 API 配置模板"
+                      >
+                        {customConfigs.map((config) => (
+                          <SelectItem key={config.id.toString()} textValue={config.name}>
+                            <div className="flex flex-col">
+                              <span className="text-small">{config.name}</span>
+                              {config.description && (
+                                <span className="text-tiny text-default-400">{config.description}</span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </Select>
+                    </div>
+                  )}
+
                   <Input
                     label="优先级"
                     type="number"
@@ -1922,8 +2094,8 @@ export default function ChannelManagement() {
                                 例如: <code>1|OpenAI|sk-xxx||gpt-3.5-turbo|default</code>
                             </p>
                             <Textarea 
-                                minRows={10} 
-                                placeholder="在此粘贴渠道数据..." 
+                                minRows={10}
+                                placeholder="在此粘贴渠道数据..."
                                 value={batchText}
                                 onValueChange={setBatchText}
                             />
@@ -1934,6 +2106,221 @@ export default function ChannelManagement() {
               <ModalFooter>
                 <Button color="danger" variant="light" onPress={onClose}>取消</Button>
                 <Button color="primary" onPress={() => handleBatchSubmit(onClose)}>开始导入</Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      {/* 自定义配置创建模态框 */}
+      <Modal isOpen={isCustomConfigOpen} onOpenChange={onCustomConfigOpenChange} size="full" scrollBehavior="inside" className="max-w-6xl mx-4">
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader>
+                <div className="flex items-center gap-2">
+                  <Settings size={20} />
+                  {editingCustomConfig ? '编辑自定义配置' : '创建自定义配置'}
+                </div>
+              </ModalHeader>
+              <ModalBody className="py-6">
+                <div className="grid grid-cols-3 gap-6">
+                  {/* 左列 */}
+                  <div className="space-y-4">
+                    {/* 基础信息 */}
+                    <div className="p-4 bg-default-50 dark:bg-default-100/50 rounded-xl border border-default-200">
+                      <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
+                        <span>📝</span>
+                        <span>基础信息</span>
+                      </h4>
+                      <div className="space-y-3">
+                        <Input
+                          label="配置名称"
+                          placeholder="例如: DeepSeek Compatible"
+                          value={customConfigFormData.name}
+                          onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, name: v })}
+                          isRequired
+                          size="sm"
+                        />
+                        <Textarea
+                          label="配置描述"
+                          placeholder="简要说明此配置的用途"
+                          value={customConfigFormData.description}
+                          onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, description: v })}
+                          size="sm"
+                          minRows={2}
+                        />
+                      </div>
+                    </div>
+
+                    {/* 请求配置 */}
+                    <div className="p-4 bg-default-50 dark:bg-default-100/50 rounded-xl border border-default-200">
+                      <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
+                        <span>🔧</span>
+                        <span>请求配置</span>
+                      </h4>
+                      <div className="space-y-3">
+                        <Input
+                          label="请求端点"
+                          placeholder="/v1/chat/completions"
+                          value={customConfigFormData.request_endpoint}
+                          onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, request_endpoint: v })}
+                          size="sm"
+                        />
+                        <Input
+                          label="认证头模板"
+                          placeholder="Bearer {key}"
+                          value={customConfigFormData.auth_header_template}
+                          onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, auth_header_template: v })}
+                          description="使用 {key} 作为占位符"
+                          size="sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 中列：字段映射 + 响应路径 */}
+                  <div className="space-y-4">
+                    {/* 字段映射 */}
+                    <div className="p-4 bg-default-50 dark:bg-default-100/50 rounded-xl border border-default-200">
+                      <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
+                        <span>🔄</span>
+                        <span>字段映射（OpenAI → 目标）</span>
+                      </h4>
+                      <div className="space-y-3">
+                        <Input
+                          label="model"
+                          value={customConfigFormData.field_model}
+                          onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, field_model: v })}
+                          size="sm"
+                        />
+                        <Input
+                          label="messages"
+                          value={customConfigFormData.field_messages}
+                          onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, field_messages: v })}
+                          size="sm"
+                        />
+                        <Input
+                          label="temperature"
+                          value={customConfigFormData.field_temperature}
+                          onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, field_temperature: v })}
+                          size="sm"
+                        />
+                        <Input
+                          label="max_tokens"
+                          value={customConfigFormData.field_max_tokens}
+                          onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, field_max_tokens: v })}
+                          size="sm"
+                        />
+                      </div>
+                      <p className="text-xs text-default-500 mt-3">
+                        💡 不支持的字段填 "-" 或留空
+                      </p>
+                    </div>
+
+                    {/* 响应路径 */}
+                    <div className="p-4 bg-default-50 dark:bg-default-100/50 rounded-xl border border-default-200">
+                      <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
+                        <span>📊</span>
+                        <span>响应路径（点路径语法）</span>
+                      </h4>
+                      <div className="space-y-3">
+                        <Input
+                          label="内容路径"
+                          placeholder="choices.0.message.content"
+                          value={customConfigFormData.response_content_path}
+                          onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, response_content_path: v })}
+                          size="sm"
+                        />
+                        <Input
+                          label="Prompt Tokens"
+                          placeholder="usage.prompt_tokens"
+                          value={customConfigFormData.response_prompt_tokens_path}
+                          onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, response_prompt_tokens_path: v })}
+                          size="sm"
+                        />
+                        <Input
+                          label="Completion Tokens"
+                          placeholder="usage.completion_tokens"
+                          value={customConfigFormData.response_completion_tokens_path}
+                          onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, response_completion_tokens_path: v })}
+                          size="sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 右列：流式配置 + 提示 */}
+                  <div className="space-y-4">
+
+                    {/* 流式配置 */}
+                    <div className="p-4 bg-default-50 dark:bg-default-100/50 rounded-xl border border-default-200">
+                      <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
+                        <span>📡</span>
+                        <span>流式响应配置</span>
+                      </h4>
+                      <div className="space-y-3">
+                        <Switch
+                          isSelected={customConfigFormData.stream_enabled === 1}
+                          onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, stream_enabled: v ? 1 : 0 })}
+                          size="sm"
+                        >
+                          支持流式响应（SSE）
+                        </Switch>
+                        {customConfigFormData.stream_enabled === 1 && (
+                          <div className="space-y-3 pt-2">
+                            <div className="grid grid-cols-2 gap-3">
+                              <Input
+                                label="数据前缀"
+                                placeholder="data: "
+                                value={customConfigFormData.stream_data_prefix}
+                                onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, stream_data_prefix: v })}
+                                size="sm"
+                              />
+                              <Input
+                                label="结束标记"
+                                placeholder="[DONE]"
+                                value={customConfigFormData.stream_end_marker}
+                                onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, stream_end_marker: v })}
+                                size="sm"
+                              />
+                            </div>
+                            <Input
+                              label="流内容路径"
+                              placeholder="choices.0.delta.content"
+                              value={customConfigFormData.stream_content_path}
+                              onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, stream_content_path: v })}
+                              size="sm"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 提示信息 */}
+                    <div className="p-4 bg-primary-50 dark:bg-primary-900/20 rounded-xl border border-primary-200 dark:border-primary-800">
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl flex-shrink-0">💡</span>
+                        <div className="flex-1 space-y-1">
+                          <p className="text-xs font-semibold text-primary">配置说明</p>
+                          <p className="text-xs text-default-700 dark:text-default-300 leading-relaxed space-y-1">
+                            <span className="block">• 字段映射：将 OpenAI 字段映射到目标 API</span>
+                            <span className="block">• 响应路径：使用点路径提取嵌套字段</span>
+                            <span className="block">• 示例：<code className="bg-default-200 dark:bg-default-700 px-1.5 py-0.5 rounded text-xs">data.result.text</code></span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button variant="light" onPress={onClose}>
+                  取消
+                </Button>
+                <Button color="primary" onPress={() => handleSubmitCustomConfig(onClose)} isLoading={submitting}>
+                  {editingCustomConfig ? '更新配置' : '创建配置'}
+                </Button>
               </ModalFooter>
             </>
           )}

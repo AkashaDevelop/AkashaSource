@@ -1,0 +1,232 @@
+package context_sanitizer
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"time"
+
+	"STfreApi/dto"
+)
+
+type ResponseContext struct {
+	RequestContext
+	UserRequestedAds bool
+	RequestTools     []interface{}
+}
+
+type ResponseResult struct {
+	Changed   bool
+	Blocked   bool
+	Message   string
+	Body      []byte
+	RiskScore int
+	Findings  []Finding
+}
+
+func ApplyOpenAIResponse(ctx context.Context, body []byte, rc ResponseContext, policy ResolvedPolicy) (*ResponseResult, error) {
+	result := &ResponseResult{Body: body}
+	if !IsEnabled(policy) || !policy.Config.Response.DetectAds || policy.Config.Response.AdPolicy == "off" {
+		return result, nil
+	}
+	start := time.Now()
+
+	var chat dto.ChatCompletionResponse
+	if err := json.Unmarshal(body, &chat); err != nil || len(chat.Choices) == 0 {
+		return result, nil
+	}
+
+	changed := false
+	allFindings := []Finding{}
+
+	for i := range chat.Choices {
+		content := chat.Choices[i].Message.Content
+		if content == "" || shouldPreserveAsCode(content) || rc.UserRequestedAds {
+			continue
+		}
+
+		// 广告检测与清理
+		cleaned, adFindings := detectAndStripSuffixAd(content, policy)
+		if len(adFindings) > 0 {
+			allFindings = append(allFindings, adFindings...)
+			if maxScore(adFindings) > result.RiskScore {
+				result.RiskScore = maxScore(adFindings)
+			}
+		}
+
+		// 响应工具调用校验
+		if policy.Config.Response.ValidateOutputToolCalls && len(chat.Choices[i].Message.ToolCalls) > 0 {
+			// 转换为内部 ToolCall 结构
+			toolCalls := make([]ToolCall, len(chat.Choices[i].Message.ToolCalls))
+			for j, tc := range chat.Choices[i].Message.ToolCalls {
+				toolCalls[j] = ToolCall{
+					ID:   tc.ID,
+					Type: tc.Type,
+					Function: FunctionCall{
+						Name:      tc.Function.Name,
+						Arguments: tc.Function.Arguments,
+					},
+				}
+			}
+
+			toolFindings := validateResponseToolCalls(
+				toolCalls,
+				rc.RequestTools,
+				policy,
+			)
+			allFindings = append(allFindings, toolFindings...)
+			if maxScore(toolFindings) > result.RiskScore {
+				result.RiskScore = maxScore(toolFindings)
+			}
+
+			// 严格模式下阻断非法工具调用
+			if policy.Config.Response.BlockInvalidToolCalls && len(toolFindings) > 0 {
+				for _, f := range toolFindings {
+					if f.Score >= 85 {
+						result.Blocked = true
+						result.Message = "响应包含非法工具调用"
+						break
+					}
+				}
+			}
+		}
+
+		// 检测文本中的工具调用注入
+		textToolFindings := detectToolCallsInText(content, policy)
+		allFindings = append(allFindings, textToolFindings...)
+
+		// 响应注入检测
+		if policy.Config.Response.DetectPromptInjection {
+			injectionFindings := detectResponseInjection(content, policy)
+			allFindings = append(allFindings, injectionFindings...)
+		}
+
+		// Thinking 内容校验 (如果有)
+		if policy.Config.Response.DetectThinkingAttacks {
+			// 这里需要根据实际响应格式提取 thinking 内容
+			// 简化处理: 假设在 message.content 或特定字段中
+			thinkingFindings := validateThinkingResponse(content, policy)
+			allFindings = append(allFindings, thinkingFindings...)
+		}
+
+		// 应用清理
+		if cleaned != content && policy.Config.Response.AdPolicy == "strip_known_suffix" {
+			chat.Choices[i].Message.Content = cleaned
+			changed = true
+		}
+	}
+
+	result.Findings = allFindings
+
+	if len(result.Findings) > 0 {
+		action := "monitor"
+		if changed {
+			action = "strip_known_suffix"
+		}
+		if result.Blocked {
+			action = "block"
+		}
+		RecordEventAsync(EventInput{
+			RequestId:      rc.RequestId,
+			UserId:         rc.UserId,
+			TokenId:        rc.TokenId,
+			TokenName:      rc.TokenName,
+			ChannelId:      rc.ChannelId,
+			ChannelName:    rc.ChannelName,
+			RequestedModel: rc.RequestedModel,
+			MappedModel:    rc.MappedModel,
+			Policy:         policy,
+			Direction:      "response",
+			Stage:          "response_validation",
+			Action:         action,
+			RiskScore:      result.RiskScore,
+			Findings:       result.Findings,
+			SnippetSource:  firstChoiceContent(chat),
+			LatencyMs:      time.Since(start).Milliseconds(),
+		})
+	}
+
+	if changed {
+		newBody, err := json.Marshal(chat)
+		if err != nil {
+			return result, err
+		}
+		result.Body = newBody
+		result.Changed = true
+	}
+
+	return result, nil
+}
+
+func detectAndStripSuffixAd(content string, policy ResolvedPolicy) (string, []Finding) {
+	trimmed := strings.TrimRight(content, " \t\r\n")
+	lower := strings.ToLower(trimmed)
+	patterns := append([]string{}, policy.Config.Response.KnownAdPatterns...)
+	patterns = append(patterns, "powered by", "由", "提供", "充值", "优惠", "邀请码", "推荐码", "api 中转", "访问", "注册")
+	lastBreak := strings.LastIndex(trimmed, "\n---")
+	if lastBreak < 0 {
+		lastBreak = strings.LastIndex(trimmed, "\n——")
+	}
+	if lastBreak < 0 {
+		lastBreak = strings.LastIndex(trimmed, "\nPS")
+	}
+	if lastBreak < 0 || len([]rune(trimmed[lastBreak:])) > 800 {
+		return content, nil
+	}
+	suffix := trimmed[lastBreak:]
+	lowerSuffix := strings.ToLower(suffix)
+	score := 0
+	matched := ""
+	for _, p := range patterns {
+		if p == "" {
+			continue
+		}
+		if strings.Contains(lowerSuffix, strings.ToLower(p)) || strings.Contains(lower, strings.ToLower(p)) && strings.Contains(lowerSuffix, strings.ToLower(p)) {
+			score += 40
+			matched = p
+			break
+		}
+	}
+	if strings.Contains(lowerSuffix, "http://") || strings.Contains(lowerSuffix, "https://") {
+		score += 25
+	}
+	if strings.Contains(lowerSuffix, "ref=") || strings.Contains(lowerSuffix, "utm_") || strings.Contains(lowerSuffix, "invite") || strings.Contains(lowerSuffix, "promo") {
+		score += 25
+	}
+	if score < policy.Config.Response.AdConfidenceThreshold {
+		return content, nil
+	}
+	finding := Finding{Type: "upstream_ad", Severity: severity(score), Score: score, Path: "choices.message.content.suffix", Evidence: BuildSnippet(matched, 80), Action: policy.Config.Response.AdPolicy}
+	return strings.TrimRight(trimmed[:lastBreak], " \t\r\n"), []Finding{finding}
+}
+
+func shouldPreserveAsCode(content string) bool {
+	trimmed := strings.TrimSpace(content)
+	if strings.HasPrefix(trimmed, "```") && strings.HasSuffix(trimmed, "```") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+		return true
+	}
+	return false
+}
+
+func firstChoiceContent(resp dto.ChatCompletionResponse) string {
+	if len(resp.Choices) == 0 {
+		return ""
+	}
+	return resp.Choices[0].Message.Content
+}
+
+func IsUserRequestingAds(req *dto.OpenAIRequest) bool {
+	text := strings.ToLower(collectSnippet(req))
+	for _, k := range []string{"广告", "推广", "营销", "文案", "落地页", "slogan", "宣传", "advertisement", "marketing", "promotion"} {
+		if strings.Contains(text, strings.ToLower(k)) {
+			return true
+		}
+	}
+	return false
+}
