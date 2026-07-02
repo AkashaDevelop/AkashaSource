@@ -3,7 +3,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box,
   Crown, Database, Boxes, Network, UserCheck, Ticket, ListTodo,
-  ArrowLeft, LogOut, User as UserIcon,
+  ArrowLeft, LogOut, User as UserIcon, Activity, Building2, Rocket,
 } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 import { useSystemStore } from '../store/system';
@@ -14,6 +14,7 @@ const navGroups: NavGroup[] = [
     label: '工作台',
     items: [
       { key: '/admin', icon: LayoutDashboard, label: '系统概览' },
+      { key: '/admin/system-monitor', icon: Activity, label: '系统监控' },
       { key: '/admin/log', icon: ScrollText, label: '日志管理' },
       { key: '/admin/tasks', icon: ListTodo, label: '任务记录' },
     ],
@@ -33,6 +34,8 @@ const navGroups: NavGroup[] = [
       { key: '/admin/channel', icon: Server, label: '渠道管理' },
       { key: '/admin/channel-account', icon: UserCheck, label: '渠道账号' },
       { key: '/admin/channel-affinity', icon: Network, label: '渠道亲和性' },
+      { key: '/admin/vendor', icon: Building2, label: '供应商管理' },
+      { key: '/admin/deployment', icon: Rocket, label: '部署管理' },
       { key: '/admin/model', icon: Box, label: '模型管理' },
       { key: '/admin/model-meta', icon: Boxes, label: '模型元数据' },
       { key: '/admin/group', icon: Layers, label: '分组管理' },

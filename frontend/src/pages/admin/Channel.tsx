@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import EmptyState from '../../components/EmptyState';
 import LoadingRows from '../../components/LoadingRows';
+import BatchChannelActions from '../../components/BatchChannelActions';
 import {
   Chip,
   Tooltip,
@@ -24,6 +25,7 @@ import {
   Tabs,
   Tab,
   Pagination,
+  Checkbox,
 } from '../../components/ui';
 import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap, Download, DollarSign, Search, KeyRound } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
@@ -103,6 +105,7 @@ export default function ChannelManagement() {
   const [tagFilter, setTagFilter] = useState('');
   const [nameSearch, setNameSearch] = useState('');
   const [batchTesting, setBatchTesting] = useState(false);
+  const [selectedChannelIds, setSelectedChannelIds] = useState<number[]>([]);
   const [fetchingModels, setFetchingModels] = useState<number | null>(null);
   const [fetchingBalance, setFetchingBalance] = useState<number | null>(null);
   const [operatingId, setOperatingId] = useState<number | null>(null);
@@ -145,6 +148,9 @@ export default function ChannelManagement() {
     return { total, enabled, disabled, withMultiKey, avgLatency };
   }, [channels]);
 
+  const allVisibleChannelIds = useMemo(() => channels.map((c) => c.id), [channels]);
+  const allSelected = allVisibleChannelIds.length > 0 && allVisibleChannelIds.every((id) => selectedChannelIds.includes(id));
+
   // Form State
   const [formData, setFormData] = useState({
     name: '',
@@ -174,6 +180,7 @@ export default function ChannelManagement() {
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (data.code === 0) setChannels(data.data);
+      else setSelectedChannelIds([]);
     } catch (error) {
       console.error('Failed to fetch channels:', error);
     } finally {
@@ -279,6 +286,10 @@ export default function ChannelManagement() {
   useEffect(() => {
     fetchChannels();
   }, []);
+
+  useEffect(() => {
+    setSelectedChannelIds((prev) => prev.filter((id) => channels.some((channel) => channel.id === id)));
+  }, [channels]);
 
   const parseMapping = (jsonStr: string) => {
     try {
@@ -538,6 +549,17 @@ export default function ChannelManagement() {
     } finally {
       setBatchOpLoading(null);
     }
+  };
+
+  const toggleChannelSelection = (channelId: number, checked: boolean) => {
+    setSelectedChannelIds((prev) => checked
+      ? (prev.includes(channelId) ? prev : [...prev, channelId])
+      : prev.filter((id) => id !== channelId)
+    );
+  };
+
+  const toggleSelectAllChannels = (checked: boolean) => {
+    setSelectedChannelIds(checked ? allVisibleChannelIds : []);
   };
 
   const handleToggleStatus = async (channelId: number) => {
@@ -1272,20 +1294,36 @@ export default function ChannelManagement() {
         </Chip>
       </div>
 
+      <BatchChannelActions
+        selectedIds={selectedChannelIds}
+        token={token || ''}
+        onSuccess={fetchChannels}
+        onClearSelection={() => setSelectedChannelIds([])}
+      />
+
       <div className="data-table-wrap">
         <table className="data-table">
           <thead>
             <tr>
+              <th>
+                <Checkbox isSelected={allSelected} onValueChange={toggleSelectAllChannels} />
+              </th>
               <th>ID</th><th>名称</th><th>类型</th><th>分组</th><th>状态</th><th>响应时间</th><th>余额</th><th>优先级</th><th>操作</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <LoadingRows cols={9} rows={5} />
+              <LoadingRows cols={10} rows={5} />
             ) : channels.length === 0 ? (
-              <tr><td colSpan={9}><EmptyState icon="📡" title="暂无渠道" description="添加您的第一个 AI 渠道" /></td></tr>
+              <tr><td colSpan={10}><EmptyState icon="📡" title="暂无渠道" description="添加您的第一个 AI 渠道" /></td></tr>
             ) : channels.map((channel) => (
               <tr key={channel.id}>
+                <td>
+                  <Checkbox
+                    isSelected={selectedChannelIds.includes(channel.id)}
+                    onValueChange={(checked) => toggleChannelSelection(channel.id, checked)}
+                  />
+                </td>
                 <td>{channel.id}</td>
                 <td className="font-medium">{channel.name}</td>
                 <td><Chip size="sm" variant="flat" color="primary">{CHANNEL_TYPES.find(t => t.key === channel.type.toString())?.label || 'Unknown'}</Chip></td>

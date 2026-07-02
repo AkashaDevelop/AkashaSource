@@ -30,6 +30,9 @@ import UserTasksPage from './pages/user/Tasks';
 import ModelMetaManagement from './pages/admin/ModelMeta';
 import ChannelAffinity from './pages/admin/ChannelAffinity';
 import ChannelAccountManagement from './pages/admin/ChannelAccount';
+import SystemMonitor from './pages/admin/SystemMonitor';
+import VendorManagement from './pages/admin/Vendor';
+import DeploymentManagement from './pages/admin/Deployment';
 
 function PrivateRoute({ children, roleRequired }: { children: React.ReactElement, roleRequired?: number }) {
   const { token, user } = useAuthStore();
@@ -57,10 +60,10 @@ function App() {
         <Route index element={<UserDashboard />} />
         <Route path="token" element={<TokenManagement />} />
         <Route path="log" element={<LogPage />} />
-        <Route path="topup" element={<BillingPage />} />
+        <Route path="topup" element={<TopupPage />} />
         <Route path="billing" element={<BillingPage />} />
         <Route path="invitation" element={<UserInvitation />} />
-        <Route path="subscription" element={<BillingPage />} />
+        <Route path="subscription" element={<SubscriptionPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="playground" element={<Playground />} />
         <Route path="files" element={<FilesPage />} />
@@ -97,6 +100,9 @@ function App() {
         <Route path="migration" element={<MigrationPage />} />
         <Route path="tasks" element={<TasksPage />} />
         <Route path="ops" element={<TasksPage />} />
+        <Route path="system-monitor" element={<SystemMonitor />} />
+        <Route path="vendor" element={<VendorManagement />} />
+        <Route path="deployment" element={<DeploymentManagement />} />
         <Route path="model-meta" element={<ModelMetaManagement />} />
         <Route path="channel-affinity" element={<ChannelAffinity />} />
         <Route path="channel-account" element={<ChannelAccountManagement />} />
