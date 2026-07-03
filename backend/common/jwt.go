@@ -6,8 +6,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var JwtSecret = []byte("your_jwt_secret_key_here") // 应与 middleware 中一致，建议抽取配置
-
 type Claims struct {
 	UserId   int    `json:"user_id"`
 	Username string `json:"username"`

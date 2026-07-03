@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"STfreApi/common"
 	"STfreApi/model"
 	"net/http"
 	"strings"
@@ -8,8 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
-
-var JwtSecret = []byte("your_jwt_secret_key_here") // 生产环境请从配置读取
 
 type Claims struct {
 	UserId   int    `json:"user_id"`
@@ -39,7 +38,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		claims := &Claims{}
 
 		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-			return JwtSecret, nil
+			return common.JwtSecret, nil
 		})
 
 		if err != nil || !token.Valid {

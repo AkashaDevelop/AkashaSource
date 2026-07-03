@@ -5,7 +5,7 @@
 
 **汇聚全宇宙智慧的 AI 网关系统**
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -272,16 +272,15 @@ export OPENAI_API_KEY=sk-your-token
         └── store/           # Zustand 状态管理
 ```
 
-## 📜 开源协议
+## 📜 许可协议
 
-本项目采用 [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0) 协议开源。
+本项目为闭源专有软件（Proprietary Software），版权归 Akasha Team 所有，保留所有权利。
 
-- 修改代码并对外提供网络服务时，必须公开修改后的源码
-- 必须保留原作者的版权声明
+- 未经书面授权，禁止复制、修改、反编译、转售或对外提供本软件的全部或部分
+- 如需商业授权、私有部署或定制开发，请联系版权所有者
 
-## 🤝 贡献
+详见 [LICENSE](LICENSE) 文件。
 
-欢迎提交 Issue 和 Pull Request！
 
 ---
 

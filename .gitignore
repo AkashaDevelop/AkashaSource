@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 /new-api-main
+
+# JWT 密钥（首次启动自动生成，不应提交）
+jwt_secret.key

@@ -28,6 +28,9 @@ func main() {
 	flag.IntVar(&rpm, "rpm", 60, "Rate limit (requests per minute)")
 	flag.Parse()
 
+	// 初始化 JWT 密钥（环境变量优先，否则复用/生成本地密钥文件）
+	common.InitJwtSecret()
+
 	// Initialize Database
 	log.Printf("初始化数据库，驱动: %s", driver)
 	common.InitDB(driver, dsn)
