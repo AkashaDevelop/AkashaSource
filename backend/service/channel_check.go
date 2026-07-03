@@ -120,7 +120,33 @@ func CheckAllChannels() {
 			} else {
 				log.Printf("[渠道检查] 渠道 #%d (%s) 检查失败: %v", channel.Id, channel.Name, err)
 				common.DB.Model(&channel).Update("test_time", common.GetTimestamp())
+				// ～渠道挂了，悄悄通知管理员大人们一声哦～
+				if common.OptionMap[model.OptionKeyChannelAlertEnabled] == "true" {
+					go notifyAdminsChannelAlert(channel.Id, channel.Name, err.Error())
+				}
 			}
+		}
+	}
+}
+
+// notifyAdminsChannelAlert ～渠道检查失败，把这个坏消息通知给所有管理员哦～
+func notifyAdminsChannelAlert(channelId int, channelName, errMsg string) {
+	var admins []model.User
+	common.DB.Select("id,email,setting").
+		Where("role >= ?", model.RoleAdmin).
+		Find(&admins)
+
+	notify := dto.NewNotify(
+		dto.NotifyTypeChannelUpdate,
+		"渠道异常告警",
+		fmt.Sprintf("渠道 #%d「%s」检查失败：%s", channelId, channelName, errMsg),
+		nil,
+	)
+
+	for _, admin := range admins {
+		setting := admin.GetSetting()
+		if err := NotifyUser(admin.Id, admin.Email, setting, notify); err != nil {
+			log.Printf("[渠道告警] 通知管理员 #%d 失败: %v", admin.Id, err)
 		}
 	}
 }

@@ -81,6 +81,8 @@ export default function SystemSettings() {
       // 支付
       'payment_provider','epay_api_url','epay_pid','epay_key','epay_type',
       'enable_topup',
+      'stripe_secret_key','stripe_webhook_secret','stripe_currency','stripe_success_url','stripe_cancel_url',
+      'creem_api_key','creem_webhook_secret','creem_product_id','creem_products','creem_success_url','creem_test_mode',
       // 风控
       'content_moderation_enabled','content_moderation_keywords',
       'content_moderation_timeout','content_moderation_whitelist_users',
@@ -108,6 +110,8 @@ export default function SystemSettings() {
       'invitation_enabled','invitation_cost','invitation_reward','new_user_reward',
       // 签到
       'checkin_enabled','checkin_min_reward','checkin_max_reward','checkin_captcha',
+      // 通知
+      'low_balance_threshold','channel_alert_enabled',
       // 系统
       'thinking_to_content','model_rpm',
       // 邮件域名限制
@@ -181,22 +185,33 @@ export default function SystemSettings() {
 
         {/* ── 支付 ── */}
         <Tab key="payment" title="💳 支付">
+          <div className="space-y-4">
           <Card>
             <CardBody className="gap-4 p-5">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-[var(--text-primary)]">开放充值</p>
-                  <p className="text-xs text-[var(--text-secondary)]">允许用户通过易支付进行充值</p>
+                  <p className="text-xs text-[var(--text-secondary)]">允许用户充值额度</p>
                 </div>
                 <Switch isSelected={get('enable_topup') === 'true'} onValueChange={v => set('enable_topup', v ? 'true' : 'false')} />
               </div>
               <Divider />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="支付渠道" value={get('payment_provider')} onValueChange={v => set('payment_provider', v)} placeholder="例如：epay" />
+                <Input label="支付渠道" value={get('payment_provider')} onValueChange={v => set('payment_provider', v)} placeholder="epay / stripe / creem" description="配置哪个渠道就填对应名称，对应配置才会生效" />
+              </div>
+            </CardBody>
+          </Card>
+
+          {/* 易支付 */}
+          {(get('payment_provider') === 'epay' || !get('payment_provider')) && (
+          <Card>
+            <CardBody className="gap-4 p-5">
+              <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>易支付</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input label="易支付 API 地址" value={get('epay_api_url')} onValueChange={v => set('epay_api_url', v)} />
                 <Input label="易支付 PID" value={get('epay_pid')} onValueChange={v => set('epay_pid', v)} />
                 <Input label="易支付 KEY" type="password" value={get('epay_key')} onValueChange={v => set('epay_key', v)} />
-                <Input label="易支付通道类型" value={get('epay_type')} onValueChange={v => set('epay_type', v)} placeholder="例如：alipay" />
+                <Input label="易支付通道类型" value={get('epay_type')} onValueChange={v => set('epay_type', v)} placeholder="alipay / wxpay" />
                 <div className="flex flex-col gap-1">
                   <span className="text-xs text-[var(--text-secondary)]">易支付回调地址（自动生成）</span>
                   <div className="px-3 py-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-color)] text-sm text-[var(--text-secondary)] font-mono break-all select-all">
@@ -212,6 +227,62 @@ export default function SystemSettings() {
               </div>
             </CardBody>
           </Card>
+          )}
+
+          {/* Stripe */}
+          {get('payment_provider') === 'stripe' && (
+          <Card>
+            <CardBody className="gap-4 p-5">
+              <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Stripe</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input label="Secret Key" type="password" value={get('stripe_secret_key')} onValueChange={v => set('stripe_secret_key', v)} placeholder="sk_live_..." />
+                <Input label="Webhook Secret" type="password" value={get('stripe_webhook_secret')} onValueChange={v => set('stripe_webhook_secret', v)} placeholder="whsec_..." description="在 Stripe Dashboard → Webhooks 获取" />
+                <Input label="货币代码" value={get('stripe_currency')} onValueChange={v => set('stripe_currency', v)} placeholder="usd" description="留空默认 usd" />
+                <Input label="支付成功跳转地址" value={get('stripe_success_url')} onValueChange={v => set('stripe_success_url', v)} placeholder="留空则自动生成" />
+                <Input label="支付取消跳转地址" value={get('stripe_cancel_url')} onValueChange={v => set('stripe_cancel_url', v)} placeholder="留空则同成功地址" />
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-[var(--text-secondary)]">Stripe Webhook 地址（在 Dashboard 注册）</span>
+                  <div className="px-3 py-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-color)] text-sm text-[var(--text-secondary)] font-mono break-all select-all">
+                    {get('system_url') ? `${get('system_url')}/api/stripe/webhook` : <span className="italic opacity-50">请先设置系统 URL</span>}
+                  </div>
+                </div>
+              </div>
+            </CardBody>
+          </Card>
+          )}
+
+          {/* Creem */}
+          {get('payment_provider') === 'creem' && (
+          <Card>
+            <CardBody className="gap-4 p-5">
+              <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Creem</p>
+              <Switch isSelected={get('creem_test_mode') === 'true'} onValueChange={v => set('creem_test_mode', String(v))}>
+                测试模式（使用 test-api.creem.io）
+              </Switch>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input label="API Key" type="password" value={get('creem_api_key')} onValueChange={v => set('creem_api_key', v)} placeholder="creem_..." />
+                <Input label="Webhook Secret" type="password" value={get('creem_webhook_secret')} onValueChange={v => set('creem_webhook_secret', v)} description="在 Creem Dashboard → Developers → Webhook 获取" />
+                <Input label="Product ID（旧版单产品）" value={get('creem_product_id')} onValueChange={v => set('creem_product_id', v)} placeholder="prod_..." description="仅当未配置产品目录时使用" />
+                <Input label="支付成功跳转地址" value={get('creem_success_url')} onValueChange={v => set('creem_success_url', v)} placeholder="留空则自动生成" />
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-[var(--text-secondary)]">Creem Webhook 地址（在 Dashboard 注册）</span>
+                  <div className="px-3 py-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-color)] text-sm text-[var(--text-secondary)] font-mono break-all select-all">
+                    {get('system_url') ? `${get('system_url')}/api/creem/webhook` : <span className="italic opacity-50">请先设置系统 URL</span>}
+                  </div>
+                </div>
+              </div>
+              <Textarea
+                label="产品目录 JSON（多产品时使用，优先级高于单 Product ID）"
+                value={get('creem_products')}
+                onValueChange={v => set('creem_products', v)}
+                minRows={3}
+                placeholder={'[{"product_id":"prod_xxx","name":"10元套餐","price":10.0,"quota":5000000}]'}
+                description="每个产品需包含 product_id、name、price（货币金额）、quota（充值额度）四个字段"
+              />
+            </CardBody>
+          </Card>
+          )}
+          </div>
         </Tab>
 
         {/* ── 安全 ── */}
@@ -433,6 +504,33 @@ export default function SystemSettings() {
               <Switch isSelected={get('checkin_captcha') === 'true'} onValueChange={v => set('checkin_captcha', String(v))}>
                 签到需要人机验证
               </Switch>
+            </CardBody>
+          </Card>
+        </Tab>
+
+        {/* ── 通知 ── */}
+        <Tab key="notify" title="🔔 通知">
+          <Card>
+            <CardBody className="gap-4 p-5">
+              <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>余额预警</p>
+              <Input
+                label="余额预警阈值（quota 单位）"
+                type="number"
+                value={get('low_balance_threshold', '500000')}
+                onValueChange={v => set('low_balance_threshold', v)}
+                description="用户充值入账后，若余额低于此值则推送提醒。默认 500000 ≈ $1"
+              />
+            </CardBody>
+          </Card>
+          <Card className="mt-4">
+            <CardBody className="gap-4 p-5">
+              <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>渠道异常告警</p>
+              <Switch isSelected={get('channel_alert_enabled') === 'true'} onValueChange={v => set('channel_alert_enabled', String(v))}>
+                渠道检查失败时通知所有管理员
+              </Switch>
+              <p style={{ fontSize: '12px', color: 'var(--text-faint)' }}>
+                各管理员的通知渠道（邮件 / Webhook / Bark / Gotify）需在「个人资料」→「通知设置」中单独配置
+              </p>
             </CardBody>
           </Card>
         </Tab>

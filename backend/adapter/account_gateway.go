@@ -10,17 +10,18 @@ import (
 	"time"
 )
 
-type NewApiAccountAdaptor struct {
+// GatewayAccountAdaptor ～对接上游 AI 网关/代理服务（new-api/one-api 兼容接口）的账号适配器～
+type GatewayAccountAdaptor struct {
 	client *http.Client
 }
 
-func NewNewApiAccountAdaptor() *NewApiAccountAdaptor {
-	return &NewApiAccountAdaptor{
+func NewGatewayAccountAdaptor() *GatewayAccountAdaptor {
+	return &GatewayAccountAdaptor{
 		client: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
-type newApiResp struct {
+type gatewayResp struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data"`
@@ -40,7 +41,7 @@ type newApiCheckinData struct {
 	Reward int64 `json:"reward"`
 }
 
-func (a *NewApiAccountAdaptor) buildAuthHeaders(accessToken string, userId ...int) map[string]string {
+func (a *GatewayAccountAdaptor) buildAuthHeaders(accessToken string, userId ...int) map[string]string {
 	headers := map[string]string{
 		"Authorization": "Bearer " + accessToken,
 		"Content-Type":  "application/json",
@@ -55,7 +56,7 @@ func (a *NewApiAccountAdaptor) buildAuthHeaders(accessToken string, userId ...in
 	return headers
 }
 
-func (a *NewApiAccountAdaptor) doRequest(method, url string, headers map[string]string, body io.Reader) ([]byte, error) {
+func (a *GatewayAccountAdaptor) doRequest(method, url string, headers map[string]string, body io.Reader) ([]byte, error) {
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
 		return nil, err
@@ -71,14 +72,14 @@ func (a *NewApiAccountAdaptor) doRequest(method, url string, headers map[string]
 	return io.ReadAll(resp.Body)
 }
 
-func (a *NewApiAccountAdaptor) Checkin(baseUrl, accessToken string, platformUserId ...int) (*CheckinResult, error) {
+func (a *GatewayAccountAdaptor)Checkin(baseUrl, accessToken string, platformUserId ...int) (*CheckinResult, error) {
 	url := strings.TrimSuffix(baseUrl, "/") + "/api/user/checkin"
 	headers := a.buildAuthHeaders(accessToken, platformUserId...)
 	data, err := a.doRequest("POST", url, headers, nil)
 	if err != nil {
 		return &CheckinResult{Success: false, Message: err.Error()}, nil
 	}
-	var resp newApiResp
+	var resp gatewayResp
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return &CheckinResult{Success: false, Message: string(data)}, nil
 	}
@@ -103,14 +104,14 @@ func (a *NewApiAccountAdaptor) Checkin(baseUrl, accessToken string, platformUser
 	return result, nil
 }
 
-func (a *NewApiAccountAdaptor) GetBalance(baseUrl, accessToken string, platformUserId ...int) (*BalanceInfo, error) {
+func (a *GatewayAccountAdaptor)GetBalance(baseUrl, accessToken string, platformUserId ...int) (*BalanceInfo, error) {
 	url := strings.TrimSuffix(baseUrl, "/") + "/api/user/self"
 	headers := a.buildAuthHeaders(accessToken, platformUserId...)
 	data, err := a.doRequest("GET", url, headers, nil)
 	if err != nil {
 		return nil, err
 	}
-	var resp newApiResp
+	var resp gatewayResp
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
 	}
@@ -146,14 +147,14 @@ func (a *NewApiAccountAdaptor) GetBalance(baseUrl, accessToken string, platformU
 	}, nil
 }
 
-func (a *NewApiAccountAdaptor) GetUserInfo(baseUrl, accessToken string, platformUserId ...int) (*AccountInfo, error) {
+func (a *GatewayAccountAdaptor)GetUserInfo(baseUrl, accessToken string, platformUserId ...int) (*AccountInfo, error) {
 	url := strings.TrimSuffix(baseUrl, "/") + "/api/user/self"
 	headers := a.buildAuthHeaders(accessToken, platformUserId...)
 	data, err := a.doRequest("GET", url, headers, nil)
 	if err != nil {
 		return nil, err
 	}
-	var resp newApiResp
+	var resp gatewayResp
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
 	}
@@ -185,7 +186,7 @@ func (a *NewApiAccountAdaptor) GetUserInfo(baseUrl, accessToken string, platform
 	return info, nil
 }
 
-func (a *NewApiAccountAdaptor) Login(baseUrl, username, password string) (string, error) {
+func (a *GatewayAccountAdaptor)Login(baseUrl, username, password string) (string, error) {
 	url := strings.TrimSuffix(baseUrl, "/") + "/api/user/login"
 	payload := fmt.Sprintf(`{"username":"%s","password":"%s"}`, username, password)
 	headers := map[string]string{"Content-Type": "application/json"}
@@ -193,7 +194,7 @@ func (a *NewApiAccountAdaptor) Login(baseUrl, username, password string) (string
 	if err != nil {
 		return "", err
 	}
-	var resp newApiResp
+	var resp gatewayResp
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return "", err
 	}

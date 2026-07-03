@@ -7,12 +7,12 @@ import (
 func GetAccountAdaptor(channelType int) AccountAdaptor {
 	switch channelType {
 	case model.ChannelTypeOpenAI, model.ChannelTypeCustom, model.ChannelTypeAzure:
-		return NewNewApiAccountAdaptor()
+		return NewGatewayAccountAdaptor()
 	case model.ChannelTypeQwen, model.ChannelTypeDeepseek, model.ChannelTypeZhipu,
 		model.ChannelTypeMoonshot, model.ChannelTypeSiliconFlow:
-		return NewNewApiAccountAdaptor()
+		return NewGatewayAccountAdaptor()
 	default:
-		return NewNewApiAccountAdaptor()
+		return NewGatewayAccountAdaptor()
 	}
 }
 

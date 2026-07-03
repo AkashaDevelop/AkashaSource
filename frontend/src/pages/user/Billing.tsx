@@ -21,10 +21,11 @@ interface Sub {
 
 /* ───── 常量 ───── */
 const TABS = [
-  { key: 'topup',   label: '在线充值', icon: CreditCard },
-  { key: 'redeem',  label: '兑换码',   icon: Gift       },
-  { key: 'plans',   label: '订阅套餐', icon: Crown      },
-  { key: 'history', label: '订阅记录', icon: ReceiptText },
+  { key: 'topup',    label: '在线充值', icon: CreditCard  },
+  { key: 'redeem',   label: '兑换码',   icon: Gift        },
+  { key: 'plans',    label: '订阅套餐', icon: Crown       }, 
+  { key: 'history',  label: '订阅记录', icon: ReceiptText },
+  { key: 'payments', label: '充值记录', icon: Clock       },
 ] as const;
 type TabKey = typeof TABS[number]['key'];
 
@@ -161,6 +162,21 @@ export default function BillingPage() {
   const [selectedPlan,setSelectedPlan]= useState<Plan | null>(null);
   const [subPaying,   setSubPaying]   = useState(false);
 
+  /* 充值历史 */
+  interface PayOrder { id: number; amount: number; quota_added: number; status: number; provider: string; created_at: number; completed_at: number; trade_no: string; }
+  const [payOrders,   setPayOrders]   = useState<PayOrder[]>([]);
+  const [payTotal,    setPayTotal]    = useState(0);
+  const [payPage,     setPayPage]     = useState(1);
+  const [payLoading,  setPayLoading]  = useState(false);
+  const fetchPayOrders = async (page = 1) => {
+    setPayLoading(true);
+    try {
+      const r = await fetch(`/api/payment/history?page=${page}&size=10`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (d.code === 0) { setPayOrders(d.data.data || []); setPayTotal(d.data.total || 0); setPayPage(page); }
+    } finally { setPayLoading(false); }
+  };
+
   /* 衍生值 */
   const quota     = user?.quota ?? 0;
   const usedQuota = (user as any)?.used_quota ?? 0;
@@ -189,6 +205,11 @@ export default function BillingPage() {
     fetch('/api/subscription/my', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { if (d.code === 0) setMySubs(d.data || []); }).catch(() => {});
   }, [token]);
+
+  // 切换到充值记录 Tab 时加载数据
+  useEffect(() => {
+    if (activeTab === 'payments' && token) fetchPayOrders(1);
+  }, [activeTab, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* 在线充值 */
   const handleTopup = async () => {
@@ -632,6 +653,56 @@ export default function BillingPage() {
             })}
           </div>
         )
+      )}
+
+      {/* ══ 充值记录 Tab ══ */}
+      {activeTab === 'payments' && (
+        <div>
+          <div style={{ borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-color)', overflow: 'hidden', background: 'var(--bg-surface)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 80px 100px 120px', gap: '12px', padding: '11px 18px', background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-color)' }}>
+              {['ID', '支付渠道', '金额', '到账额度', '状态'].map(h => (
+                <p key={h} style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase' }}>{h}</p>
+              ))}
+            </div>
+            {payLoading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>加载中...</div>
+            ) : payOrders.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <Clock size={28} style={{ margin: '0 auto 8px', opacity: 0.3 }} />
+                <p style={{ fontSize: '13px' }}>暂无充值记录</p>
+              </div>
+            ) : payOrders.map(o => {
+              const statusMap: Record<number, {text:string,color:string,bg:string}> = {
+                0: { text: '处理中', color: '#d97706', bg: 'rgba(217,119,6,0.1)' },
+                1: { text: '成功', color: '#059669', bg: 'rgba(5,150,105,0.1)' },
+                2: { text: '失败', color: '#dc2626', bg: 'rgba(220,38,38,0.1)' },
+                3: { text: '已过期', color: '#6b7280', bg: 'rgba(107,114,128,0.1)' },
+              };
+              const st = statusMap[o.status] || statusMap[0];
+              return (
+                <div key={o.id} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 80px 100px 120px', gap: '12px', padding: '12px 18px', borderBottom: '1px solid var(--border-color)', alignItems: 'center' }}>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>#{o.id}</p>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, textTransform: 'capitalize' }}>{o.provider}</p>
+                  <p style={{ fontSize: '13px', fontWeight: 600, margin: 0 }}>${o.amount.toFixed(2)}</p>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
+                    {o.quota_added > 0 ? `$${(o.quota_added / 500000).toFixed(4)}` : '-'}
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: 'var(--radius-full)', background: st.bg, color: st.color, width: 'fit-content' }}>{st.text}</span>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>{new Date(o.created_at * 1000).toLocaleDateString()}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {payTotal > 10 && (
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '12px' }}>
+              <Button size="sm" variant="flat" isDisabled={payPage <= 1} onPress={() => fetchPayOrders(payPage - 1)}>上一页</Button>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: '32px' }}>{payPage} / {Math.ceil(payTotal / 10)}</span>
+              <Button size="sm" variant="flat" isDisabled={payPage >= Math.ceil(payTotal / 10)} onPress={() => fetchPayOrders(payPage + 1)}>下一页</Button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* ══ 支付确认弹窗 ══ */}

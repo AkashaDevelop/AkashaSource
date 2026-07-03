@@ -59,6 +59,21 @@ const (
 	OptionKeyEpayReturnUrl       = "epay_return_url"
 	OptionKeyEnableTopup         = "enable_topup"
 
+	// ～Stripe 支付配置，连上国际卡需要的一套小钥匙～
+	OptionKeyStripeSecretKey      = "stripe_secret_key"
+	OptionKeyStripeWebhookSecret  = "stripe_webhook_secret"
+	OptionKeyStripeCurrency       = "stripe_currency"
+	OptionKeyStripeSuccessUrl     = "stripe_success_url"
+	OptionKeyStripeCancelUrl      = "stripe_cancel_url"
+
+	// ～Creem 支付配置，另一家国际收款好伙伴～
+	OptionKeyCreemApiKey        = "creem_api_key"
+	OptionKeyCreemWebhookSecret = "creem_webhook_secret"
+	OptionKeyCreemProductId     = "creem_product_id"  // 已废弃，兼容旧配置保留
+	OptionKeyCreemProducts      = "creem_products"    // JSON 数组，多产品目录
+	OptionKeyCreemSuccessUrl    = "creem_success_url"
+	OptionKeyCreemTestMode      = "creem_test_mode"
+
 	OptionKeyRedisAddr     = "redis_addr"
 	OptionKeyRedisPassword = "redis_password"
 	OptionKeyRedisDB       = "redis_db"
@@ -67,6 +82,10 @@ const (
 	OptionKeyCheckinEnabled   = "checkin_enabled"
 	OptionKeyCheckinMinReward = "checkin_min_reward"
 	OptionKeyCheckinMaxReward = "checkin_max_reward"
+
+	// ～通知配置：余额预警和渠道告警开关放这里哦～
+	OptionKeyLowBalanceThreshold  = "low_balance_threshold"  // 用户余额预警阈值（quota 单位，默认 500000 ≈ $1）
+	OptionKeyChannelAlertEnabled  = "channel_alert_enabled"  // 渠道异常告警开关
 
 	// Model Rate Limiting
 	OptionKeyModelRPM = "model_rpm" // JSON: {"gpt-4": 10, "gpt-3.5-turbo": 60}

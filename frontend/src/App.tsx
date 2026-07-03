@@ -36,6 +36,7 @@ import DeploymentManagement from './pages/admin/Deployment';
 import ContextSanitization from './pages/admin/ContextSanitization';
 import AdminAuditLog from './pages/admin/AdminAuditLog';
 import CustomChannelConfig from './pages/admin/CustomChannelConfig';
+import PaymentManagement from './pages/admin/PaymentManagement';
 
 function PrivateRoute({ children, roleRequired }: { children: React.ReactElement, roleRequired?: number }) {
   const { token, user } = useAuthStore();
@@ -63,10 +64,10 @@ function App() {
         <Route index element={<UserDashboard />} />
         <Route path="token" element={<TokenManagement />} />
         <Route path="log" element={<LogPage />} />
-        <Route path="topup" element={<TopupPage />} />
+        <Route path="topup" element={<BillingPage />} />
         <Route path="billing" element={<BillingPage />} />
         <Route path="invitation" element={<UserInvitation />} />
-        <Route path="subscription" element={<SubscriptionPage />} />
+        <Route path="subscription" element={<BillingPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="playground" element={<Playground />} />
         <Route path="files" element={<FilesPage />} />
@@ -116,6 +117,14 @@ function App() {
           element={
             <PrivateRoute roleRequired={100}>
               <AdminAuditLog />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="payment"
+          element={
+            <PrivateRoute roleRequired={100}>
+              <PaymentManagement />
             </PrivateRoute>
           }
         />

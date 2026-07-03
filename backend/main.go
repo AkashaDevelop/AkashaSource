@@ -11,6 +11,7 @@ import (
 	"STfreApi/router"
 	"STfreApi/service"
 	contextsanitizer "STfreApi/service/context_sanitizer"
+	"STfreApi/service/cxsec"
 
 	"github.com/gin-gonic/gin"
 )
@@ -58,6 +59,9 @@ func main() {
 	// 启动渠道签到和余额监控调度器
 	log.Printf("启动渠道签到和余额监控调度器...")
 	service.InitScheduler()
+
+	// 启动宸汐御安全挑战清理 goroutine
+	go cxsec.PurgeExpiredChallenges()
 
 	// 初始化上下文净化模块
 	log.Printf("初始化上下文净化模块...")

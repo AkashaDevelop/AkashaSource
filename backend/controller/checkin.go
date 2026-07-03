@@ -2,12 +2,15 @@ package controller
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"strconv"
 	"time"
 
 	"STfreApi/common"
+	"STfreApi/dto"
 	"STfreApi/model"
+	"STfreApi/service"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -63,6 +66,23 @@ func CheckIn(c *gin.Context) {
 		return
 	}
 	common.OKMsg(c, "签到成功", gin.H{"reward": reward})
+
+	// ～签到成功了，给用户发个小通知哦～
+	go func() {
+		var user model.User
+		if err := common.DB.Select("id,email,setting").First(&user, uid).Error; err != nil {
+			return
+		}
+		setting := user.GetSetting()
+		usd := float64(reward) / common.QuotaPerUnit
+		notify := dto.NewNotify(
+			dto.NotifyTypeSystem,
+			"签到成功",
+			fmt.Sprintf("今日签到奖励 $%.4f（quota: %d），再接再厉哦！", usd, reward),
+			nil,
+		)
+		service.NotifyUser(user.Id, user.Email, setting, notify) //nolint:errcheck
+	}()
 }
 
 func GetCheckInStatus(c *gin.Context) {

@@ -116,6 +116,10 @@ func SetApiRouter(router *gin.Engine) {
 
 	apiRouter := router.Group("/api")
 	{
+		// ～宸汐御安全握手端点（明文，握手完成后所有请求走加密通道）～
+		apiRouter.GET("/cx/challenge", controller.CxGetChallenge)
+		apiRouter.POST("/cx/ks", controller.CxHandshake)
+
 		// 公开接口
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", controller.PostSetup)
@@ -221,6 +225,7 @@ func SetApiRouter(router *gin.Engine) {
 			// 支付
 			authGroup.POST("/payment/create", controller.CreatePayment)
 			authGroup.GET("/payment/list", controller.ListPayments)
+			authGroup.GET("/payment/history", controller.GetUserOrderHistory)
 
 			// 2FA / TOTP
 			authGroup.GET("/user/2fa/status", controller.Get2FAStatus)
@@ -484,6 +489,10 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.PUT("/deployments/:id/name", controller.UpdateDeploymentName)
 			adminGroup.POST("/deployments/:id/extend", controller.ExtendDeployment)
 			adminGroup.DELETE("/deployments/:id", controller.DeleteDeployment)
+
+			// 管理员支付管理（只读接口，普通管理员可查）
+			adminGroup.GET("/admin/payment/orders", controller.AdminListOrders)
+			adminGroup.GET("/admin/payment/stats", controller.AdminGetOrderStats)
 		}
 
 		// Root-only 接口（对齐 new-api RootAuth 语义）
@@ -498,6 +507,9 @@ func SetApiRouter(router *gin.Engine) {
 
 			// 操作审计（仅超管可查，避免普通管理员翻看/干扰审计记录）
 			rootGroup.GET("/admin/audit-log", controller.GetAdminAuditLogs)
+
+			// 补单接口权限收紧到超管，防止普通管理员免费给用户充值
+			rootGroup.POST("/admin/payment/orders/:id/complete", controller.AdminManualCompleteOrder)
 
 			// 自定义 OAuth 提供商管理
 			rootGroup.POST("/custom-oauth-provider/discovery", controller.FetchCustomOAuthDiscovery)

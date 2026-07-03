@@ -15,7 +15,7 @@
 
 ---
 
-Akasha 是一个统一的 AI API 网关，将多家大模型供应商聚合在 OpenAI 兼容接口之后，提供渠道负载均衡、用户管理、额度计费、速率限制和运营管理等能力。
+Akasha 是一个统一的 AI API 网关，将多家大模型供应商聚合在 OpenAI 兼容接口之后，提供渠道负载均衡、用户管理、额度计费、速率限制、内容安全审核和运营管理等能力。
 
 ## ✨ 核心特性
 
@@ -32,71 +32,86 @@ Akasha 是一个统一的 AI API 网关，将多家大模型供应商聚合在 O
 - OpenAI Realtime API — WebSocket 双向代理 (`/v1/realtime`)，支持语音对话
 - Gemini 原生格式 — 直连 Gemini REST API (`/gemini/v1beta/models/:model`)
 - neko-api-key-tool 兼容 — `GET /api/key/info` 查询 Key 额度信息
-- 任意 OpenAI SDK 客户端 — 标准 Chat Completions API (`/v1/chat/completions`)
 
 **渠道管理**
-- 多渠道负载均衡（优先级 + 权重）、自动重试
-- 自动熔断与半开恢复机制，保障服务高可用
-- 多 Key 轮换（每行一个 Key，随机选取）
-- 渠道标签分类与筛选
-- 批量渠道测试、模型列表自动拉取
+- 多渠道负载均衡（优先级 + 权重）、自动重试、熔断与半开恢复
+- 多 Key 轮换、渠道标签分类、批量测试、模型列表自动拉取
+- 渠道账号自动签到与余额监控（对接上游网关账号 API）
+- 渠道亲和性路由（会话粘滞，可配置规则与缓存）
 - 支持为渠道单独配置 HTTP/SOCKS5 代理与自定义 Headers
 
-**用户与安全**
+**用户与认证**
 - 邮箱注册、GitHub OAuth、LinuxDO OAuth（自动同步信任等级）
-- Discord OAuth、OIDC 统一认证（支持企业 SSO）、Telegram Login
+- Discord OAuth、OIDC 统一认证（企业 SSO）、Telegram Login、微信 OAuth
+- Passkey / WebAuthn 无密码登录
 - 双因素认证 (2FA/TOTP)，支持 Google Authenticator 等验证器应用
-- 邮箱密码重置（验证码方式）
-- 人机验证：Cloudflare Turnstile 与极验 (GeeTest4) 双引擎，后台一键切换
-- 四级速率限制（IP / Token / 用户 / 模型），支持 Redis 分布式限流
-- 关键操作限流（登录、注册、密码重置）
+- 邮箱密码重置，邮箱绑定变更
+- 人机验证：Cloudflare Turnstile 与极验 (GeeTest4) 双引擎
+
+**内容安全**
+- 腾讯云天御（TMS）文本内容安全审核，真实对接官方 Go SDK
+- 关键词本地过滤（黑名单逗号分隔）
+- 多维白名单（用户 ID / 模型名 / IP）
+- 上下文净化模块（ContextSanitizer）：四级策略作用域、五级防护模式、Prompt Injection 检测、工具调用结构防护
+
+**计费与支付**
+- 精细化额度管理（令牌级），自定义模型倍率与补全倍率
+- 缓存计费 — 支持 OpenAI cached_tokens 和 Claude cache_read 折扣计费
+- Reasoning Effort 后缀、Thinking-to-Content 转换
+- 订阅套餐管理（分组 / 额度 / RPM 订阅计划）
+- **易支付**（epay 协议，支持支付宝/微信）
+- **Stripe** — 官方 Go SDK，Checkout Session，支持延迟支付方式（SEPA、银行转账）
+- **Creem** — 国际收款，支持多产品目录，HMAC-SHA256 Webhook 验签
+- 订单并发安全保护（订单级内存锁 + 幂等检查）
+- 管理员手动补单（卡在 pending 状态的订单一键入账）
+- 充值历史分页查询（用户 & 管理员双视角）
+
+**安全审计与日志**
+- 请求日志记录 IP 与 Request ID（全局链路追踪）
+- 管理员操作审计日志（所有非 GET 写操作自动记录，仅超管可查）
+- 可配置日志留存天数（不低于 180 天，满足《网络安全法》要求），定时自动清理
+- JWT 密钥首次启动自动生成，支持环境变量覆盖
 
 **运营能力**
-- 精细化额度管理（令牌级），自定义模型倍率
-- 缓存计费 — 支持 OpenAI cached_tokens 和 Claude cache_read 折扣计费（默认 0.5 倍率）
-- Reasoning Effort 后缀 — 模型名追加 `-high/-medium/-low` 自动设置推理强度，`-thinking` 启用思考模式
-- Thinking-to-Content — 将 Claude 思考过程转为 `<thinking>` 包裹的普通内容（后台开关）
-- 模型配置管理（分类、倍率、上下文长度）与定价同步
-- 用户分组系统（分组级倍率覆盖、渠道权限、QPM 限制）
-- 每日签到系统（可配置随机奖励范围，可选人机验证）
+- 每日签到（可配置随机奖励，可选人机验证）
 - 兑换码、邀请码系统
-- 易支付对接，请求日志与 CSV 导出，日志定期清理
+- 请求日志 + CSV 导出
 - 公开定价页面
-- 数据看板：DAU、错误率趋势、多维筛选、系统性能监控
-- 内容审核（关键词过滤 + 外部审核 API + 白名单）
-
-**现代化前端**
-- React 19 + HeroUI + TailwindCSS 响应式界面
-- Playground — 在线 API 测试页面，支持模型选择、流式输出、参数调节
-- 系统性能监控 — Goroutines、内存、GC、运行时间实时查看
-- 每日签到 — 用户仪表盘一键签到领取随机额度奖励
+- 数据看板：DAU、错误率趋势、系统性能监控
+- 通知系统：邮件 / Webhook / Bark / Gotify，余额不足、渠道异常、签到结果触发
 
 ## 🛠️ 技术栈
 
 | 层级 | 技术 |
 |:---|:---|
-| 后端 | Go 1.24, Gin, GORM |
+| 后端 | Go 1.24+, Gin, GORM |
 | 数据库 | SQLite (默认) / MySQL / PostgreSQL |
-| 缓存 | Redis (可选，用于分布式限流与缓存) |
+| 缓存 | Redis (可选，分布式限流) |
 | 前端 | React 19, TypeScript, Vite 7, TailwindCSS 4, HeroUI |
 | 状态管理 | Zustand + TanStack React Query |
-| 认证 | JWT, OAuth (GitHub, LinuxDO, Discord, OIDC, Telegram) |
+| 认证 | JWT, OAuth (GitHub/LinuxDO/Discord/OIDC/Telegram/微信), Passkey/WebAuthn |
+| 支付 | 易支付(epay), Stripe v86, Creem |
+| 内容安全 | 腾讯云天御 TMS/IMS (tencentcloud-sdk-go) |
 
 ## 🏗️ 系统架构
 
 ```
 ┌─────────────┐     ┌──────────────────────────────────────────────┐
 │   Client    │     │                  Akasha                      │
-│  (OpenAI    │────▶│  Rate Limiter ──▶ Relay Controller           │
+│  (OpenAI    │────▶│  Rate Limiter ──▶ Content Moderation         │
 │  Compatible)│     │                       │                      │
-└─────────────┘     │                 Adapter Factory               │
-                    │                 ┌─────┼─────┐                │
-                    │                 ▼     ▼     ▼                │
-                    │              OpenAI Claude Gemini ...         │
-                    │                 │     │     │                │
-                    └─────────────────┼─────┼─────┼────────────────┘
-                                      ▼     ▼     ▼
-                                  Upstream Providers
+└─────────────┘     │               Context Sanitizer              │
+                    │                       │                      │
+                    │               Relay Controller               │
+                    │                       │                      │
+                    │               Adapter Factory                │
+                    │            ┌─────┬────┴───┬─────┐           │
+                    │            ▼     ▼        ▼     ▼           │
+                    │         OpenAI Claude  Gemini  ...           │
+                    └───────────────────────────────────────────── ┘
+                                  │      │       │
+                                  ▼      ▼       ▼
+                              Upstream Providers
 ```
 
 ## 🚀 快速开始
@@ -105,7 +120,7 @@ Akasha 是一个统一的 AI API 网关，将多家大模型供应商聚合在 O
 
 - Go 1.24+
 - Node.js 18+ / pnpm
-- MySQL 5.7+ 或 PostgreSQL 9.6+ (可选，默认 SQLite)
+- MySQL 5.7+ 或 PostgreSQL 9.6+（可选，默认 SQLite）
 
 ### 本地开发
 
@@ -124,7 +139,9 @@ go run main.go --port 8080 --driver sqlite --dsn "akasha.db"
 | `--port` | `8080` | 服务端口 |
 | `--driver` | `sqlite` | 数据库驱动 (`sqlite` / `mysql` / `postgres`) |
 | `--dsn` | `akasha.db` | 数据库连接字符串 |
-| `--rpm` | `60` | 全局速率限制 (请求/分钟) |
+| `--rpm` | `60` | 全局速率限制（请求/分钟） |
+
+JWT 密钥首次启动时自动生成，保存至 `backend/jwt_secret.key`。多实例部署时请通过环境变量 `AKASHA_JWT_SECRET` 统一指定密钥。
 
 **2. 启动前端**
 
@@ -138,101 +155,92 @@ pnpm run dev
 
 **3. 首次使用**
 
-首个注册用户自动成为 Root 管理员。
+首个注册用户自动成为超级管理员（RoleRoot）。
+
+## 👤 角色权限
+
+| 角色 | 说明 | 典型权限 |
+|:---|:---|:---|
+| 普通用户 (1) | 终端使用者 | 管理自己的 Token、充值、查看用量 |
+| 管理员 (10) | 运营人员 | 渠道管理、用户管理、日志查看、订单只读查看 |
+| 超级管理员 (100) | 系统所有者 | 系统设置、补单操作、操作审计、支付配置 |
 
 ## ⚙️ 配置说明
 
-登录管理后台，在「系统设置」页面完成以下配置：
+登录管理后台，在「系统设置」页面完成配置：
+
+**基础**
 
 | 配置项 | 说明 |
 |:---|:---|
-| GitHub OAuth | 填入 Client ID 和 Secret |
-| LinuxDO OAuth | 填入 Client ID 和 Secret，设置各信任等级初始额度 |
-| Discord OAuth | 填入 Client ID 和 Secret |
-| OIDC (SSO) | 填入 Client ID、Secret 和 Issuer URL，支持企业统一认证 |
-| Telegram Login | 填入 Bot Token，启用 Telegram 登录小组件 |
-| 邮件服务 (SMTP) | 配置 SMTP 服务器以启用注册验证与通知 |
-| Cloudflare Turnstile | 填入 Site Key 和 Secret Key 以启用人机验证 |
-| 极验 (GeeTest4) | 填入 Captcha ID 和 Key，设置验证码提供商为 `geetest` |
-| Redis | 配置连接地址以启用分布式限流与缓存 (可选) |
-| 易支付 | 配置商户信息以启用在线充值 (可选) |
+| 系统名称 / URL | 基础信息 |
+| 邮件服务 (SMTP) | 注册验证与通知 |
+| Redis | 分布式限流与缓存（可选） |
 
-### 添加渠道
+**OAuth 认证**
 
-在「渠道管理」中添加 AI 供应商渠道：
+| 配置项 | 说明 |
+|:---|:---|
+| GitHub / LinuxDO / Discord / OIDC / Telegram / 微信 | 填入对应 Client ID 和 Secret |
+| Turnstile / 极验 | 人机验证提供商配置 |
 
-| 渠道类型 | 类型 ID | 说明 |
-|:---|:---:|:---|
-| OpenAI | 1 | 官方 API 或兼容接口 |
-| Azure OpenAI | 3 | Azure 部署的 OpenAI 模型 |
-| Custom | 8 | 任意 OpenAI 兼容接口 |
-| Anthropic Claude | 14 | Claude 系列模型 |
-| Google Gemini | 18 | Gemini 系列模型 |
-| Midjourney | 30 | 需填写 mj-proxy 地址 |
-| 阿里通义千问 | 40 | Qwen 系列模型 |
-| 腾讯混元 | 41 | Hunyuan 系列模型 |
-| 百度文心一言 | 42 | ERNIE 系列模型 |
-| 讯飞星火 | 43 | Spark 系列模型 |
-| Deepseek | 44 | Deepseek 系列模型 |
-| 智谱 ChatGLM | 45 | GLM 系列模型 (JWT 认证) |
-| Moonshot (Kimi) | 46 | Moonshot 系列模型 |
-| Ollama | 47 | 本地部署模型 (Key 可为空) |
-| Suno | 50 | AI 音乐生成 (需填写 suno-api 地址) |
-| Dify | 51 | Dify ChatFlow 工作流代理 |
+**支付**
+
+设置 `payment_provider` 为 `epay`、`stripe` 或 `creem`，然后填写对应渠道的密钥信息：
+
+| 渠道 | 必填项 |
+|:---|:---|
+| 易支付 | API 地址、PID、KEY |
+| Stripe | Secret Key、Webhook Secret（在 Stripe Dashboard 注册 Webhook 端点：`/api/stripe/webhook`） |
+| Creem | API Key、Webhook Secret、产品目录 JSON（`/api/creem/webhook`） |
+
+**内容安全**
+
+| 配置项 | 说明 |
+|:---|:---|
+| 腾讯云天御 | SecretId、SecretKey、地域（默认 ap-guangzhou）、审核策略 BizType |
+| 敏感词 | 逗号分隔，本地即时过滤 |
+| 白名单 | 用户 ID / 模型名 / IP 白名单（逗号分隔） |
+
+**日志**
+
+| 配置项 | 说明 |
+|:---|:---|
+| 日志留存天数 | 不低于 180 天（《网络安全法》要求），定时任务自动清理过期记录 |
 
 ## 📡 API 接口
 
 所有接口兼容 OpenAI 格式，可直接对接现有 OpenAI SDK 和工具。
 
 ```bash
-# Chat Completions
 curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer sk-your-token" \
   -H "Content-Type: application/json" \
   -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
-支持的端点：
-
 | 端点 | 说明 |
 |:---|:---|
-| `POST /v1/chat/completions` | 对话补全 (支持流式) |
-| `POST /v1/completions` | 旧版文本补全 |
-| `POST /v1/messages` | Anthropic Messages API (Claude Code CLI 兼容) |
-| `POST /v1/responses` | OpenAI Responses API (Codex CLI 兼容) |
+| `POST /v1/chat/completions` | 对话补全（支持流式） |
+| `POST /v1/messages` | Anthropic Messages API（Claude Code CLI） |
+| `POST /v1/responses` | OpenAI Responses API（Codex CLI） |
 | `POST /v1/embeddings` | 文本向量化 |
-| `POST /v1/images/generations` | 图片生成 (DALL-E 等) |
-| `POST /v1/audio/speech` | 文本转语音 (TTS) |
-| `POST /v1/audio/transcriptions` | 语音转文本 (STT) |
-| `POST /v1/moderations` | 内容审核 |
-| `POST /v1/rerank` | 文档重排序 |
+| `POST /v1/images/generations` | 图片生成 |
+| `POST /v1/audio/speech` | 文本转语音 |
+| `POST /v1/audio/transcriptions` | 语音转文本 |
+| `GET /v1/realtime` | Realtime API（WebSocket） |
+| `POST /gemini/v1beta/models/:model` | Gemini 原生格式代理 |
 | `GET /v1/models` | 可用模型列表 |
-| `GET /v1/models/:model` | 模型详情 |
-| `GET/POST/DELETE /v1/files` | 文件管理 |
-| `GET /v1/realtime` | OpenAI Realtime API (WebSocket 双向代理) |
-| `POST /gemini/v1beta/models/:model` | Gemini 原生 REST 格式代理 |
-| `POST /suno/submit/*` | Suno AI 音乐生成 |
-| `GET /api/key/info` | API Key 额度查询 (neko-api-key-tool 兼容) |
-
 
 ### CLI 工具配置
 
 **Claude Code CLI**
-
 ```bash
 export ANTHROPIC_BASE_URL=http://localhost:8080
 export ANTHROPIC_API_KEY=sk-your-token
 ```
 
-**OpenAI Codex CLI**
-
-```bash
-export OPENAI_BASE_URL=http://localhost:8080/v1
-export OPENAI_API_KEY=sk-your-token
-```
-
-**通用 OpenAI SDK**
-
+**OpenAI Codex CLI / 通用 SDK**
 ```bash
 export OPENAI_BASE_URL=http://localhost:8080/v1
 export OPENAI_API_KEY=sk-your-token
@@ -241,35 +249,27 @@ export OPENAI_API_KEY=sk-your-token
 ## 📂 项目结构
 
 ```
-├── backend/                 # Go 后端服务
-│   ├── main.go              # 入口，CLI 参数解析
-│   ├── adapter/             # LLM 供应商适配器 (Adaptor 接口)
-│   │   ├── openai/          # OpenAI / Azure / Custom
-│   │   ├── claude/          # Anthropic Claude
-│   │   ├── gemini/          # Google Gemini
-│   │   ├── deepseek/        # Deepseek
-│   │   ├── zhipu/           # 智谱 ChatGLM
-│   │   ├── moonshot/        # Moonshot (Kimi)
-│   │   ├── ollama/          # Ollama (本地部署)
-│   │   ├── ali/             # 阿里通义千问
-│   │   ├── baidu/           # 百度文心一言
-│   │   ├── tencent/         # 腾讯混元
-│   │   └── xunfei/          # 讯飞星火
+├── backend/
+│   ├── main.go
+│   ├── adapter/             # LLM 供应商适配器 + 渠道账号适配器
 │   ├── controller/          # HTTP 请求处理器
-│   ├── model/               # GORM 数据模型
+│   │   ├── payment.go       # 支付核心：创建订单、epay 回调、管理员补单
+│   │   ├── user_extra.go    # 用户扩展：Stripe/Creem Webhook、充值信息
+│   │   └── system_utils.go  # 系统工具：性能监控、缓存统计
+│   ├── model/               # GORM 数据模型（含 PaymentOrder、AdminAuditLog）
 │   ├── router/              # 路由定义
-│   ├── service/             # 后台服务 (健康检查、日志队列、渠道测试)
-│   ├── middleware/           # 中间件 (多级速率限制)
-│   ├── migrations/          # SQL 迁移脚本
-│   ├── dto/                 # 数据传输对象
-│   └── common/              # 公共工具 (配置、常量、Redis)
-└── frontend/                # React 前端
+│   ├── service/
+│   │   ├── payment/         # 支付服务：订单锁、统一入账、Stripe/Creem 客户端
+│   │   ├── moderation/      # 腾讯云天御内容安全 SDK 封装
+│   │   └── context_sanitizer/ # 上下文净化模块
+│   ├── middleware/          # 中间件（限流、审计、Request ID）
+│   └── common/              # 公共工具（配置、JWT、Redis）
+└── frontend/
     └── src/
-        ├── pages/           # 页面组件
-        │   ├── admin/       # 管理后台 (渠道、用户、分组、模型、设置等)
-        │   └── user/        # 用户面板 (令牌、充值、个人资料等)
-        ├── layouts/         # 布局组件 (AdminLayout, UserLayout)
-        └── store/           # Zustand 状态管理
+        ├── pages/
+        │   ├── admin/       # 管理后台（渠道、用户、支付管理、审计日志、设置等）
+        │   └── user/        # 用户面板（令牌、充值、充值记录、订阅等）
+        └── layouts/         # AdminLayout / UserLayout
 ```
 
 ## 📜 许可协议
@@ -280,7 +280,6 @@ export OPENAI_API_KEY=sk-your-token
 - 如需商业授权、私有部署或定制开发，请联系版权所有者
 
 详见 [LICENSE](LICENSE) 文件。
-
 
 ---
 

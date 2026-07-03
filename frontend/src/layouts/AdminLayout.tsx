@@ -3,7 +3,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box,
   Crown, Database, Boxes, Network, UserCheck, Ticket, ListTodo,
-  ArrowLeft, LogOut, User as UserIcon, Activity, Building2, Rocket, Shield, ShieldCheck,
+  ArrowLeft, LogOut, User as UserIcon, Activity, Building2, Rocket, Shield, ShieldCheck, CreditCard,
 } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 import { useSystemStore } from '../store/system';
@@ -17,6 +17,7 @@ const navGroups: NavGroup[] = [
       { key: '/admin/system-monitor', icon: Activity, label: '系统监控' },
       { key: '/admin/log', icon: ScrollText, label: '日志管理' },
       { key: '/admin/audit-log', icon: ShieldCheck, label: '操作审计' },
+      { key: '/admin/payment',   icon: CreditCard,  label: '支付管理' },
       { key: '/admin/tasks', icon: ListTodo, label: '任务记录' },
     ],
   },
@@ -62,7 +63,7 @@ export default function AdminLayout() {
   const filteredGroups = navGroups.map(group => ({
     ...group,
     items: group.items.filter(
-      item => !(['/admin/setting', '/admin/audit-log'].includes(item.key) && (user?.role ?? 0) < 100)
+      item => !(['/admin/setting', '/admin/audit-log', '/admin/payment'].includes(item.key) && (user?.role ?? 0) < 100)
     ),
   }));
 

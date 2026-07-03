@@ -114,6 +114,20 @@ func ApplyMigrations() {
 				return common.DB.AutoMigrate(&Channel{}, &CustomChannelConfig{})
 			},
 		},
+		{
+			Version: 10,
+			Name:    "支付订单新增 trade_no 字段",
+			Apply: func() error {
+				return common.DB.AutoMigrate(&PaymentOrder{})
+			},
+		},
+		{
+			Version: 11,
+			Name:    "支付订单新增 quota_added/completed_at，trade_no 改 uniqueIndex",
+			Apply: func() error {
+				return common.DB.AutoMigrate(&PaymentOrder{})
+			},
+		},
 	}
 
 	for _, step := range steps {

@@ -17,6 +17,7 @@ const (
 	CodeForbidden  Code = 10003
 	CodeNotFound   Code = 10004
 	CodeConflict   Code = 10005
+	CodeNotImplemented Code = 10006
 	CodeServerError Code = 50000
 )
 
