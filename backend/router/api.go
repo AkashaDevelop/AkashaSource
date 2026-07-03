@@ -116,9 +116,15 @@ func SetApiRouter(router *gin.Engine) {
 
 	apiRouter := router.Group("/api")
 	{
-		// ～宸汐御安全握手端点（明文，握手完成后所有请求走加密通道）～
-		apiRouter.GET("/cx/challenge", controller.CxGetChallenge)
-		apiRouter.POST("/cx/ks", controller.CxHandshake)
+		// ～宸汐御安全握手端点～
+		// challenge 加全局限流（防止被刷导致内存挤满挑战条目）
+		apiRouter.GET("/cx/challenge", middleware.RateLimitMiddleware(), controller.CxGetChallenge)
+		// ks 加严格限流（握手成本高，比 challenge 更敏感）
+		apiRouter.POST("/cx/ks", middleware.CriticalRateLimitMiddleware(), controller.CxHandshake)
+		// 退出登录时主动销毁会话，切断密钥链
+		apiRouter.DELETE("/cx/session", controller.CxDeleteSession)
+		// 配置查询：前端启动时读取，永远不加密，永远可访问
+		apiRouter.GET("/cx/config", controller.CxGetConfig)
 
 		// 公开接口
 		apiRouter.GET("/setup", controller.GetSetup)
@@ -148,10 +154,11 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/subscription/epay/return", controller.SubscriptionEpayReturn)
 		apiRouter.POST("/subscription/epay/return", controller.SubscriptionEpayReturn)
 
-		apiRouter.POST("/user/login", middleware.CriticalRateLimitMiddleware(), controller.UserLogin)
-		apiRouter.POST("/user/register", middleware.CriticalRateLimitMiddleware(), controller.UserRegister)
+		// ～宸汐御安全默认守护这五个敏感入口，CxSec 禁用时中间件自动放行～
+		apiRouter.POST("/user/login", middleware.CriticalRateLimitMiddleware(), middleware.CxSecMiddleware(), controller.UserLogin)
+		apiRouter.POST("/user/register", middleware.CriticalRateLimitMiddleware(), middleware.CxSecMiddleware(), controller.UserRegister)
 		apiRouter.POST("/user/email/verify-code", middleware.CriticalRateLimitMiddleware(), controller.SendEmailVerifyCode)
-		apiRouter.POST("/user/login/2fa", middleware.CriticalRateLimitMiddleware(), controller.TOTPLogin)
+		apiRouter.POST("/user/login/2fa", middleware.CriticalRateLimitMiddleware(), middleware.CxSecMiddleware(), controller.TOTPLogin)
 		apiRouter.POST("/user/passkey/login/begin", middleware.CriticalRateLimitMiddleware(), controller.PasskeyLoginBegin)
 		apiRouter.POST("/user/passkey/login/finish", middleware.CriticalRateLimitMiddleware(), controller.PasskeyLoginFinish)
 		apiRouter.POST("/user/epay/notify", controller.PaymentNotify)
@@ -237,9 +244,9 @@ func SetApiRouter(router *gin.Engine) {
 			authGroup.POST("/user/totp/enable", controller.TOTPEnable)
 			authGroup.POST("/user/totp/disable", controller.TOTPDisable)
 
-			// 签到
+			// ～签到接口也要守护哦，悄悄刷签到可不行～
 			authGroup.GET("/user/checkin", controller.GetCheckInStatus)
-			authGroup.POST("/user/checkin", controller.CheckIn)
+			authGroup.POST("/user/checkin", middleware.CxSecMiddleware(), controller.CheckIn)
 
 			// 文件管理
 			authGroup.GET("/user/files", controller.UserFilesList)
@@ -346,10 +353,7 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.POST("/redemption/batch", controller.BatchRedemptionAction)
 			adminGroup.GET("/export/redemption", controller.ExportRedemptionsCSV)
 
-			// SQL 迁移
-			adminGroup.GET("/migration/sql", controller.GetSQLMigrations)
-			adminGroup.POST("/migration/sql/apply", controller.ApplySQLMigrations)
-			adminGroup.POST("/migration/sql/rollback", controller.RollbackSQLMigrations)
+			// SQL 迁移（已移至 rootGroup，此处保留注释说明）
 
 			// 渠道增强
 			adminGroup.POST("/channel/test-all", controller.TestAllChannels)
@@ -518,6 +522,11 @@ func SetApiRouter(router *gin.Engine) {
 			rootGroup.POST("/custom-oauth-provider", controller.CreateCustomOAuthProvider)
 			rootGroup.PUT("/custom-oauth-provider/:id", controller.UpdateCustomOAuthProvider)
 			rootGroup.DELETE("/custom-oauth-provider/:id", controller.DeleteCustomOAuthProvider)
+
+			// SQL 迁移（高风险，需超管权限）
+			rootGroup.GET("/migration/sql", controller.GetSQLMigrations)
+			rootGroup.POST("/migration/sql/apply", controller.ApplySQLMigrations)
+			rootGroup.POST("/migration/sql/rollback", controller.RollbackSQLMigrations)
 
 			// 渠道敏感操作
 			rootGroup.POST("/channel/:id/key", controller.GetChannelKey)

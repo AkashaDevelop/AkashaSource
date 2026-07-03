@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	PowDifficultyDefault = 4     // 开发模式：极低难度，约 16 次尝试即可通过，几乎瞬间完成
-	PowArgon2Memory      = 64    // 64KB，兼顾老旧设备
+	PowDifficultyDefault = 20    // ～生产强度：约百万次尝试起步，脚本刷子哭晕在厕所～
+	PowArgon2Memory      = 128   // 128KB，64KB的两倍，碰撞成本翻番，老旧设备仍可接受
 	PowArgon2Iterations  = 1
 	PowArgon2Threads     = 1
 	PowTTLSec            = 120   // 挑战有效期2分钟（含时间因子自动过期）
@@ -67,11 +67,20 @@ func CurrentPowTimeHint() int64 {
 
 // FingerprintVerify 简单校验环境指纹（确保是浏览器环境发来的）
 // fpToken = SHA3-256(browser_data) 前32字节，服务端只做基础格式校验
+// ～不是全零、也不是清一色同一个字节糊弄过去的，才算是像样的哈希值哦～
 func FingerprintVerify(fpToken []byte) bool {
 	if len(fpToken) != 32 {
 		return false
 	}
-	// 校验非全零（客户端必须传真实指纹）
 	var zero [32]byte
-	return subtle.ConstantTimeCompare(fpToken, zero[:]) != 1
+	if subtle.ConstantTimeCompare(fpToken, zero[:]) == 1 {
+		return false
+	}
+	// 粗略熵检测：真实 SHA3 输出的字节分布很散，若 32 字节里不同值少于 8 种，
+	// 大概率是"全1字节"这类平凡构造，直接拒绝
+	seen := make(map[byte]struct{}, 32)
+	for _, b := range fpToken {
+		seen[b] = struct{}{}
+	}
+	return len(seen) >= 8
 }

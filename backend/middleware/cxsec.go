@@ -1,12 +1,16 @@
 package middleware
 
 // ～宸汐御安全中间件：解包→验签→解密→注入 payload，响应走加密回路～
+// v2: 密钥全部走会话纪元棘轮（EpochKeys），不再有常驻不变的 MasterKey～
 
 import (
+	"STfreApi/common"
 	"STfreApi/service/cxsec"
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,8 +18,16 @@ import (
 const allowedSkewMS = 45_000 // ±45s 时间窗
 
 // CxSecMiddleware 对路由启用宸汐御安全保护
+// ～管理员关掉或客户端传的不是 octet-stream，就当普通接口放行，不用慌～
 func CxSecMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 优雅降级：全局禁用 或 请求不是加密二进制格式时直接放行
+		ct := c.GetHeader("Content-Type")
+		if !common.CxSecEnabled || !strings.Contains(ct, "application/octet-stream") {
+			c.Next()
+			return
+		}
+
 		body, err := io.ReadAll(c.Request.Body)
 		minLen := cxsec.BodyHintLen + cxsec.BodyNonceLen + 1 + cxsec.BodyTagLen + cxsec.BodySigLen
 		if err != nil || len(body) < minLen {
@@ -47,14 +59,22 @@ func CxSecMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// ── 3. 验御印签名（容忍时间窗边界±1窗） ─────────────────
+		// 纪元密钥（当前+上一纪元，容忍棘轮推进边界）
+		curEpoch, prevEpoch := sess.EpochKeys()
+
+		// ── 3. 验御印签名（同时容忍：时间窗边界±1窗 × 纪元边界当前/上一纪元） ──
 		timeBlock := cxsec.CurrentTimeBlock()
 		verified := false
-		for _, tb := range []int64{timeBlock, timeBlock - 1} {
-			hmacKey := cxsec.DeriveHMACKey(sess.MasterKey, tb)
-			if cxsec.Verify(hmacKey, body[:sigStart], sig) {
-				verified = true
-				break
+		var verifiedEpoch [32]byte
+	verifyLoop:
+		for _, ek := range [][32]byte{curEpoch, prevEpoch} {
+			for _, tb := range []int64{timeBlock, timeBlock - 1} {
+				hmacKey := cxsec.DeriveHMACKey(ek, tb)
+				if cxsec.Verify(hmacKey, body[:sigStart], sig) {
+					verified = true
+					verifiedEpoch = ek
+					break verifyLoop
+				}
 			}
 		}
 		if !verified {
@@ -69,9 +89,10 @@ func CxSecMiddleware() gin.HandlerFunc {
 		}
 
 		// ── 5. 解辰星密码 ─────────────────────────────────────
-		pre, post := cxsec.DeriveWhiteningKey(sess.MasterKey, sess.ID)
-		reqKey := cxsec.DeriveRequestKey(sess.MasterKey, timeBlock, sess.Counter, nonce)
-		payload, counter, _, err := cxsec.Decrypt(reqKey, pre, post, nonce, ciphertext, tag, sess.Counter, allowedSkewMS)
+		expectedCounter := sess.Counter()
+		pre, post := cxsec.DeriveWhiteningKey(verifiedEpoch, sess.ID)
+		reqKey := cxsec.DeriveRequestKey(verifiedEpoch, timeBlock, expectedCounter, nonce)
+		payload, counter, _, err := cxsec.Decrypt(reqKey, pre, post, nonce, ciphertext, tag, expectedCounter, allowedSkewMS)
 		if err != nil {
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
@@ -106,7 +127,11 @@ type cxSecWriter struct {
 	sealed bool
 }
 
+// Write ～sealed 之后再写就是白写，宁可报错也不能让数据悄悄消失哦～
 func (w *cxSecWriter) Write(data []byte) (int, error) {
+	if w.sealed {
+		return 0, errors.New("cxsec: write after seal")
+	}
 	return w.buf.Write(data)
 }
 
@@ -117,11 +142,12 @@ func (w *cxSecWriter) flush() {
 	w.sealed = true
 	plain := w.buf.Bytes()
 
-	pre, post := cxsec.DeriveWhiteningKey(w.sess.MasterKey, w.sess.ID)
+	curEpoch, _ := w.sess.EpochKeys()
+	pre, post := cxsec.DeriveWhiteningKey(curEpoch, w.sess.ID)
 	timeBlock := cxsec.CurrentTimeBlock()
 	respNonce := cxsec.RandNonce()
-	respCounter := w.sess.Counter
-	reqKey := cxsec.DeriveRequestKey(w.sess.MasterKey, timeBlock, respCounter, respNonce)
+	respCounter := w.sess.Counter()
+	reqKey := cxsec.DeriveRequestKey(curEpoch, timeBlock, respCounter, respNonce)
 
 	ciphertext, tag, err := cxsec.Encrypt(reqKey, pre, post, respNonce, respCounter, cxsec.UnixNowMS(), plain)
 	if err != nil {
@@ -130,7 +156,7 @@ func (w *cxSecWriter) flush() {
 	}
 
 	// 组装响应: nonce(16) + ciphertext + tag(16) + sig(32)
-	hmacKey := cxsec.DeriveHMACKey(w.sess.MasterKey, timeBlock)
+	hmacKey := cxsec.DeriveHMACKey(curEpoch, timeBlock)
 	respBody := make([]byte, 0, 16+len(ciphertext)+16+32)
 	respBody = append(respBody, respNonce[:]...)
 	respBody = append(respBody, ciphertext...)

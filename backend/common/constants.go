@@ -94,6 +94,10 @@ var (
 	EpayType      = ""
 	EpayNotifyUrl = ""
 	EpayReturnUrl = ""
+
+	// 宸汐御安全通讯协议
+	CxSecEnabled        = true
+	CxSecProtectedPaths = "/api/user/login,/api/user/register,/api/user/login/2fa,/api/user/password/reset-request,/api/user/password/reset-confirm,/api/user/checkin"
 )
 
 // Request Constants

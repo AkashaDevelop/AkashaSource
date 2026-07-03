@@ -83,6 +83,10 @@ const (
 	OptionKeyCheckinMinReward = "checkin_min_reward"
 	OptionKeyCheckinMaxReward = "checkin_max_reward"
 
+	// ～宸汐御安全通讯协议配置，守护前端关键接口哦～
+	OptionKeyCxSecEnabled = "cxsec_enabled"        // 是否启用（bool, 默认 true）
+	OptionKeyCxSecPaths   = "cxsec_protected_paths" // 受保护路径，逗号分隔
+
 	// ～通知配置：余额预警和渠道告警开关放这里哦～
 	OptionKeyLowBalanceThreshold  = "low_balance_threshold"  // 用户余额预警阈值（quota 单位，默认 500000 ≈ $1）
 	OptionKeyChannelAlertEnabled  = "channel_alert_enabled"  // 渠道异常告警开关

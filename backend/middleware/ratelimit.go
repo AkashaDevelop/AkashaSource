@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +15,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// hashKey ～把又长又臭的 token 摘要成32字节小卡片，Redis 存的更省心～
+func hashKey(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
 
 type RateLimiter struct {
 	limits sync.Map
@@ -106,7 +114,7 @@ func RateLimitMiddleware() gin.HandlerFunc {
 
 		authHeader := c.GetHeader("Authorization")
 		if authHeader != "" {
-			tokenKey := strings.TrimPrefix(authHeader, "Bearer ")
+			tokenKey := hashKey(strings.TrimPrefix(authHeader, "Bearer "))
 			tokenLimit := GlobalRateLimiter.rate * 3
 			if !checkLimit("token:"+tokenKey, tokenLimit) {
 				c.JSON(http.StatusTooManyRequests, gin.H{

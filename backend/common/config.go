@@ -173,4 +173,11 @@ func UpdateOptionMap(key string, value string) {
 	if key == "model_ratio" || key == "completion_ratio" {
 		UpdatePricing(OptionMap["model_ratio"], OptionMap["completion_ratio"])
 	}
+
+	if key == "cxsec_enabled" {
+		CxSecEnabled = (value == "true")
+	}
+	if key == "cxsec_protected_paths" && value != "" {
+		CxSecProtectedPaths = value
+	}
 }

@@ -25,12 +25,14 @@ import (
 // ─── 会话存储 ──────────────────────────────────────────────────────────────
 
 type jsSession struct {
-	masterKey  [32]byte
-	fpHash     [32]byte
-	counter    uint32
-	sessionID  string
-	nonceSet   map[[16]byte]bool
-	mu         sync.Mutex
+	epochKey     [32]byte
+	prevEpochKey [32]byte
+	epochIndex   int64
+	fpHash       [32]byte
+	counter      uint32
+	sessionID    string
+	nonceSet     map[[16]byte]bool
+	mu           sync.Mutex
 }
 
 var (
@@ -119,7 +121,7 @@ func jsInit(_ js.Value, args []js.Value) any {
 		return js.ValueOf(-1)
 	}
 
-	// 派生主密钥（与服务端 DeriveSessionKey 相同逻辑）
+	// 派生纪元0密钥（与服务端 DeriveSessionKey 相同逻辑）
 	var fpHash [32]byte
 	if len(args) >= 4 {
 		fpHex := args[3].String()
@@ -127,20 +129,16 @@ func jsInit(_ js.Value, args []js.Value) any {
 		copy(fpHash[:], fp)
 	}
 
-	h := sha3.New256()
-	h.Write([]byte("宸汐御安全v1\x00master\x00"))
-	h.Write(shared)
-	h.Write(fpHash[:])
-	var masterKey [32]byte
-	copy(masterKey[:], h.Sum(nil))
+	epoch0 := deriveEpoch0(shared, fpHash)
 
-	sid := fmt.Sprintf("%x%x", hint[:], masterKey[:4])
+	sid := fmt.Sprintf("%x%x", hint[:], epoch0[:4])
 	sess := &jsSession{
-		masterKey: masterKey,
-		fpHash:    fpHash,
-		counter:   binary.LittleEndian.Uint32(resp[8:12]),
-		sessionID: sid,
-		nonceSet:  make(map[[16]byte]bool),
+		epochKey:   epoch0,
+		epochIndex: currentEpochV2(),
+		fpHash:     fpHash,
+		counter:    binary.LittleEndian.Uint32(resp[8:12]),
+		sessionID:  sid,
+		nonceSet:   make(map[[16]byte]bool),
 	}
 	handle := newHandle(sess)
 	return js.ValueOf(int(handle))
@@ -186,7 +184,7 @@ func jsSolvePow(_ js.Value, args []js.Value) any {
 	binary.LittleEndian.PutUint64(input[32:40], solution)
 	binary.LittleEndian.PutUint64(input[40:48], uint64(timeHint))
 	sha3Hash := sha3.Sum256(input)
-	argHash := argon2.IDKey(sha3Hash[:], nonce[:8], 1, 64, 1, 32)
+	argHash := argon2.IDKey(sha3Hash[:], nonce[:8], 1, 128, 1, 32)
 
 	var solBytes [8]byte
 	binary.LittleEndian.PutUint64(solBytes[:], solution)
@@ -216,6 +214,8 @@ func jsEncrypt(_ js.Value, args []js.Value) any {
 	js.CopyBytesToGo(plaintext, args[1])
 
 	sess.mu.Lock()
+	sess.ratchetIfNeeded()
+	epochKey := sess.epochKey
 	counter := sess.counter
 	sess.mu.Unlock()
 
@@ -226,8 +226,8 @@ func jsEncrypt(_ js.Value, args []js.Value) any {
 	}
 
 	timeBlock := currentTimeBlock()
-	reqKey := deriveRequestKey(sess.masterKey, timeBlock, counter, nonce)
-	pre, post := deriveWhiteningKey(sess.masterKey, sess.sessionID)
+	reqKey := deriveRequestKey(epochKey, timeBlock, counter, nonce)
+	pre, post := deriveWhiteningKey(epochKey, sess.sessionID)
 
 	ciphertext, tag, err := encrypt(reqKey, pre, post, nonce, counter, nowMS(), plaintext)
 	if err != nil {
@@ -244,7 +244,7 @@ func jsEncrypt(_ js.Value, args []js.Value) any {
 	body = append(body, ciphertext...)
 	body = append(body, tag...)
 
-	hmacKey := deriveHMACKey(sess.masterKey, timeBlock)
+	hmacKey := deriveHMACKey(epochKey, timeBlock)
 	sig := sign(hmacKey, body)
 	body = append(body, sig[:]...)
 
@@ -283,22 +283,36 @@ func jsDecrypt(_ js.Value, args []js.Value) any {
 	var sig [32]byte
 	copy(sig[:], respBody[sigStart:])
 
+	sess.mu.Lock()
+	sess.ratchetIfNeeded()
+	curEpoch := sess.epochKey
+	prevEpoch := sess.prevEpochKey
+	sess.mu.Unlock()
+
 	timeBlock := currentTimeBlock()
-	hmacKey := deriveHMACKey(sess.masterKey, timeBlock)
-	if !verify(hmacKey, respBody[:sigStart], sig) {
-		// 尝试上一窗口
-		hmacKey2 := deriveHMACKey(sess.masterKey, timeBlock-1)
-		if !verify(hmacKey2, respBody[:sigStart], sig) {
-			return js.Null()
+	verified := false
+	var verifiedEpoch [32]byte
+verifyRespLoop:
+	for _, ek := range [][32]byte{curEpoch, prevEpoch} {
+		for _, tb := range []int64{timeBlock, timeBlock - 1} {
+			hmacKey := deriveHMACKey(ek, tb)
+			if verify(hmacKey, respBody[:sigStart], sig) {
+				verified = true
+				verifiedEpoch = ek
+				break verifyRespLoop
+			}
 		}
+	}
+	if !verified {
+		return js.Null()
 	}
 
 	sess.mu.Lock()
 	counter := sess.counter
 	sess.mu.Unlock()
 
-	reqKey := deriveRequestKey(sess.masterKey, timeBlock, counter, nonce)
-	pre, post := deriveWhiteningKey(sess.masterKey, sess.sessionID)
+	reqKey := deriveRequestKey(verifiedEpoch, timeBlock, counter, nonce)
+	pre, post := deriveWhiteningKey(verifiedEpoch, sess.sessionID)
 	payload, _, _, err := decryptResp(reqKey, pre, post, nonce, ciphertext, tag, 60000)
 	if err != nil {
 		return js.Null()
@@ -358,7 +372,7 @@ func solvePow(nonce [32]byte, difficulty uint8, timeHint int64) (uint64, bool) {
 		if v >= thres {
 			continue
 		}
-		argHash := argon2.IDKey(h[:], nonce[:8], 1, 64, 1, 8)
+		argHash := argon2.IDKey(h[:], nonce[:8], 1, 128, 1, 8)
 		av := binary.BigEndian.Uint32(argHash[:4])
 		if av < looseThres {
 			return sol, true
@@ -377,50 +391,7 @@ func nowMS() int64 {
 	return int64(js.Global().Get("Date").New().Call("getTime").Int())
 }
 
-func deriveRequestKey(master [32]byte, timeBlock int64, counter uint32, nonce [16]byte) [32]byte {
-	h := sha3.New256()
-	h.Write([]byte("宸汐御安全v1\x00reqkey\x00"))
-	h.Write(master[:])
-	var tb [8]byte
-	binary.LittleEndian.PutUint64(tb[:], uint64(timeBlock))
-	h.Write(tb[:])
-	var cb [4]byte
-	binary.LittleEndian.PutUint32(cb[:], counter)
-	h.Write(cb[:])
-	h.Write(nonce[:])
-	var key [32]byte
-	copy(key[:], h.Sum(nil))
-	return key
-}
-
-func deriveHMACKey(master [32]byte, timeBlock int64) [32]byte {
-	h := sha3.New256()
-	h.Write([]byte("宸汐御安全v1\x00hmackey\x00"))
-	h.Write(master[:])
-	var tb [8]byte
-	binary.LittleEndian.PutUint64(tb[:], uint64(timeBlock))
-	h.Write(tb[:])
-	var key [32]byte
-	copy(key[:], h.Sum(nil))
-	return key
-}
-
-func deriveWhiteningKey(master [32]byte, sessionID string) ([32]byte, [32]byte) {
-	h1 := sha3.New256()
-	h1.Write([]byte("宸汐御安全v1\x00whiten_pre\x00"))
-	h1.Write(master[:])
-	h1.Write([]byte(sessionID))
-	var pre [32]byte
-	copy(pre[:], h1.Sum(nil))
-
-	h2 := sha3.New256()
-	h2.Write([]byte("宸汐御安全v1\x00whiten_post\x00"))
-	h2.Write(master[:])
-	h2.Write([]byte(sessionID))
-	var post [32]byte
-	copy(post[:], h2.Sum(nil))
-	return pre, post
-}
+// ～deriveRequestKey / deriveHMACKey / deriveWhiteningKey 已搬去 kdf.go 啦，这里不再重复啦～
 
 func sign(hmacKey [32]byte, body []byte) [32]byte {
 	// HMAC-SHA3-256

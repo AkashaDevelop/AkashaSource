@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -42,7 +43,43 @@ func CxGetChallenge(c *gin.Context) {
 	})
 }
 
-// CxHandshake POST /api/cx/ks
+// CxDeleteSession DELETE /api/cx/session
+// 退出登录时主动销毁会话，切断密钥链——比等8小时TTL过期安全得多
+func CxDeleteSession(c *gin.Context) {
+	var req struct {
+		Hint string `json:"hint" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	hintBytes, err := hex.DecodeString(req.Hint)
+	if err != nil || len(hintBytes) != 8 {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	var hint [8]byte
+	copy(hint[:], hintBytes)
+	cxsec.DefaultStore.Delete(hint)
+	c.Status(http.StatusNoContent)
+}
+
+// CxGetConfig GET /api/cx/config
+// 返回当前 CxSec 协议配置，供前端决定哪些接口需要加密
+// 此端点永远不走 CxSecMiddleware（前端启动时先拿配置）
+func CxGetConfig(c *gin.Context) {
+	paths := strings.Split(common.CxSecProtectedPaths, ",")
+	clean := paths[:0]
+	for _, p := range paths {
+		if t := strings.TrimSpace(p); t != "" {
+			clean = append(clean, t)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"enabled": common.CxSecEnabled,
+		"paths":   clean,
+	})
+}
 // 接收 PoW 解答 + 客户端 ECDH 公钥，建立加密会话
 func CxHandshake(c *gin.Context) {
 	const bodyLen = 32 + 33 + 8 + 32 + 32 // cid+pub+solution+argon_verify+fp
@@ -83,7 +120,10 @@ func CxHandshake(c *gin.Context) {
 		uint64(solution[3])<<24 | uint64(solution[4])<<32 | uint64(solution[5])<<40 |
 		uint64(solution[6])<<48 | uint64(solution[7])<<56
 
-	if !cxsec.VerifyPoW(challenge.Nonce, solutionU64, cxsec.PowDifficultyDefault, cxsec.CurrentPowTimeHint()) {
+	// ～挑战恰好跨分钟边界也不该冤枉合法请求，当前和上一分钟都试一下～
+	powHint := cxsec.CurrentPowTimeHint()
+	if !cxsec.VerifyPoW(challenge.Nonce, solutionU64, cxsec.PowDifficultyDefault, powHint) &&
+		!cxsec.VerifyPoW(challenge.Nonce, solutionU64, cxsec.PowDifficultyDefault, powHint-1) {
 		c.Status(http.StatusForbidden)
 		return
 	}

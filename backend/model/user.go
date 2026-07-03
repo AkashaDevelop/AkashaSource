@@ -8,7 +8,7 @@ import (
 type User struct {
 	Id                int    `json:"id" gorm:"primaryKey;autoIncrement"`
 	Username          string `json:"username" gorm:"unique;index"`
-	Password          string `json:"password" gorm:"not null"` // 加密后的密码
+	Password          string `json:"password" gorm:"not null"`
 	DisplayName       string `json:"display_name" gorm:"index"`
 	Role              int    `json:"role" gorm:"default:1"`   // 1: 普通用户, 10: 管理员, 100: 超级管理员
 	Status            int    `json:"status" gorm:"default:1"` // 1: 正常, 2: 封禁
@@ -51,6 +51,14 @@ const (
 	UserStatusActive = 1
 	UserStatusBanned = 2
 )
+
+// MarshalJSON ～这里我亲自把关，密码哈希绝对不会偷溜出去哦，再也不用每个 handler 手动清空了～
+func (u User) MarshalJSON() ([]byte, error) {
+	type Alias User // 新类型，无 MarshalJSON 方法，防止递归
+	a := Alias(u)
+	a.Password = ""
+	return json.Marshal(a)
+}
 
 func (u *User) GetSetting() dto.UserSetting {
 	var setting dto.UserSetting

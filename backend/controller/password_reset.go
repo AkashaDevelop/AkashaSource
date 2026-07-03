@@ -1,8 +1,9 @@
 package controller
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ type resetCode struct {
 	Code      string
 	Email     string
 	ExpiresAt time.Time
+	Attempts  int
 }
 
 var (
@@ -25,6 +27,17 @@ var (
 	resetCodesLock sync.RWMutex
 	resetAttempts  = make(map[string][]time.Time) // rate limit per email
 )
+
+// genSecureCode ～用密码学安全随机数生成6位数字验证码，math/rand 不配保护用户密码哦～
+func genSecureCode() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// fallback 理论上不会触发，但防御性保留
+		panic("crypto/rand unavailable: " + err.Error())
+	}
+	n := binary.BigEndian.Uint64(b[:]) % 1_000_000
+	return fmt.Sprintf("%06d", n)
+}
 
 func PasswordResetRequest(c *gin.Context) {
 	var req struct {
@@ -61,8 +74,8 @@ func PasswordResetRequest(c *gin.Context) {
 		return
 	}
 
-	// Generate 6-digit code
-	code := fmt.Sprintf("%06d", rand.Intn(1000000))
+	// ～密码学安全的6位码，math/rand 靠边站～
+	code := genSecureCode()
 
 	resetCodesLock.Lock()
 	resetCodes[req.Email] = &resetCode{
@@ -91,14 +104,28 @@ func PasswordResetConfirm(c *gin.Context) {
 		return
 	}
 
-	resetCodesLock.RLock()
+	resetCodesLock.Lock()
 	rc, exists := resetCodes[req.Email]
-	resetCodesLock.RUnlock()
-
-	if !exists || rc.Code != req.Code || time.Now().After(rc.ExpiresAt) {
+	if !exists || time.Now().After(rc.ExpiresAt) {
+		delete(resetCodes, req.Email)
+		resetCodesLock.Unlock()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码无效或已过期"})
 		return
 	}
+	// ～超过5次错误就把验证码作废，暴力破解别想了哦～
+	if rc.Attempts >= 5 {
+		delete(resetCodes, req.Email)
+		resetCodesLock.Unlock()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码已失效，请重新申请"})
+		return
+	}
+	if rc.Code != req.Code {
+		rc.Attempts++
+		resetCodesLock.Unlock()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
+		return
+	}
+	resetCodesLock.Unlock()
 
 	// Update password
 	hashed, err := common.Password2Hash(req.NewPassword)

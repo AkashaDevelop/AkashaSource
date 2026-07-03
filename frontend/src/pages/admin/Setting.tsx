@@ -104,6 +104,7 @@ export default function SystemSettings() {
       'smtp_server','smtp_port','smtp_account','smtp_password','smtp_from',
       'smtp_ssl_enabled','email_verification_enabled',
       // 安全
+      'cxsec_enabled','cxsec_protected_paths',
       'turnstile_site_key','turnstile_secret_key','turnstile_check_enabled',
       'captcha_provider','geetest_enabled','geetest_id','geetest_key',
       // 邀请
@@ -288,6 +289,25 @@ export default function SystemSettings() {
         {/* ── 安全 ── */}
         <Tab key="security" title="🛡️ 安全">
           <div className="space-y-4">
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>宸汐御安全通讯协议</p>
+                <Switch
+                  isSelected={get('cxsec_enabled', 'true') === 'true'}
+                  onValueChange={v => set('cxsec_enabled', String(v))}
+                >
+                  启用宸汐御安全（CxSec）加密通讯
+                </Switch>
+                <Input
+                  label="受保护的 API 路径（逗号分隔）"
+                  value={get('cxsec_protected_paths', '/api/user/login,/api/user/register,/api/user/login/2fa,/api/user/password/reset-request,/api/user/password/reset-confirm,/api/user/checkin')}
+                  onValueChange={v => set('cxsec_protected_paths', v)}
+                  description="前端拦截器只对这些路径启用 ECDH+AES-256-GCM 加密，多个路径用英文逗号分隔"
+                  isDisabled={get('cxsec_enabled', 'true') !== 'true'}
+                />
+              </CardBody>
+            </Card>
+
             <Card>
               <CardBody className="gap-4 p-5">
                 <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>日志留存</p>

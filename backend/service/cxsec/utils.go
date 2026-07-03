@@ -62,6 +62,13 @@ func hexDecode(s string) []byte {
 	return b
 }
 
+// zeroBytes ～把用完的密钥字节清成0，别让它在内存里赖着不走～
+func zeroBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
 // uint32ToLE 将 uint32 编码为 4 字节小端
 func uint32ToLE(v uint32) []byte {
 	b := make([]byte, 4)
