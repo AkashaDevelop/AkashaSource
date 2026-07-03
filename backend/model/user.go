@@ -27,6 +27,7 @@ type User struct {
 	Group             string `json:"group" gorm:"default:'default'"`
 	BillingPreference string `json:"billing_preference" gorm:"type:varchar(32);default:'subscription_first'"`
 	AffCode           string `json:"aff_code" gorm:"index"`
+	AffQuota          int64  `json:"aff_quota" gorm:"default:0"` // 邀请返利余额，需通过转账接口转入可用 Quota
 	InviterId         int    `json:"inviter_id" gorm:"index"`
 
 	// 2FA / TOTP

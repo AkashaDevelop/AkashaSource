@@ -3,7 +3,13 @@ package controller
 import (
 	"STfreApi/common"
 	"STfreApi/model"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -161,6 +167,131 @@ func DeleteCustomConfig(c *gin.Context) {
 
 // TestCustomConfig 测试自定义配置
 func TestCustomConfig(c *gin.Context) {
-	// TODO: 实现测试逻辑
-	common.OKMsg(c, "测试功能开发中", nil)
+	id := c.Param("id")
+	var config model.CustomChannelConfig
+	if err := common.DB.First(&config, id).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "配置不存在")
+		return
+	}
+
+	// 允许请求体中临时覆盖 key 和 base_url（用于保存前预测试）
+	var override struct {
+		Key     string `json:"key"`
+		BaseURL string `json:"base_url"`
+		Model   string `json:"model"`
+		Message string `json:"message"`
+	}
+	_ = c.ShouldBindJSON(&override)
+
+	testKey := strings.TrimSpace(override.Key)
+	testBaseURL := strings.TrimSpace(override.BaseURL)
+	testModel := strings.TrimSpace(override.Model)
+	testMessage := strings.TrimSpace(override.Message)
+	if testMessage == "" {
+		testMessage = "Hello, please reply with a single word 'OK'."
+	}
+	if testModel == "" {
+		testModel = "test"
+	}
+
+	baseURL := testBaseURL
+	if baseURL == "" {
+		// 从已绑定的渠道取 base_url，取第一个
+		var ch model.Channel
+		if err := common.DB.Where("custom_config_id = ?", config.Id).First(&ch).Error; err == nil {
+			baseURL = strings.TrimRight(strings.TrimSpace(ch.BaseURL), "/")
+			if testKey == "" {
+				testKey = ch.Key
+			}
+		}
+	}
+	if baseURL == "" {
+		common.Fail(c, common.CodeParamError, "无法确定测试目标地址，请传入 base_url 或先绑定渠道")
+		return
+	}
+	if testKey == "" {
+		common.Fail(c, common.CodeParamError, "无法确定 API Key，请传入 key 或先绑定渠道")
+		return
+	}
+
+	// 构造最小化请求体
+	fieldModel := config.FieldModel
+	if fieldModel == "" || fieldModel == "-" {
+		fieldModel = "model"
+	}
+	fieldMessages := config.FieldMessages
+	if fieldMessages == "" || fieldMessages == "-" {
+		fieldMessages = "messages"
+	}
+	reqBody := map[string]any{
+		fieldModel: testModel,
+		fieldMessages: []map[string]string{
+			{"role": "user", "content": testMessage},
+		},
+		"stream": false,
+	}
+	raw, err := json.Marshal(reqBody)
+	if err != nil {
+		common.Fail(c, common.CodeServerError, "构建请求失败")
+		return
+	}
+
+	endpoint := strings.TrimLeft(strings.TrimSpace(config.RequestEndpoint), "/")
+	targetURL := fmt.Sprintf("%s/%s", baseURL, endpoint)
+	method := config.RequestMethod
+	if method == "" {
+		method = "POST"
+	}
+
+	req, err := http.NewRequest(method, targetURL, bytes.NewBuffer(raw))
+	if err != nil {
+		common.Fail(c, common.CodeServerError, fmt.Sprintf("创建请求失败: %v", err))
+		return
+	}
+
+	authName := config.AuthHeaderName
+	if authName == "" {
+		authName = "Authorization"
+	}
+	authValue := strings.ReplaceAll(config.AuthHeaderTemplate, "{key}", testKey)
+	if authValue == "" {
+		authValue = "Bearer " + testKey
+	}
+	req.Header.Set(authName, authValue)
+
+	contentType := config.RequestContentType
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	req.Header.Set("Content-Type", contentType)
+
+	timeout := time.Duration(config.Timeout) * time.Second
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+	client := &http.Client{Timeout: timeout}
+
+	start := time.Now()
+	resp, err := client.Do(req)
+	elapsed := time.Since(start).Milliseconds()
+	if err != nil {
+		common.OK(c, gin.H{
+			"success":    false,
+			"latency_ms": elapsed,
+			"error":      err.Error(),
+			"target_url": targetURL,
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	success := resp.StatusCode >= 200 && resp.StatusCode < 300
+	common.OK(c, gin.H{
+		"success":     success,
+		"status_code": resp.StatusCode,
+		"latency_ms":  elapsed,
+		"response":    string(body),
+		"target_url":  targetURL,
+	})
 }
