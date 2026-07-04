@@ -435,8 +435,8 @@ export default function Login() {
             )}
 
             <div className="mt-5 text-center">
-              <Button variant="light" onPress={() => navigate('/register')} style={{ color: 'var(--accent-primary)' }}>
-                {initialized ? '没有账号？立即注册 ✦' : '初始化系统（注册管理员）'}
+              <Button variant="light" onPress={() => navigate(initialized ? '/register' : '/setup')} style={{ color: 'var(--accent-primary)' }}>
+                {initialized ? '没有账号？立即注册 ✦' : '初始化系统（配置数据库 + 创建管理员）'}
               </Button>
             </div>
           </CardBody>

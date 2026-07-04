@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import Setup from './pages/Setup';
 import UserDashboard from './pages/Dashboard';
 import AdminDashboard from './pages/admin/Dashboard';
 import ChannelManagement from './pages/admin/Channel';
@@ -57,6 +58,7 @@ function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/setup" element={<Setup />} />
       <Route path="/pricing" element={<Pricing />} />
 
       {/* 用户路由 */}

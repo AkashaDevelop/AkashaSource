@@ -7,11 +7,8 @@ import (
 
 	"STfreApi/common"
 	"STfreApi/middleware"
-	"STfreApi/model"
 	"STfreApi/router"
-	"STfreApi/service"
-	"STfreApi/service/cxsec"
-	"STfreApi/service/qingyuan"
+	"STfreApi/service/bootstrap"
 
 	"github.com/gin-gonic/gin"
 )
@@ -32,50 +29,27 @@ func main() {
 	// 初始化 JWT 密钥（环境变量优先，否则复用/生成本地密钥文件）
 	common.InitJwtSecret()
 
-	// Initialize Database
-	log.Printf("初始化数据库，驱动: %s", driver)
-	common.InitDB(driver, dsn)
-
-	// Load Options
-	model.InitOptions()
-
-	// 初始化 Redis
+	// 初始化 Redis（不依赖数据库，永远可以跑）
 	common.InitRedis()
 
-	// Initialize Rate Limiter
+	// Initialize Rate Limiter（纯内存实现，不依赖数据库）
 	log.Printf("初始化限流器，RPM: %d", rpm)
 	middleware.InitRateLimiter(rpm)
 
-	// Start Channel Health Check
-	log.Printf("启动渠道健康检查...")
-	service.StartChannelCheck()
-
-	// 启动日志队列
-	service.InitLogQueue()
-
-	// 启动订阅过期检查
-	service.InitSubscriptionExpiry()
-
-	// 启动渠道签到和余额监控调度器
-	log.Printf("启动渠道签到和余额监控调度器...")
-	service.InitScheduler()
-
-	// 启动宸汐御安全挑战清理 goroutine
-	go cxsec.PurgeExpiredChallenges()
-
-	// 唤醒「宸汐清源」上下文净化结界～守护每一次对话不被杂念侵扰哦 (｡•ᴗ•｡)
-	log.Printf("初始化宸汐清源模块...")
-	if err := qingyuan.Init(); err != nil {
-		log.Fatalf("宸汐清源模块初始化失败: %v", err)
+	// 宸汐清源姊妹功能～引导式初始化：优先用向导持久化过的连接信息，
+	// 没有的话才退回命令行参数；连不上也不 Fatal，让 API 先跑起来，
+	// 好让向导页面能调到 /api/setup/database 把数据库接上
+	effectiveDriver, effectiveDSN := driver, dsn
+	if cfg, ok := common.LoadDBConfig(); ok {
+		effectiveDriver, effectiveDSN = cfg.Driver, cfg.DSN
+		log.Printf("检测到已保存的数据库配置，使用驱动: %s", effectiveDriver)
 	}
-	features := qingyuan.GetFeatures()
-	enabledCount := 0
-	for _, enabled := range features {
-		if enabled {
-			enabledCount++
-		}
+	log.Printf("初始化数据库，驱动: %s", effectiveDriver)
+	if err := common.InitDB(effectiveDriver, effectiveDSN); err != nil {
+		log.Printf("数据库连接失败，等待通过初始化向导配置: %v", err)
+	} else {
+		bootstrap.RunPostDBInit()
 	}
-	log.Printf("宸汐清源已启用 %d 个功能 (版本: %s)", enabledCount, qingyuan.GetVersion())
 
 	// Initialize Gin
 	r := gin.Default()
@@ -87,7 +61,7 @@ func main() {
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"message": "Akasha is running",
-			"driver":  driver,
+			"driver":  effectiveDriver,
 		})
 	})
 

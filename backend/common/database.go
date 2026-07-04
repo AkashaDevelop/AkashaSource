@@ -1,6 +1,8 @@
 package common
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -20,7 +22,8 @@ var (
 // InitDB 初始化数据库连接
 // driver: sqlite, mysql, postgres
 // dsn: 数据源名称 (例如: "file.db", "user:pass@tcp(127.0.0.1:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local")
-func InitDB(driver string, dsn string) {
+// 连接失败时返回 error 而不是直接终止进程——引导式初始化向导需要在数据库还没配好的时候也能把 API 跑起来
+func InitDB(driver string, dsn string) error {
 	var err error
 	var dialector gorm.Dialector
 
@@ -32,7 +35,7 @@ func InitDB(driver string, dsn string) {
 	case "postgres":
 		dialector = postgres.Open(dsn)
 	default:
-		log.Fatalf("不支持的数据库驱动: %s", driver)
+		return fmt.Errorf("不支持的数据库驱动: %s", driver)
 	}
 
 	newLogger := logger.New(
@@ -50,21 +53,26 @@ func InitDB(driver string, dsn string) {
 		Logger: newLogger,
 	}
 
-	DB, err = gorm.Open(dialector, config)
+	db, err := gorm.Open(dialector, config)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		return fmt.Errorf("连接数据库失败: %w", err)
 	}
 
 	// Connection pool settings
-	sqlDB, err := DB.DB()
+	sqlDB, err := db.DB()
 	if err != nil {
-		log.Fatalf("Failed to get database instance: %v", err)
+		return errors.New("获取数据库连接池失败: " + err.Error())
+	}
+	if err := sqlDB.Ping(); err != nil {
+		return fmt.Errorf("数据库无法访问: %w", err)
 	}
 
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetMaxOpenConns(100)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
+	DB = db
 	DBDriver = driver
 	log.Printf("Database connected successfully (%s)", driver)
+	return nil
 }

@@ -18,6 +18,7 @@ type SetupInfo struct {
 	Status       bool   `json:"status"`
 	RootInit     bool   `json:"root_init"`
 	DatabaseType string `json:"database_type"`
+	DBConnected  bool   `json:"db_connected"`
 }
 
 type SetupRequest struct {
@@ -62,12 +63,15 @@ func setSecureVerified(userID int) int64 {
 
 func GetSetup(c *gin.Context) {
 	var rootCount int64
-	common.DB.Model(&model.User{}).Where("role = ?", model.RoleRoot).Count(&rootCount)
+	if common.DB != nil {
+		common.DB.Model(&model.User{}).Where("role = ?", model.RoleRoot).Count(&rootCount)
+	}
 
 	setup := SetupInfo{
 		Status:       rootCount > 0,
 		RootInit:     rootCount > 0,
 		DatabaseType: common.DBDriver,
+		DBConnected:  common.DB != nil,
 	}
 	if setup.DatabaseType == "" {
 		setup.DatabaseType = "unknown"
@@ -76,6 +80,11 @@ func GetSetup(c *gin.Context) {
 }
 
 func PostSetup(c *gin.Context) {
+	if common.DB == nil {
+		common.Fail(c, common.CodeServerError, "请先完成数据库连接配置")
+		return
+	}
+
 	var req SetupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.Fail(c, common.CodeParamError, "请求参数有误")

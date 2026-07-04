@@ -13,6 +13,8 @@ import (
 func SetApiRouter(router *gin.Engine) {
 	// ～先给所有请求盖上追踪印章，后面写日志的时候才能对上号～
 	router.Use(middleware.RequestIDMiddleware())
+	// ～数据库还没接通之前，先把需要查表的接口都挡在门外，只留初始化向导能走～
+	router.Use(middleware.RequireDatabaseReady())
 
 	// Relay Route (OpenAI Compatible)
 	router.POST("/v1/chat/completions", middleware.RateLimitMiddleware(), controller.Relay)
@@ -129,6 +131,7 @@ func SetApiRouter(router *gin.Engine) {
 		// 公开接口
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", controller.PostSetup)
+		apiRouter.POST("/setup/database", controller.PostSetupDatabase)
 		apiRouter.GET("/status", controller.GetStatus)
 		apiRouter.GET("/notice", controller.GetNotice)
 		apiRouter.GET("/about", controller.GetAbout)
