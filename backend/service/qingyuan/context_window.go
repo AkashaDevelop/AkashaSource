@@ -1,4 +1,4 @@
-package context_sanitizer
+package qingyuan
 
 import (
 )
@@ -88,18 +88,6 @@ func estimateTokenCount(text string) int {
 	estimatedTokens := int(float64(cjkCount)/1.5 + float64(asciiCount)/4.0)
 
 	return estimatedTokens
-}
-
-// estimateRequestTokens 估算整个请求的 token 数量
-func estimateRequestTokens(req interface{}) int {
-	// 这里需要根据实际请求类型进行处理
-	// 简化实现: 提取所有文本并估算
-	total := 0
-
-	// 遍历 segments 累加
-	// (在实际调用时需要传入 segments)
-
-	return total
 }
 
 // isCJK 判断是否为中日韩字符

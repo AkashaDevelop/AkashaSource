@@ -16,7 +16,7 @@ import (
 	"STfreApi/middleware"
 	"STfreApi/model"
 	"STfreApi/service"
-	contextsanitizer "STfreApi/service/context_sanitizer"
+	"STfreApi/service/qingyuan"
 	"STfreApi/service/moderation"
 
 	"github.com/gin-gonic/gin"
@@ -230,7 +230,7 @@ func Relay(c *gin.Context) {
 	var lastError error
 	for i, channel := range channels {
 		mappedModel := mappedModels[i]
-		attemptReq, copyErr := contextsanitizer.DeepCopyOpenAIRequest(&baseReq)
+		attemptReq, copyErr := qingyuan.DeepCopyOpenAIRequest(&baseReq)
 		if copyErr != nil {
 			lastError = copyErr
 			continue
@@ -242,8 +242,8 @@ func Relay(c *gin.Context) {
 		// 多 Key 轮换
 		channel.Key = service.GetNextKey(channel.Key)
 
-		policy := contextsanitizer.ResolvePolicy(channel.Id, requestedModel, mappedModel)
-		reqCtx := contextsanitizer.RequestContext{
+		policy := qingyuan.ResolvePolicy(channel.Id, requestedModel, mappedModel)
+		reqCtx := qingyuan.RequestContext{
 			RequestId:      c.GetString("request_id"),
 			UserId:         user.Id,
 			TokenId:        token.Id,
@@ -256,7 +256,7 @@ func Relay(c *gin.Context) {
 			UserGroup:      user.Group,
 			ClientIP:       c.ClientIP(),
 		}
-		sanitizeResult, sanitizeErr := contextsanitizer.ApplyRequest(c.Request.Context(), attemptReq, reqCtx, policy)
+		sanitizeResult, sanitizeErr := qingyuan.ApplyRequest(c.Request.Context(), attemptReq, reqCtx, policy)
 		if sanitizeErr != nil {
 			lastError = sanitizeErr
 			continue
@@ -275,7 +275,7 @@ func Relay(c *gin.Context) {
 		}
 		c.Set("context_sanitization_policy", policy)
 		c.Set("context_sanitization_request_context", reqCtx)
-		c.Set("context_sanitization_user_requested_ads", contextsanitizer.IsUserRequestingAds(attemptReq))
+		c.Set("context_sanitization_user_requested_ads", qingyuan.IsUserRequestingAds(attemptReq))
 		c.Set("context_sanitization_request_tools", attemptReq.Tools)
 
 		// 获取适配器

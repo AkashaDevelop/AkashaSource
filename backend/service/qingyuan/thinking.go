@@ -1,4 +1,4 @@
-package context_sanitizer
+package qingyuan
 
 import (
 	"strings"
@@ -35,7 +35,7 @@ func isReasoningModel(modelName string) bool {
 		"o3",
 		"deepseek-r1",
 		"deepseek-reasoner",
-		"claude-opus",
+		"opus", // 覆盖 claude-3-opus / claude-opus-4 等各种版本号写法
 		"reasoning",
 		"think",
 	}
@@ -220,15 +220,4 @@ func validateThinkingResponse(thinkingContent string, policy ResolvedPolicy) []F
 	}
 
 	return findings
-}
-
-// adFindings 是一个辅助结构
-type adFindings struct {
-	findings []Finding
-}
-
-// detectAndStripSuffixAd 的包装版本,返回结构化结果
-func detectAndStripSuffixAdStructured(content string, policy ResolvedPolicy) adFindings {
-	_, findings := detectAndStripSuffixAd(content, policy)
-	return adFindings{findings: findings}
 }

@@ -1,4 +1,4 @@
-package context_sanitizer
+package qingyuan
 
 import (
 	"encoding/json"
@@ -22,9 +22,22 @@ type PolicyConfig struct {
 	Risk           RiskConfig           `json:"risk"`
 	Tools          ToolsConfig          `json:"tools"`
 	Response       ResponseConfig       `json:"response"`
+	Trust          TrustConfig          `json:"trust"`
 	Logging        LoggingConfig        `json:"logging"`
 	CircuitBreaker CircuitBreakerConfig `json:"circuit_breaker"`
 	Degradation    DegradationConfig    `json:"degradation"`
+}
+
+// TrustConfig 宸汐清源 · 信任边界配置～
+// 对应 2026 年"默认不信任非运营者内容"的架构原则：
+// 检索文档/工具输出/工具自我介绍命中攻击特征时，风险分要比普通文本放得更大声
+type TrustConfig struct {
+	EnableProvenance           bool    `json:"enable_provenance"`
+	RetrievedDocRiskMultiplier float64 `json:"retrieved_doc_risk_multiplier"`
+	ToolOutputRiskMultiplier   float64 `json:"tool_output_risk_multiplier"`
+	ScanToolDescriptions       bool    `json:"scan_tool_descriptions"`
+	ScanMemoryPoisoning        bool    `json:"scan_memory_poisoning"`
+	MemoryScanMaxMessages      int     `json:"memory_scan_max_messages"`
 }
 
 type RequestConfig struct {
@@ -144,6 +157,14 @@ func DefaultConfig() PolicyConfig {
 			DetectMultimodal:        true,
 			DetectThinkingAttacks:   true,
 		},
+		Trust: TrustConfig{
+			EnableProvenance:           true,
+			RetrievedDocRiskMultiplier: 1.6,
+			ToolOutputRiskMultiplier:   1.4,
+			ScanToolDescriptions:       true,
+			ScanMemoryPoisoning:        true,
+			MemoryScanMaxMessages:      50,
+		},
 		Logging:        LoggingConfig{LogEvents: true, LogSnippetChars: 160, HashContent: true},
 		CircuitBreaker: CircuitBreakerConfig{Enabled: true, FailureThreshold: 5, TimeoutPerReqMs: 500, CooldownSeconds: 30},
 		Degradation:    DegradationConfig{MonitorTimeoutAction: "skip", ProtectTimeoutAction: "fallback_to_guard"},
@@ -193,6 +214,15 @@ func MergeConfig(raw string) (PolicyConfig, error) {
 	}
 	if cfg.CircuitBreaker.CooldownSeconds <= 0 {
 		cfg.CircuitBreaker.CooldownSeconds = 30
+	}
+	if cfg.Trust.RetrievedDocRiskMultiplier <= 0 {
+		cfg.Trust.RetrievedDocRiskMultiplier = 1.6
+	}
+	if cfg.Trust.ToolOutputRiskMultiplier <= 0 {
+		cfg.Trust.ToolOutputRiskMultiplier = 1.4
+	}
+	if cfg.Trust.MemoryScanMaxMessages <= 0 {
+		cfg.Trust.MemoryScanMaxMessages = 50
 	}
 	return cfg, nil
 }

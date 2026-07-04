@@ -7,7 +7,7 @@ import (
 
 	"STfreApi/common"
 	"STfreApi/model"
-	contextsanitizer "STfreApi/service/context_sanitizer"
+	"STfreApi/service/qingyuan"
 
 	"github.com/gin-gonic/gin"
 )
@@ -53,7 +53,7 @@ func CreateContextSanitizationPolicy(c *gin.Context) {
 		common.Fail(c, common.CodeServerError, "创建策略失败")
 		return
 	}
-	_ = contextsanitizer.ReloadPolicyCache()
+	_ = qingyuan.ReloadPolicyCache()
 	common.OK(c, policy)
 }
 
@@ -83,7 +83,7 @@ func UpdateContextSanitizationPolicy(c *gin.Context) {
 		common.Fail(c, common.CodeServerError, "更新策略失败")
 		return
 	}
-	_ = contextsanitizer.ReloadPolicyCache()
+	_ = qingyuan.ReloadPolicyCache()
 	common.OK(c, req)
 }
 
@@ -103,7 +103,7 @@ func DeleteContextSanitizationPolicy(c *gin.Context) {
 		common.Fail(c, common.CodeServerError, "删除策略失败")
 		return
 	}
-	_ = contextsanitizer.ReloadPolicyCache()
+	_ = qingyuan.ReloadPolicyCache()
 	common.OKMsg(c, "删除成功", nil)
 }
 
@@ -156,16 +156,16 @@ func RollbackContextSanitizationPolicy(c *gin.Context) {
 		common.Fail(c, common.CodeServerError, "回滚失败")
 		return
 	}
-	_ = contextsanitizer.ReloadPolicyCache()
+	_ = qingyuan.ReloadPolicyCache()
 	common.OK(c, restored)
 }
 
 func ReloadContextSanitizationPolicyCache(c *gin.Context) {
-	if err := contextsanitizer.ReloadPolicyCache(); err != nil {
+	if err := qingyuan.ReloadPolicyCache(); err != nil {
 		common.Fail(c, common.CodeServerError, "刷新缓存失败")
 		return
 	}
-	common.OK(c, contextsanitizer.CacheStats())
+	common.OK(c, qingyuan.CacheStats())
 }
 
 func GetContextSanitizationEvents(c *gin.Context) {
@@ -201,11 +201,11 @@ func GetContextSanitizationStats(c *gin.Context) {
 	var eventCount int64
 	common.DB.Model(&model.ContextSanitizationPolicy{}).Count(&policyCount)
 	common.DB.Model(&model.ContextSanitizationEvent{}).Count(&eventCount)
-	common.OK(c, gin.H{"policy_count": policyCount, "event_count": eventCount, "cache": contextsanitizer.CacheStats(), "circuit": contextsanitizer.CircuitStats()})
+	common.OK(c, gin.H{"policy_count": policyCount, "event_count": eventCount, "cache": qingyuan.CacheStats(), "circuit": qingyuan.CircuitStats()})
 }
 
 func validatePolicyForSave(policy *model.ContextSanitizationPolicy, ignoreId int) error {
-	if err := contextsanitizer.ValidatePolicy(policy); err != nil {
+	if err := qingyuan.ValidatePolicy(policy); err != nil {
 		return err
 	}
 	db := common.DB.Model(&model.ContextSanitizationPolicy{}).Where("scope = ?", policy.Scope)

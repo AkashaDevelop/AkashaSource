@@ -10,8 +10,8 @@ import (
 	"STfreApi/model"
 	"STfreApi/router"
 	"STfreApi/service"
-	contextsanitizer "STfreApi/service/context_sanitizer"
 	"STfreApi/service/cxsec"
+	"STfreApi/service/qingyuan"
 
 	"github.com/gin-gonic/gin"
 )
@@ -63,19 +63,19 @@ func main() {
 	// 启动宸汐御安全挑战清理 goroutine
 	go cxsec.PurgeExpiredChallenges()
 
-	// 初始化上下文净化模块
-	log.Printf("初始化上下文净化模块...")
-	if err := contextsanitizer.Init(); err != nil {
-		log.Fatalf("上下文净化模块初始化失败: %v", err)
+	// 唤醒「宸汐清源」上下文净化结界～守护每一次对话不被杂念侵扰哦 (｡•ᴗ•｡)
+	log.Printf("初始化宸汐清源模块...")
+	if err := qingyuan.Init(); err != nil {
+		log.Fatalf("宸汐清源模块初始化失败: %v", err)
 	}
-	features := contextsanitizer.GetFeatures()
+	features := qingyuan.GetFeatures()
 	enabledCount := 0
 	for _, enabled := range features {
 		if enabled {
 			enabledCount++
 		}
 	}
-	log.Printf("上下文净化模块已启用 %d 个功能 (版本: %s)", enabledCount, contextsanitizer.GetVersion())
+	log.Printf("宸汐清源已启用 %d 个功能 (版本: %s)", enabledCount, qingyuan.GetVersion())
 
 	// Initialize Gin
 	r := gin.Default()

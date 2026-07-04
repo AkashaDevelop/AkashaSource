@@ -4,7 +4,7 @@ import (
 	"STfreApi/common"
 	"STfreApi/dto"
 	"STfreApi/model"
-	contextsanitizer "STfreApi/service/context_sanitizer"
+	"STfreApi/service/qingyuan"
 	"bufio"
 	"bytes"
 	"encoding/json"
@@ -118,10 +118,10 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 
 	// 应用响应侧上下文净化
 	if policyValue, exists := c.Get("context_sanitization_policy"); exists {
-		if policy, ok := policyValue.(contextsanitizer.ResolvedPolicy); ok {
-			var rc contextsanitizer.ResponseContext
+		if policy, ok := policyValue.(qingyuan.ResolvedPolicy); ok {
+			var rc qingyuan.ResponseContext
 			if rcValue, ok := c.Get("context_sanitization_request_context"); ok {
-				if reqCtx, ok := rcValue.(contextsanitizer.RequestContext); ok {
+				if reqCtx, ok := rcValue.(qingyuan.RequestContext); ok {
 					rc.RequestContext = reqCtx
 				}
 			}
@@ -137,7 +137,7 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 				}
 			}
 
-			if result, err := contextsanitizer.ApplyOpenAIResponse(c.Request.Context(), body, rc, policy); err == nil && result != nil {
+			if result, err := qingyuan.ApplyOpenAIResponse(c.Request.Context(), body, rc, policy); err == nil && result != nil {
 				if result.Blocked {
 					// 响应被阻断
 					c.JSON(http.StatusForbidden, dto.OpenAIErrorResponse{
@@ -216,12 +216,12 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 	common.SetEventStreamHeaders(c)
 
 	// 获取上下文净化策略
-	var policy contextsanitizer.ResolvedPolicy
+	var policy qingyuan.ResolvedPolicy
 	var requestTools []interface{}
 	shouldSanitize := false
 
 	if policyValue, exists := c.Get("context_sanitization_policy"); exists {
-		if p, ok := policyValue.(contextsanitizer.ResolvedPolicy); ok {
+		if p, ok := policyValue.(qingyuan.ResolvedPolicy); ok {
 			policy = p
 			shouldSanitize = true
 		}
@@ -233,9 +233,9 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 	}
 
 	// 创建流式处理器
-	var processor *contextsanitizer.StreamProcessor
-	if shouldSanitize && contextsanitizer.IsEnabled(policy) {
-		processor = contextsanitizer.NewStreamProcessor(policy, requestTools)
+	var processor *qingyuan.StreamProcessor
+	if shouldSanitize && qingyuan.IsEnabled(policy) {
+		processor = qingyuan.NewStreamProcessor(policy, requestTools)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -260,10 +260,9 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 			continue
 		}
 
-		// 流式处理: 一期只监控,不修改
+		// 宸汐清源: 尾部广告策略开启时，processor 会把最后一小截"扣在手里"暂不放行
 		chunkToWrite := []byte(data + "\n\n")
 		if processor != nil {
-			// 处理流式块 (一期: 原样输出,只聚合内容)
 			if processed, err := processor.ProcessChunk([]byte(data + "\n")); err == nil {
 				chunkToWrite = processed
 			}
@@ -273,15 +272,19 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 		c.Writer.Flush()
 	}
 
-	// 流结束后检测
+	// 流结束后检测: 把之前"扣在手里"没放行的尾部，做完广告/注入检测再决定要不要补写出去
 	if processor != nil {
-		findings := processor.Finalize()
+		tail, findings := processor.Finalize()
+		if len(tail) > 0 {
+			c.Writer.Write(tail)
+			c.Writer.Flush()
+		}
 		if len(findings) > 0 {
 			// 异步记录事件
 			go func() {
-				var rc contextsanitizer.RequestContext
+				var rc qingyuan.RequestContext
 				if rcValue, ok := c.Get("context_sanitization_request_context"); ok {
-					if reqCtx, ok := rcValue.(contextsanitizer.RequestContext); ok {
+					if reqCtx, ok := rcValue.(qingyuan.RequestContext); ok {
 						rc = reqCtx
 					}
 				}
@@ -293,7 +296,7 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 					}
 				}
 
-				contextsanitizer.RecordEventAsync(contextsanitizer.EventInput{
+				qingyuan.RecordEventAsync(qingyuan.EventInput{
 					RequestId:      rc.RequestId,
 					UserId:         rc.UserId,
 					TokenId:        rc.TokenId,

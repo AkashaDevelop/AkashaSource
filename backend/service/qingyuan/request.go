@@ -1,4 +1,4 @@
-package context_sanitizer
+package qingyuan
 
 import (
 	"context"
@@ -195,11 +195,16 @@ func detectRequest(req *dto.OpenAIRequest, policy ResolvedPolicy) []Finding {
 		findings = append(findings, multimodalFindings...)
 	}
 
+	// 宸汐清源 2026 新增: 工具投毒 + 记忆/历史投毒检测
+	findings = append(findings, detectToolPoisoning(segments, policy.Config.Trust)...)
+	findings = append(findings, detectMemoryPoisoning(segments, policy.Config.Trust)...)
+
 	// 文本检测
 	for i, seg := range segments {
 		views := detectionViews(seg.Text, policy.Config)
 		isLast := isLastUserMessage(segments, i)
 		contextUsage := float64(totalTokens) / float64(maxContext)
+		trustLevel := classifySegmentTrust(seg, isLast)
 
 		for j, view := range views {
 			obfuscated := j > 0
@@ -209,6 +214,10 @@ func detectRequest(req *dto.OpenAIRequest, policy ResolvedPolicy) []Finding {
 
 			// 应用上下文窗口加权
 			segFindings = applyContextWindowWeighting(segFindings, seg, isLast, contextUsage)
+
+			// 宸汐清源: 按内容来源可信度再放大一次风险分
+			// (检索文档/工具输出命中同样的攻击话术，比用户亲口说的更值得警惕)
+			segFindings = applyTrustWeighting(segFindings, trustLevel, policy.Config.Trust)
 
 			// Thinking 操控检测
 			if policy.Config.Response.DetectThinkingAttacks {

@@ -48,6 +48,7 @@ const defaultConfig = {
   request: { inject_guard: true, guard_position: 'first_system', guard_language: 'auto', preserve_user_system_messages: true },
   tools: { enabled: true, validate_tool_schema: true, validate_tool_choice: true, validate_assistant_tool_calls: true, tool_name_regex: '^[a-zA-Z0-9_-]{1,64}$', max_tools: 128, max_tool_schema_bytes: 65536 },
   response: { detect_ads: true, ad_policy: 'monitor', ad_confidence_threshold: 75, known_ad_patterns: [], preserve_code_blocks: true },
+  trust: { enable_provenance: true, retrieved_doc_risk_multiplier: 1.6, tool_output_risk_multiplier: 1.4, scan_tool_descriptions: true, scan_memory_poisoning: true, memory_scan_max_messages: 50 },
   logging: { log_events: true, log_raw_content: false, log_snippet_chars: 160, hash_content: true },
   circuit_breaker: { enabled: true, failure_threshold: 5, timeout_per_req_ms: 500, cooldown_seconds: 30 },
 };
@@ -117,7 +118,7 @@ export default function ContextSanitization() {
   const openEdit = (p: Policy) => {
     setEditing(p);
     setForm({ name: p.name, enabled: p.enabled, scope: p.scope, channel_id: p.channel_id ? String(p.channel_id) : '', model_name: p.model_name || '', mode: p.mode });
-    try { setConfigForm(p.config ? JSON.parse(p.config) : defaultConfig); } catch { setConfigForm(defaultConfig); }
+    try { setConfigForm(p.config ? { ...defaultConfig, ...JSON.parse(p.config), trust: { ...defaultConfig.trust, ...(JSON.parse(p.config).trust || {}) } } : defaultConfig); } catch { setConfigForm(defaultConfig); }
     onOpen();
   };
 
@@ -156,14 +157,23 @@ export default function ContextSanitization() {
   const scopeLabel = (s: string) => ({ global: '全局', model: '模型', channel: '渠道', channel_model: '渠道模型' }[s] || s);
   const modeLabel = (m: string) => ({ off: '关闭', monitor: '监控', protect: '防护', balanced: '均衡', strict: '严格' }[m] || m);
   const directionLabel = (d: string) => ({ request: '请求', response: '响应' }[d] || d);
-  const stageLabel = (s: string) => ({ request_detect: '请求检测', tool_validate: '工具校验', guard_inject: 'Guard注入', response_ad_detect: '响应广告检测', degraded: '已降级', circuit_open: '熔断开路' }[s] || s);
+  const stageLabel = (s: string) => ({ request_detect: '请求检测', tool_validate: '工具校验', guard_inject: 'Guard注入', response_ad_detect: '响应广告检测', degraded: '已降级', circuit_open: '熔断开路', stream_finalize: '流式收尾' }[s] || s);
   const actionLabel = (a: string) => ({ monitor: '监控', allow: '放行', inject_guard: '注入Guard', block: '阻断', strip_known_suffix: '清理广告', skip: '跳过', degrade: '降级' }[a] || a);
+  const categoryLabel = (t: string) => ({
+    tool_poisoning_priority_hijack: '工具投毒·抢占调用', tool_poisoning_confirmation_bypass: '工具投毒·绕过确认', tool_poisoning_param_injection: '工具投毒·参数注入',
+    memory_poisoning_self_instruction: '记忆投毒·自我指令', memory_poisoning_tool_rewrite: '记忆投毒·篡改指令',
+    retrieved_doc_injection: '检索投毒', multimodal_blind_spot: '多模态盲区', advanced_obfuscation: '高级混淆',
+    stream_undeclared_tool_injection: '流式未声明工具注入',
+  } as Record<string, string>)[t] || t;
+  const parseCategories = (raw: string): string[] => {
+    try { const parsed = JSON.parse(raw || '[]'); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+  };
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="上下文净化"
-        description="按全局、渠道或渠道指定模型配置安全 guard、工具结构校验与上游广告处理"
+        title="宸汐清源"
+        description="上下文净化结界 · 按全局、渠道或渠道指定模型配置安全 guard、工具/记忆投毒检测、信任边界分级与上游广告处理"
         actions={<div className="flex gap-2"><Button startContent={<RefreshCw size={16} />} onPress={reloadCache} variant="flat">刷新缓存</Button><Button startContent={<Plus size={16} />} color="primary" onPress={openCreate}>新增策略</Button></div>}
       />
 
@@ -183,7 +193,7 @@ export default function ContextSanitization() {
 
       {activeTab === 'events' && <div className="space-y-4">
         <div className="flex gap-2 flex-wrap"><Select placeholder="方向" className="w-36" selectedKeys={eventFilter.direction ? [eventFilter.direction] : []} onSelectionChange={keys => setEventFilter({ ...eventFilter, direction: [...keys][0] as string || '' })}><SelectItem key="request">请求</SelectItem><SelectItem key="response">响应</SelectItem></Select><Input className="w-48" placeholder="模型" value={eventFilter.model} onValueChange={v => setEventFilter({ ...eventFilter, model: v })} /></div>
-        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>时间</th><th>方向</th><th>阶段</th><th>动作</th><th>风险</th><th>渠道</th><th>模型</th><th>类别</th><th>片段</th></tr></thead><tbody>{events.length === 0 ? <tr><td colSpan={9}><EmptyState icon="📜" title="暂无事件" /></td></tr> : events.map(e => <tr key={e.id}><td>{new Date(e.created_at * 1000).toLocaleString()}</td><td>{directionLabel(e.direction)}</td><td>{stageLabel(e.stage)}</td><td>{actionLabel(e.action)}</td><td>{e.risk_score}</td><td>{e.channel_name || '-'}</td><td>{e.mapped_model || e.requested_model}</td><td className="text-xs">{e.categories}</td><td className="max-w-xs truncate">{e.snippet || e.error || '-'}</td></tr>)}</tbody></table></div>
+        <div className="data-table-wrap"><table className="data-table"><thead><tr><th>时间</th><th>方向</th><th>阶段</th><th>动作</th><th>风险</th><th>渠道</th><th>模型</th><th>类别</th><th>片段</th></tr></thead><tbody>{events.length === 0 ? <tr><td colSpan={9}><EmptyState icon="📜" title="暂无事件" /></td></tr> : events.map(e => <tr key={e.id}><td>{new Date(e.created_at * 1000).toLocaleString()}</td><td>{directionLabel(e.direction)}</td><td>{stageLabel(e.stage)}</td><td>{actionLabel(e.action)}</td><td>{e.risk_score}</td><td>{e.channel_name || '-'}</td><td>{e.mapped_model || e.requested_model}</td><td className="text-xs"><div className="flex gap-1 flex-wrap">{parseCategories(e.categories).map(c => <Chip key={c} size="sm" variant="flat">{categoryLabel(c)}</Chip>)}</div></td><td className="max-w-xs truncate">{e.snippet || e.error || '-'}</td></tr>)}</tbody></table></div>
       </div>}
 
       {activeTab === 'stats' && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -222,6 +232,20 @@ export default function ContextSanitization() {
           <div className="grid grid-cols-2 gap-4">
             <Switch isSelected={configForm.response.detect_ads} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, detect_ads: v } })}>检测广告</Switch>
             <Select label="广告策略" selectedKeys={[configForm.response.ad_policy]} onSelectionChange={keys => setConfigForm({ ...configForm, response: { ...configForm.response, ad_policy: [...keys][0] as string || 'monitor' } })}><SelectItem key="off">关闭</SelectItem><SelectItem key="monitor">监控</SelectItem><SelectItem key="mark">标记</SelectItem><SelectItem key="strip_known_suffix">清理已知尾部</SelectItem></Select>
+          </div>
+          <Divider className="my-2" />
+          <div className="text-sm font-semibold">信任边界配置（宸汐清源 2026）</div>
+          <div className="grid grid-cols-2 gap-4">
+            <Switch isSelected={configForm.trust.enable_provenance} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, enable_provenance: v } })}>启用内容来源可信度分级</Switch>
+            <Switch isSelected={configForm.trust.scan_tool_descriptions} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, scan_tool_descriptions: v } })}>扫描工具描述投毒</Switch>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Switch isSelected={configForm.trust.scan_memory_poisoning} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, scan_memory_poisoning: v } })}>扫描历史记忆投毒</Switch>
+            <Input type="number" label="记忆扫描最大消息数" value={String(configForm.trust.memory_scan_max_messages)} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, memory_scan_max_messages: parseInt(v) || 50 } })} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input type="number" label="检索文档风险倍率" value={String(configForm.trust.retrieved_doc_risk_multiplier)} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, retrieved_doc_risk_multiplier: parseFloat(v) || 1.6 } })} />
+            <Input type="number" label="工具输出风险倍率" value={String(configForm.trust.tool_output_risk_multiplier)} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, tool_output_risk_multiplier: parseFloat(v) || 1.4 } })} />
           </div>
           <Divider className="my-2" />
           <div className="text-sm font-semibold">熔断与降级</div>
