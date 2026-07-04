@@ -104,7 +104,7 @@ export default function SystemSettings() {
       'smtp_server','smtp_port','smtp_account','smtp_password','smtp_from',
       'smtp_ssl_enabled','email_verification_enabled',
       // 安全
-      'cxsec_enabled','cxsec_protected_paths',
+      'cxsec_enabled','cxsec_protected_paths','qingyuan_enabled',
       'turnstile_site_key','turnstile_secret_key','turnstile_check_enabled',
       'captcha_provider','geetest_enabled','geetest_id','geetest_key',
       // 邀请
@@ -293,7 +293,7 @@ export default function SystemSettings() {
               <CardBody className="gap-4 p-5">
                 <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>宸汐御安全通讯协议</p>
                 <Switch
-                  isSelected={get('cxsec_enabled', 'true') === 'true'}
+                  isSelected={get('cxsec_enabled', 'false') === 'true'}
                   onValueChange={v => set('cxsec_enabled', String(v))}
                 >
                   启用宸汐御安全（CxSec）加密通讯
@@ -303,8 +303,32 @@ export default function SystemSettings() {
                   value={get('cxsec_protected_paths', '/api/user/login,/api/user/register,/api/user/login/2fa,/api/user/password/reset-request,/api/user/password/reset-confirm,/api/user/checkin')}
                   onValueChange={v => set('cxsec_protected_paths', v)}
                   description="前端拦截器只对这些路径启用 ECDH+AES-256-GCM 加密，多个路径用英文逗号分隔"
-                  isDisabled={get('cxsec_enabled', 'true') !== 'true'}
+                  isDisabled={get('cxsec_enabled', 'false') !== 'true'}
                 />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>宸汐清源上下文净化</p>
+                <Switch
+                  isSelected={get('qingyuan_enabled', 'false') === 'true'}
+                  onValueChange={v => set('qingyuan_enabled', String(v))}
+                >
+                  启用宸汐清源（提示词注入检测 / 工具调用校验 / 响应内容净化）
+                </Switch>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  具体的检测策略请前往「宸汐清源」管理页配置，此开关是模块的总闸；关闭后所有策略均不生效。
+                </p>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody className="gap-4 p-5">
+                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>宸汐玄鉴行为风控</p>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  用户行为风控、破限与逆向探测拦截默认关闭，需要单独在「宸汐玄鉴」管理页（仅超级管理员可见）中开启并配置检测策略。
+                </p>
               </CardBody>
             </Card>
 

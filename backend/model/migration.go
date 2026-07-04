@@ -135,6 +135,13 @@ func ApplyMigrations() {
 				return common.DB.AutoMigrate(&XuanJianEvent{})
 			},
 		},
+		{
+			Version: 13,
+			Name:    "新增宸汐玄鉴行为风控规则表",
+			Apply: func() error {
+				return common.DB.AutoMigrate(&XuanJianRule{})
+			},
+		},
 	}
 
 	for _, step := range steps {

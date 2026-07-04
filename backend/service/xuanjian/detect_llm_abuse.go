@@ -12,7 +12,7 @@ func DetectLLMAbuse(rec RequestRecord, cfg XJConfig) []Finding {
 		return nil
 	}
 
-	rules := DefaultRules()
+	rules := GetActiveRules()
 
 	// prompt 侧扫描（恶意请求词）
 	promptFindings := MatchRules(rec.PromptSnippet, true, rec.CompletionTokens, rules)

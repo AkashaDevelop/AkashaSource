@@ -2,10 +2,14 @@ import { useEffect, useState, useMemo } from 'react';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import LoadingRows from '../../components/LoadingRows';
-import { Button, Input, Select, SelectItem, Switch, Chip } from '../../components/ui';
-import { RefreshCw, Shield, ScrollText, Activity } from 'lucide-react';
+import {
+  Button, Input, Select, SelectItem, Switch, Chip, Textarea,
+  Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure,
+} from '../../components/ui';
+import { RefreshCw, Shield, ScrollText, Activity, ListFilter, Plus, Pencil, Trash2, RotateCcw } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
+import { confirm } from '../../store/confirm';
 
 interface XJConfig {
   mode: string;
@@ -42,6 +46,32 @@ interface EventRow {
   ip: string;
   model: string;
 }
+
+interface RuleRow {
+  id: number;
+  rule_key: string;
+  finding_type: string;
+  group: string;
+  base_score: number;
+  keywords: string[];
+  require_context: string[];
+  prompt_only: boolean;
+  min_completion_tokens: number;
+  action: string;
+  enabled: boolean;
+  is_builtin: boolean;
+}
+
+const emptyRuleForm = {
+  finding_type: '',
+  group: 'jailbreak',
+  base_score: 50,
+  keywordsText: '',
+  requireContextText: '',
+  prompt_only: true,
+  min_completion_tokens: 0,
+  action: 'warn',
+};
 
 const defaultConfig: XJConfig = {
   mode: 'protect',
@@ -90,7 +120,7 @@ const actionColor = (a: string): 'default' | 'warning' | 'danger' => ({
 
 export default function XuanJian() {
   const { token } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<'config' | 'events' | 'profiles'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'rules' | 'events' | 'profiles'>('config');
   const [enabled, setEnabled] = useState(false);
   const [config, setConfig] = useState<XJConfig>(defaultConfig);
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -98,6 +128,13 @@ export default function XuanJian() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [eventFilter, setEventFilter] = useState({ finding_group: '', min_score: '' });
+
+  const [rules, setRules] = useState<RuleRow[]>([]);
+  const [rulesLoading, setRulesLoading] = useState(false);
+  const [ruleGroupFilter, setRuleGroupFilter] = useState('');
+  const [editingRule, setEditingRule] = useState<RuleRow | null>(null);
+  const [ruleForm, setRuleForm] = useState(emptyRuleForm);
+  const { isOpen: isRuleModalOpen, onOpen: onRuleModalOpen, onOpenChange: onRuleModalOpenChange } = useDisclosure();
 
   const authHeaders = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
@@ -132,6 +169,17 @@ export default function XuanJian() {
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
+  const fetchRules = async () => {
+    setRulesLoading(true);
+    const params = new URLSearchParams();
+    if (ruleGroupFilter) params.set('group', ruleGroupFilter);
+    try {
+      const res = await fetch(`/api/admin/xuanjian/rules?${params}`, { headers: authHeaders });
+      const data = await res.json();
+      if (data.code === 0) setRules(data.data || []);
+    } catch (e) { console.error(e); } finally { setRulesLoading(false); }
+  };
+
   useEffect(() => {
     if (token) { fetchConfig(); fetchEvents(); }
   }, [token]);
@@ -139,7 +187,8 @@ export default function XuanJian() {
   useEffect(() => {
     if (token && activeTab === 'events') fetchEvents();
     if (token && activeTab === 'profiles') fetchProfiles();
-  }, [activeTab, eventFilter]);
+    if (token && activeTab === 'rules') fetchRules();
+  }, [activeTab, eventFilter, ruleGroupFilter]);
 
   const saveConfig = async () => {
     setSaving(true);
@@ -164,6 +213,83 @@ export default function XuanJian() {
     } catch { toast.error('清除失败'); }
   };
 
+  const openCreateRule = () => {
+    setEditingRule(null);
+    setRuleForm(emptyRuleForm);
+    onRuleModalOpen();
+  };
+
+  const openEditRule = (r: RuleRow) => {
+    setEditingRule(r);
+    setRuleForm({
+      finding_type: r.finding_type,
+      group: r.group,
+      base_score: r.base_score,
+      keywordsText: (r.keywords || []).join('\n'),
+      requireContextText: (r.require_context || []).join('\n'),
+      prompt_only: r.prompt_only,
+      min_completion_tokens: r.min_completion_tokens,
+      action: r.action,
+    });
+    onRuleModalOpen();
+  };
+
+  const saveRule = async (onClose: () => void) => {
+    const body = {
+      finding_type: ruleForm.finding_type,
+      group: ruleForm.group,
+      base_score: ruleForm.base_score,
+      keywords: ruleForm.keywordsText.split('\n').map(s => s.trim()).filter(Boolean),
+      require_context: ruleForm.requireContextText.split('\n').map(s => s.trim()).filter(Boolean),
+      prompt_only: ruleForm.prompt_only,
+      min_completion_tokens: ruleForm.min_completion_tokens,
+      action: ruleForm.action,
+      enabled: editingRule ? editingRule.enabled : true,
+    };
+    try {
+      const res = await fetch(
+        editingRule ? `/api/admin/xuanjian/rules/${editingRule.id}` : '/api/admin/xuanjian/rules',
+        {
+          method: editingRule ? 'PUT' : 'POST',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      );
+      const data = await res.json();
+      if (data.code === 0) { toast.success('规则已保存'); fetchRules(); onClose(); }
+      else toast.error(data.msg || '保存失败');
+    } catch { toast.error('保存失败'); }
+  };
+
+  const toggleRule = async (r: RuleRow) => {
+    try {
+      const res = await fetch(`/api/admin/xuanjian/rules/${r.id}/toggle`, { method: 'POST', headers: authHeaders });
+      const data = await res.json();
+      if (data.code === 0) fetchRules();
+      else toast.error(data.msg || '切换失败');
+    } catch { toast.error('切换失败'); }
+  };
+
+  const deleteRule = async (r: RuleRow) => {
+    if (!await confirm({ title: '删除规则', message: `确定删除自定义规则「${r.finding_type}」？`, danger: true })) return;
+    try {
+      const res = await fetch(`/api/admin/xuanjian/rules/${r.id}`, { method: 'DELETE', headers: authHeaders });
+      const data = await res.json();
+      if (data.code === 0) { toast.success('已删除'); fetchRules(); }
+      else toast.error(data.msg || '删除失败');
+    } catch { toast.error('删除失败'); }
+  };
+
+  const resetRule = async (r: RuleRow) => {
+    if (!await confirm({ title: '恢复默认', message: `将「${r.finding_type}」恢复为出厂默认设置，确定继续？` })) return;
+    try {
+      const res = await fetch(`/api/admin/xuanjian/rules/${r.id}/reset`, { method: 'POST', headers: authHeaders });
+      const data = await res.json();
+      if (data.code === 0) { toast.success('已恢复默认'); fetchRules(); }
+      else toast.error(data.msg || '恢复失败');
+    } catch { toast.error('恢复失败'); }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -183,12 +309,13 @@ export default function XuanJian() {
 
       <div className="flex gap-2 flex-wrap">
         <Button variant={activeTab === 'config' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('config')} startContent={<Shield size={16} />}>策略配置</Button>
+        <Button variant={activeTab === 'rules' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('rules')} startContent={<ListFilter size={16} />}>规则管理</Button>
         <Button variant={activeTab === 'events' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('events')} startContent={<ScrollText size={16} />}>事件日志</Button>
         <Button variant={activeTab === 'profiles' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('profiles')} startContent={<Activity size={16} />}>活跃画像</Button>
       </div>
 
       {activeTab === 'config' && (
-        <div className="space-y-6" style={{ maxWidth: 700 }}>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <div className="p-4 rounded-xl space-y-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
             <div className="text-sm font-semibold">运行模式</div>
             <Select label="模式" selectedKeys={[config.mode]} onSelectionChange={keys => setConfig({ ...config, mode: [...keys][0] as string || 'protect' })}>
@@ -216,7 +343,7 @@ export default function XuanJian() {
 
           <div className="p-4 rounded-xl space-y-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
             <div className="text-sm font-semibold">检测模块开关</div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Switch isSelected={config.enable_abuse_detection} onValueChange={v => setConfig({ ...config, enable_abuse_detection: v })}>速率/算力滥用检测</Switch>
               <Switch isSelected={config.enable_jailbreak_detection} onValueChange={v => setConfig({ ...config, enable_jailbreak_detection: v })}>模型破限行为检测</Switch>
               <Switch isSelected={config.enable_llm_abuse} onValueChange={v => setConfig({ ...config, enable_llm_abuse: v })}>LLM 内容滥用检测</Switch>
@@ -233,6 +360,57 @@ export default function XuanJian() {
               <Input type="number" label="自动封 Token 分数阈值" value={String(config.auto_disable_score)} onValueChange={v => setConfig({ ...config, auto_disable_score: parseInt(v) || 90 })} />
               <Input type="number" label="自动封用户分数阈值" value={String(config.auto_ban_score)} onValueChange={v => setConfig({ ...config, auto_ban_score: parseInt(v) || 95 })} />
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'rules' && (
+        <div className="space-y-4">
+          <div className="flex gap-2 flex-wrap items-center justify-between">
+            <div className="flex gap-2 flex-wrap">
+              <Select placeholder="威胁分组" className="w-44" selectedKeys={ruleGroupFilter ? [ruleGroupFilter] : []}
+                onSelectionChange={keys => setRuleGroupFilter([...keys][0] as string || '')}>
+                <SelectItem key="llmjacking">LLM劫持</SelectItem>
+                <SelectItem key="jailbreak">模型破限</SelectItem>
+                <SelectItem key="malware_gen">恶意内容生成</SelectItem>
+                <SelectItem key="reverse_eng">逆向探测</SelectItem>
+                <SelectItem key="agent_abuse">AI代理滥用</SelectItem>
+              </Select>
+              <Button variant="flat" onPress={fetchRules} startContent={<RefreshCw size={14} />}>刷新</Button>
+            </div>
+            <Button color="primary" onPress={openCreateRule} startContent={<Plus size={16} />}>新增规则</Button>
+          </div>
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <thead><tr><th>分组</th><th>类型</th><th>关键词</th><th>分数</th><th>动作</th><th>启用</th><th>来源</th><th>操作</th></tr></thead>
+              <tbody>
+                {rulesLoading ? <LoadingRows cols={8} rows={5} /> :
+                  rules.length === 0 ? (
+                    <tr><td colSpan={8}><EmptyState icon="🧩" title="暂无规则" /></td></tr>
+                  ) : rules.map(r => (
+                    <tr key={r.id}>
+                      <td><Chip size="sm" variant="flat">{groupLabel(r.group)}</Chip></td>
+                      <td className="text-xs">{r.finding_type}</td>
+                      <td className="text-xs max-w-xs truncate" title={(r.keywords || []).join('、')}>{(r.keywords || []).join('、')}</td>
+                      <td>{r.base_score}</td>
+                      <td><Chip size="sm" color={actionColor(r.action)} variant="flat">{actionLabel(r.action)}</Chip></td>
+                      <td><Switch size="sm" isSelected={r.enabled} onValueChange={() => toggleRule(r)} /></td>
+                      <td><Chip size="sm" variant="flat" color={r.is_builtin ? 'default' : 'primary'}>{r.is_builtin ? '内置' : '自定义'}</Chip></td>
+                      <td>
+                        <div className="flex gap-2">
+                          <span className="cursor-pointer text-default-400" onClick={() => openEditRule(r)}><Pencil size={16} /></span>
+                          {r.is_builtin ? (
+                            <span className="cursor-pointer text-warning" onClick={() => resetRule(r)}><RotateCcw size={16} /></span>
+                          ) : (
+                            <span className="cursor-pointer text-danger" onClick={() => deleteRule(r)}><Trash2 size={16} /></span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -316,6 +494,55 @@ export default function XuanJian() {
           </div>
         </div>
       )}
+
+      <Modal isOpen={isRuleModalOpen} onOpenChange={onRuleModalOpenChange} size="2xl" scrollBehavior="inside">
+        <ModalContent>{onClose => <>
+          <ModalHeader>{editingRule ? `编辑规则${editingRule.is_builtin ? '（内置）' : ''}` : '新增自定义规则'}</ModalHeader>
+          <ModalBody className="gap-4">
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Finding Type" placeholder="如 custom_probe" value={ruleForm.finding_type}
+                onValueChange={v => setRuleForm({ ...ruleForm, finding_type: v })} />
+              <Select label="威胁分组" selectedKeys={[ruleForm.group]}
+                isDisabled={!!editingRule?.is_builtin}
+                onSelectionChange={keys => setRuleForm({ ...ruleForm, group: [...keys][0] as string || 'jailbreak' })}>
+                <SelectItem key="llmjacking">LLM劫持</SelectItem>
+                <SelectItem key="jailbreak">模型破限</SelectItem>
+                <SelectItem key="malware_gen">恶意内容生成</SelectItem>
+                <SelectItem key="reverse_eng">逆向探测</SelectItem>
+                <SelectItem key="agent_abuse">AI代理滥用</SelectItem>
+              </Select>
+            </div>
+            <Textarea label="关键词（每行一个，命中任意一条即触发）" minRows={4}
+              value={ruleForm.keywordsText} onValueChange={v => setRuleForm({ ...ruleForm, keywordsText: v })} />
+            <Textarea label="上下文限定词（可选，每行一个，需与关键词同时出现才触发）" minRows={2}
+              value={ruleForm.requireContextText} onValueChange={v => setRuleForm({ ...ruleForm, requireContextText: v })} />
+            <div className="grid grid-cols-2 gap-4">
+              <Input type="number" label="基础风险分" value={String(ruleForm.base_score)}
+                onValueChange={v => setRuleForm({ ...ruleForm, base_score: parseInt(v) || 0 })} />
+              <Select label="处置动作" selectedKeys={[ruleForm.action]}
+                onSelectionChange={keys => setRuleForm({ ...ruleForm, action: [...keys][0] as string || 'warn' })}>
+                <SelectItem key="warn">warn（仅记录）</SelectItem>
+                <SelectItem key="notify">notify（通知管理员）</SelectItem>
+                <SelectItem key="throttle">throttle（限速）</SelectItem>
+                <SelectItem key="disable_token">disable_token（封Token）</SelectItem>
+                <SelectItem key="ban_user">ban_user（封用户）</SelectItem>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Switch isSelected={ruleForm.prompt_only} onValueChange={v => setRuleForm({ ...ruleForm, prompt_only: v })}>
+                仅扫描 prompt（关闭则响应内容也会被扫描）
+              </Switch>
+              <Input type="number" label="响应侧最小 token 数（仅扫描响应时生效）" value={String(ruleForm.min_completion_tokens)}
+                onValueChange={v => setRuleForm({ ...ruleForm, min_completion_tokens: parseInt(v) || 0 })}
+                isDisabled={ruleForm.prompt_only} />
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={onClose}>取消</Button>
+            <Button color="primary" onPress={() => saveRule(onClose)}>保存</Button>
+          </ModalFooter>
+        </>}</ModalContent>
+      </Modal>
     </div>
   );
 }

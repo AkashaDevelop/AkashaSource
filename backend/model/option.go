@@ -84,8 +84,11 @@ const (
 	OptionKeyCheckinMaxReward = "checkin_max_reward"
 
 	// ～宸汐御安全通讯协议配置，守护前端关键接口哦～
-	OptionKeyCxSecEnabled = "cxsec_enabled"        // 是否启用（bool, 默认 true）
+	OptionKeyCxSecEnabled = "cxsec_enabled"        // 是否启用（bool, 默认 false）
 	OptionKeyCxSecPaths   = "cxsec_protected_paths" // 受保护路径，逗号分隔
+
+	// 宸汐清源 - 上下文净化（默认禁用，由超管开启）
+	OptionKeyQingyuanEnabled = "qingyuan_enabled" // "true" | "false"
 
 	// ～通知配置：余额预警和渠道告警开关放这里哦～
 	OptionKeyLowBalanceThreshold  = "low_balance_threshold"  // 用户余额预警阈值（quota 单位，默认 500000 ≈ $1）

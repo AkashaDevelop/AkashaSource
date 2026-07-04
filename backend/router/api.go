@@ -551,6 +551,12 @@ func SetApiRouter(router *gin.Engine) {
 			rootGroup.GET("/admin/xuanjian/events", controller.GetXJEvents)
 			rootGroup.GET("/admin/xuanjian/profiles", controller.GetXJProfiles)
 			rootGroup.POST("/admin/xuanjian/reset/:token_id", controller.PostXJResetProfile)
+			rootGroup.GET("/admin/xuanjian/rules", controller.GetXJRules)
+			rootGroup.POST("/admin/xuanjian/rules", controller.PostXJRule)
+			rootGroup.PUT("/admin/xuanjian/rules/:id", controller.PutXJRule)
+			rootGroup.DELETE("/admin/xuanjian/rules/:id", controller.DeleteXJRule)
+			rootGroup.POST("/admin/xuanjian/rules/:id/toggle", controller.PostXJRuleToggle)
+			rootGroup.POST("/admin/xuanjian/rules/:id/reset", controller.PostXJRuleReset)
 		}
 	}
 }

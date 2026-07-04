@@ -14,6 +14,14 @@ import (
 func Init() {
 	LoadConfig()
 
+	// 首次启动播种内置规则（无论模块是否启用，都要让超管在管理页里看得到规则列表）
+	if err := SeedBuiltinRules(); err != nil {
+		log.Printf("[xuanjian] 播种内置规则失败: %v", err)
+	}
+	if err := ReloadRuleCache(); err != nil {
+		log.Printf("[xuanjian] 加载规则缓存失败: %v", err)
+	}
+
 	cfg, enabled := GetConfig()
 	if !enabled || cfg.Mode == ModeOff {
 		log.Printf("[xuanjian] 宸汐玄鉴已禁用（超管可在系统设置中开启）")

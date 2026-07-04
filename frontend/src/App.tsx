@@ -4,11 +4,9 @@ import Register from './pages/Register';
 import Setup from './pages/Setup';
 import UserDashboard from './pages/Dashboard';
 import AdminDashboard from './pages/admin/Dashboard';
-import ChannelManagement from './pages/admin/Channel';
 import UserManagement from './pages/admin/User';
 import SystemSettings from './pages/admin/Setting';
 import GroupManagement from './pages/admin/Group';
-import ModelManagement from './pages/admin/Model';
 import Pricing from './pages/Pricing';
 import Playground from './pages/Playground';
 import { useAuthStore } from './store/auth';
@@ -28,17 +26,13 @@ import MigrationPage from './pages/admin/Migration';
 import FilesPage from './pages/user/Files';
 import TasksPage from './pages/admin/Tasks';
 import UserTasksPage from './pages/user/Tasks';
-import ModelMetaManagement from './pages/admin/ModelMeta';
-import ChannelAffinity from './pages/admin/ChannelAffinity';
-import ChannelAccountManagement from './pages/admin/ChannelAccount';
 import SystemMonitor from './pages/admin/SystemMonitor';
-import VendorManagement from './pages/admin/Vendor';
-import DeploymentManagement from './pages/admin/Deployment';
-import ContextSanitization from './pages/admin/ContextSanitization';
-import AdminAuditLog from './pages/admin/AdminAuditLog';
 import CustomChannelConfig from './pages/admin/CustomChannelConfig';
 import PaymentManagement from './pages/admin/PaymentManagement';
-import XuanJian from './pages/admin/XuanJian';
+import ChannelHub from './pages/admin/ChannelHub';
+import ModelHub from './pages/admin/ModelHub';
+import VendorHub from './pages/admin/VendorHub';
+import SecurityHub from './pages/admin/SecurityHub';
 
 function PrivateRoute({ children, roleRequired }: { children: React.ReactElement, roleRequired?: number }) {
   const { token, user } = useAuthStore();
@@ -88,12 +82,12 @@ function App() {
         }
       >
         <Route index element={<AdminDashboard />} />
-        <Route path="channel" element={<ChannelManagement />} />
+        <Route path="channel" element={<ChannelHub />} />
         <Route path="custom-channel-config" element={<CustomChannelConfig />} />
         <Route path="user" element={<UserManagement />} />
         <Route path="redemption" element={<RedemptionManagement />} />
         <Route path="group" element={<GroupManagement />} />
-        <Route path="model" element={<ModelManagement />} />
+        <Route path="model" element={<ModelHub />} />
         <Route
           path="setting"
           element={
@@ -109,33 +103,13 @@ function App() {
         <Route path="tasks" element={<TasksPage />} />
         <Route path="ops" element={<TasksPage />} />
         <Route path="system-monitor" element={<SystemMonitor />} />
-        <Route path="vendor" element={<VendorManagement />} />
-        <Route path="deployment" element={<DeploymentManagement />} />
-        <Route path="model-meta" element={<ModelMetaManagement />} />
-        <Route path="channel-affinity" element={<ChannelAffinity />} />
-        <Route path="channel-account" element={<ChannelAccountManagement />} />
-        <Route path="context-sanitization" element={<ContextSanitization />} />
-        <Route
-          path="audit-log"
-          element={
-            <PrivateRoute roleRequired={100}>
-              <AdminAuditLog />
-            </PrivateRoute>
-          }
-        />
+        <Route path="vendor" element={<VendorHub />} />
+        <Route path="security" element={<SecurityHub />} />
         <Route
           path="payment"
           element={
             <PrivateRoute roleRequired={100}>
               <PaymentManagement />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="xuanjian"
-          element={
-            <PrivateRoute roleRequired={100}>
-              <XuanJian />
             </PrivateRoute>
           }
         />

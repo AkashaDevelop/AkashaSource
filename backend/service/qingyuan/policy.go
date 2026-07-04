@@ -5,6 +5,7 @@ import (
 	"errors"
 	"regexp"
 
+	"STfreApi/common"
 	"STfreApi/model"
 )
 
@@ -276,5 +277,8 @@ func validMode(mode string) bool {
 }
 
 func IsEnabled(policy ResolvedPolicy) bool {
+	if !common.QingyuanEnabled {
+		return false
+	}
 	return policy.Policy != nil && policy.Policy.Enabled && policy.Policy.Mode != ModeOff
 }

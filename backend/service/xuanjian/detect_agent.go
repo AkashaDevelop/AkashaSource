@@ -15,7 +15,7 @@ func DetectAgent(rec RequestRecord, p *TokenProfile, cfg XJConfig) []Finding {
 	var findings []Finding
 
 	// ── 规则引擎扫描（agent 相关关键词）──────────────────────────────────
-	rules := DefaultRules()
+	rules := GetActiveRules()
 	kw := MatchRules(rec.PromptSnippet, true, rec.CompletionTokens, rules)
 	findings = append(findings, kw...)
 

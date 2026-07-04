@@ -177,6 +177,9 @@ func UpdateOptionMap(key string, value string) {
 	if key == "cxsec_enabled" {
 		CxSecEnabled = (value == "true")
 	}
+	if key == "qingyuan_enabled" {
+		QingyuanEnabled = (value == "true")
+	}
 	if key == "cxsec_protected_paths" && value != "" {
 		CxSecProtectedPaths = value
 	}
