@@ -544,6 +544,13 @@ func SetApiRouter(router *gin.Engine) {
 			rootGroup.DELETE("/performance/disk_cache", controller.ClearDiskCache)
 			rootGroup.POST("/performance/reset_stats", controller.ResetPerformanceStats)
 			rootGroup.POST("/performance/gc", controller.ForceGC)
+
+			// 宸汐玄鉴 - 行为风控（仅超管可访问）
+			rootGroup.GET("/admin/xuanjian/config", controller.GetXJConfig)
+			rootGroup.PUT("/admin/xuanjian/config", controller.UpdateXJConfig)
+			rootGroup.GET("/admin/xuanjian/events", controller.GetXJEvents)
+			rootGroup.GET("/admin/xuanjian/profiles", controller.GetXJProfiles)
+			rootGroup.POST("/admin/xuanjian/reset/:token_id", controller.PostXJResetProfile)
 		}
 	}
 }

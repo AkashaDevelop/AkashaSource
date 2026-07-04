@@ -121,6 +121,10 @@ const (
 	OptionKeyPasskeyAllowInsecure    = "passkey_allow_insecure"
 	OptionKeyPasskeyUserVerification = "passkey_user_verification"
 	OptionKeyPasskeyAttachment       = "passkey_attachment"
+
+	// 宸汐玄鉴 - 行为风控模块（仅超管可配置）
+	OptionKeyXuanJianEnabled = "xuanjian_enabled" // "true" | "false"
+	OptionKeyXuanJianPolicy  = "xuanjian_policy"  // JSON 策略配置
 )
 
 func InitOptions() {

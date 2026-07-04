@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"STfreApi/adapter"
 	"STfreApi/common"
@@ -16,8 +17,9 @@ import (
 	"STfreApi/middleware"
 	"STfreApi/model"
 	"STfreApi/service"
-	"STfreApi/service/qingyuan"
 	"STfreApi/service/moderation"
+	"STfreApi/service/qingyuan"
+	"STfreApi/service/xuanjian"
 
 	"github.com/gin-gonic/gin"
 )
@@ -369,6 +371,31 @@ func Relay(c *gin.Context) {
 		}
 
 		go RecordConsumeLog(c, token, attemptReq.Model, promptTokens, completionTokens, cachedTokens)
+
+		// 宸汐玄鉴：异步行为分析，不阻塞主链路
+		if xuanjian.IsEnabled() {
+			qyTypes := make([]string, 0, len(sanitizeResult.Findings))
+			for _, f := range sanitizeResult.Findings {
+				qyTypes = append(qyTypes, f.Type)
+			}
+			promptSnippet := xuanjian.CollectPromptSnippet(attemptReq.Messages, attemptReq.Prompt, 2000)
+			go xuanjian.RecordRequest(xuanjian.RequestRecord{
+				TokenID:          token.Id,
+				TokenName:        token.Name,
+				UserID:           user.Id,
+				TokenCreatedAt:   time.Unix(token.CreatedTime, 0),
+				IP:               c.ClientIP(),
+				UserAgent:        c.GetHeader("User-Agent"),
+				Model:            mappedModel,
+				PromptTokens:     promptTokens,
+				CompletionTokens: completionTokens,
+				PromptSnippet:    promptSnippet,
+				Messages:         attemptReq.Messages,
+				StatusCode:       resp.StatusCode,
+				QYFindings:       qyTypes,
+				QYRiskScore:      sanitizeResult.RiskScore,
+			})
+		}
 		go upsertChannelAffinity(
 			defaultChannelAffinityRule,
 			user.Group,

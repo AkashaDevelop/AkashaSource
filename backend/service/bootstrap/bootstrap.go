@@ -13,6 +13,7 @@ import (
 	"STfreApi/service"
 	"STfreApi/service/cxsec"
 	"STfreApi/service/qingyuan"
+	"STfreApi/service/xuanjian"
 )
 
 var once sync.Once
@@ -56,5 +57,9 @@ func RunPostDBInit() {
 			}
 		}
 		log.Printf("宸汐清源已启用 %d 个功能 (版本: %s)", enabledCount, qingyuan.GetVersion())
+
+		// 唤醒「宸汐玄鉴」行为风控结界～(｡•ᴗ•｡)
+		log.Printf("初始化宸汐玄鉴模块...")
+		xuanjian.Init()
 	})
 }

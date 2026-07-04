@@ -128,6 +128,13 @@ func ApplyMigrations() {
 				return common.DB.AutoMigrate(&PaymentOrder{})
 			},
 		},
+		{
+			Version: 12,
+			Name:    "新增宸汐玄鉴行为风控事件表",
+			Apply: func() error {
+				return common.DB.AutoMigrate(&XuanJianEvent{})
+			},
+		},
 	}
 
 	for _, step := range steps {

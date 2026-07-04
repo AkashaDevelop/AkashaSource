@@ -38,6 +38,7 @@ import ContextSanitization from './pages/admin/ContextSanitization';
 import AdminAuditLog from './pages/admin/AdminAuditLog';
 import CustomChannelConfig from './pages/admin/CustomChannelConfig';
 import PaymentManagement from './pages/admin/PaymentManagement';
+import XuanJian from './pages/admin/XuanJian';
 
 function PrivateRoute({ children, roleRequired }: { children: React.ReactElement, roleRequired?: number }) {
   const { token, user } = useAuthStore();
@@ -127,6 +128,14 @@ function App() {
           element={
             <PrivateRoute roleRequired={100}>
               <PaymentManagement />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="xuanjian"
+          element={
+            <PrivateRoute roleRequired={100}>
+              <XuanJian />
             </PrivateRoute>
           }
         />
