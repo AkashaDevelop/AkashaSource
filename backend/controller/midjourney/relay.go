@@ -3,6 +3,7 @@ package midjourney
 import (
 	"STfreApi/common"
 	"STfreApi/model"
+	"STfreApi/service/xuanjian"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -43,6 +44,18 @@ func RelayMidjourney(c *gin.Context) {
 	if err := c.ShouldBindJSON(&mjReq); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// 1.5 宸汐玄鉴 AI 审核
+	if xuanjian.IsEnabled() && mjReq.Prompt != "" {
+		reviewMessages := []interface{}{
+			map[string]interface{}{"role": "user", "content": mjReq.Prompt},
+		}
+		allowed, blockMsg := xuanjian.AIReviewCheck(0, userId, reviewMessages, "")
+		if !allowed {
+			c.JSON(http.StatusBadRequest, gin.H{"error": blockMsg})
+			return
+		}
 	}
 
 	// Override notifyHook to our server

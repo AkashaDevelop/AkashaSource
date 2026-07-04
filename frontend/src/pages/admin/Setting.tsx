@@ -1,30 +1,66 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import {
-  Card,
-  CardBody,
-  Input,
-  Button,
-  Divider,
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  useDisclosure,
-  Tooltip,
-  Switch,
-  Textarea,
-  Tabs,
-  Tab,
+  Card, CardBody, CardHeader,
+  Input, Button, Divider,
+  Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure,
+  Tooltip, Switch, Textarea, Chip,
+  Tabs, Tab,
 } from '../../components/ui';
-import { Save, Plus, Edit, Trash2 } from 'lucide-react';
+import {
+  Save, Plus, Edit, Trash2,
+  Globe, CreditCard, Shield, Link2, Mail, Gift, CalendarCheck, Bell, Settings, BarChart3,
+} from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 
 interface Option { key: string; value: string; }
 interface PricingItem { model: string; ratio: number; completion_ratio: number; }
+
+// ── 辅助组件 ──────────────────────────────────────────────────────────────
+
+/** 开关行：左侧标题+描述，右侧开关 */
+function SettingRow({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2">
+      <div className="min-w-0">
+        <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{title}</p>
+        {description && <p className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--text-muted)' }}>{description}</p>}
+      </div>
+      <div className="flex-shrink-0">{children}</div>
+    </div>
+  );
+}
+
+/** 自动生成的 URL 展示块 */
+function UrlBlock({ label, url }: { label: string; url: string | null }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+      <div className="px-3 py-2 rounded-lg border text-sm font-mono break-all select-all transition-colors"
+        style={{
+          background: 'var(--bg-elevated)',
+          borderColor: 'var(--border-color)',
+          color: url ? 'var(--text-secondary)' : 'var(--text-faint)',
+        }}>
+        {url || '请先设置系统 URL'}
+      </div>
+    </div>
+  );
+}
+
+/** 分区标题图标 */
+function TabIcon({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <Icon size={15} />
+      {label}
+    </span>
+  );
+}
+
+// ── 主组件 ────────────────────────────────────────────────────────────────
 
 export default function SystemSettings() {
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -43,7 +79,6 @@ export default function SystemSettings() {
       if (data.code === 0) {
         const map: Record<string, string> = {};
         data.data.forEach((opt: Option) => { map[opt.key] = opt.value; });
-        // auto-fill system_url from browser origin if not set
         if (!map['system_url']) map['system_url'] = window.location.origin;
         setSettings(map);
         parsePricing(map);
@@ -67,6 +102,7 @@ export default function SystemSettings() {
 
   const set = (key: string, value: string) => setSettings(prev => ({ ...prev, [key]: value }));
   const get = (key: string, fallback = '') => settings[key] ?? fallback;
+  const systemUrl = get('system_url');
 
   const handleSave = async () => {
     setSaving(true);
@@ -75,49 +111,34 @@ export default function SystemSettings() {
     pricingItems.forEach(i => { mr[i.model] = i.ratio; cr[i.model] = i.completion_ratio; });
 
     const keys = [
-      // 基础
       'system_name','system_url','logo_url','notice','footer_html','chat_link','chat_link2',
       'price','min_topup',
-      // 支付
-      'payment_provider','epay_api_url','epay_pid','epay_key','epay_type',
-      'enable_topup',
+      'payment_provider','epay_api_url','epay_pid','epay_key','epay_type','enable_topup',
       'stripe_secret_key','stripe_webhook_secret','stripe_currency','stripe_success_url','stripe_cancel_url',
       'creem_api_key','creem_webhook_secret','creem_product_id','creem_products','creem_success_url','creem_test_mode',
-      // 风控
       'content_moderation_enabled','content_moderation_keywords',
       'content_moderation_timeout','content_moderation_whitelist_users',
       'content_moderation_whitelist_models','content_moderation_whitelist_ips',
       'tencent_moderation_secret_id','tencent_moderation_secret_key',
       'tencent_moderation_region','tencent_moderation_biz_type',
-      // 缓存
       'redis_addr','redis_password','redis_db',
-      // OAuth
       'github_client_id','github_client_secret',
       'linuxdo_client_id','linuxdo_client_secret',
       'linuxdo_quota_level_0','linuxdo_quota_level_1','linuxdo_quota_level_2',
       'linuxdo_quota_level_3','linuxdo_quota_level_4','linuxdo_quota_level_5',
       'discord_client_id','discord_client_secret',
       'oidc_client_id','oidc_client_secret','oidc_issuer_url',
-      'telegram_bot_token',
-      'wechat_app_id','wechat_app_secret',
-      // 邮件
+      'telegram_bot_token','wechat_app_id','wechat_app_secret',
       'smtp_server','smtp_port','smtp_account','smtp_password','smtp_from',
       'smtp_ssl_enabled','email_verification_enabled',
-      // 安全
       'cxsec_enabled','cxsec_protected_paths','qingyuan_enabled',
       'turnstile_site_key','turnstile_secret_key','turnstile_check_enabled',
       'captcha_provider','geetest_enabled','geetest_id','geetest_key',
-      // 邀请
       'invitation_enabled','invitation_cost','invitation_reward','new_user_reward',
-      // 签到
       'checkin_enabled','checkin_min_reward','checkin_max_reward','checkin_captcha',
-      // 通知
       'low_balance_threshold','channel_alert_enabled',
-      // 系统
       'thinking_to_content','model_rpm',
-      // 邮件域名限制
       'email_domain_restriction_enabled','email_domain_whitelist',
-      // 日志留存
       'log_retention_days',
     ];
     const options = [
@@ -152,7 +173,7 @@ export default function SystemSettings() {
   };
 
   return (
-    <div className="space-y-5 max-w-4xl mx-auto pb-10">
+    <div className="space-y-5 max-w-5xl mx-auto pb-10">
       <PageHeader
         title="系统设置"
         description="管理系统全局配置、支付、OAuth 和安全选项"
@@ -165,443 +186,533 @@ export default function SystemSettings() {
 
       <Tabs aria-label="系统设置" variant="underlined" color="primary">
 
-        {/* ── 基础 ── */}
-        <Tab key="basic" title="🌐 基础">
-          <Card>
-            <CardBody className="gap-4 p-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="系统名称" value={get('system_name')} onValueChange={v => set('system_name', v)} />
-                <Input label="系统地址" value={get('system_url')} onValueChange={v => set('system_url', v)} placeholder={window.location.origin} />
-                <Input label="Logo 地址" value={get('logo_url')} onValueChange={v => set('logo_url', v)} />
-                <Input label="对话链接" value={get('chat_link')} onValueChange={v => set('chat_link', v)} />
-                <Input label="对话链接 2" value={get('chat_link2')} onValueChange={v => set('chat_link2', v)} />
-                <Input label="最低充值" type="number" value={get('min_topup')} onValueChange={v => set('min_topup', v)} />
-                <Input label="默认价格" type="number" value={get('price')} onValueChange={v => set('price', v)} />
-              </div>
-              <Textarea label="公告内容" value={get('notice')} onValueChange={v => set('notice', v)} minRows={2} />
-              <Textarea label="页脚 HTML" value={get('footer_html')} onValueChange={v => set('footer_html', v)} minRows={2} />
-            </CardBody>
-          </Card>
-        </Tab>
-
-        {/* ── 支付 ── */}
-        <Tab key="payment" title="💳 支付">
+        {/* ════════ 基础 ════════ */}
+        <Tab key="basic" title={<TabIcon icon={Globe} label="基础" />}>
           <div className="space-y-4">
-          <Card>
-            <CardBody className="gap-4 p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-[var(--text-primary)]">开放充值</p>
-                  <p className="text-xs text-[var(--text-secondary)]">允许用户充值额度</p>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Globe size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>站点信息</span>
                 </div>
-                <Switch isSelected={get('enable_topup') === 'true'} onValueChange={v => set('enable_topup', v ? 'true' : 'false')} />
-              </div>
-              <Divider />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="支付渠道" value={get('payment_provider')} onValueChange={v => set('payment_provider', v)} placeholder="epay / stripe / creem" description="配置哪个渠道就填对应名称，对应配置才会生效" />
-              </div>
-            </CardBody>
-          </Card>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="系统名称" value={get('system_name')} onValueChange={v => set('system_name', v)} placeholder="Akasha" />
+                  <Input label="系统地址" value={systemUrl} onValueChange={v => set('system_url', v)} placeholder={window.location.origin} description="用于生成回调地址，务必填写正确" />
+                  <Input label="Logo 地址" value={get('logo_url')} onValueChange={v => set('logo_url', v)} placeholder="https://..." />
+                  <Input label="对话链接" value={get('chat_link')} onValueChange={v => set('chat_link', v)} placeholder="ChatGPT Next Web 等前端地址" />
+                  <Input label="对话链接 2" value={get('chat_link2')} onValueChange={v => set('chat_link2', v)} />
+                </div>
+              </CardBody>
+            </Card>
 
-          {/* 易支付 */}
-          {(get('payment_provider') === 'epay' || !get('payment_provider')) && (
-          <Card>
-            <CardBody className="gap-4 p-5">
-              <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>易支付</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="易支付 API 地址" value={get('epay_api_url')} onValueChange={v => set('epay_api_url', v)} />
-                <Input label="易支付 PID" value={get('epay_pid')} onValueChange={v => set('epay_pid', v)} />
-                <Input label="易支付 KEY" type="password" value={get('epay_key')} onValueChange={v => set('epay_key', v)} />
-                <Input label="易支付通道类型" value={get('epay_type')} onValueChange={v => set('epay_type', v)} placeholder="alipay / wxpay" />
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-[var(--text-secondary)]">易支付回调地址（自动生成）</span>
-                  <div className="px-3 py-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-color)] text-sm text-[var(--text-secondary)] font-mono break-all select-all">
-                    {get('system_url') ? `${get('system_url')}/api/payment/notify` : <span className="italic opacity-50">请先设置系统 URL</span>}
-                  </div>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Bell size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>公告与页脚</span>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-[var(--text-secondary)]">易支付同步返回地址（自动生成）</span>
-                  <div className="px-3 py-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-color)] text-sm text-[var(--text-secondary)] font-mono break-all select-all">
-                    {get('system_url') || <span className="italic opacity-50">请先设置系统 URL</span>}
-                  </div>
-                </div>
-              </div>
-            </CardBody>
-          </Card>
-          )}
+              </CardHeader>
+              <CardBody className="gap-4">
+                <Textarea label="公告内容（Markdown）" value={get('notice')} onValueChange={v => set('notice', v)} minRows={3} placeholder="向用户展示的公告信息" />
+                <Textarea label="页脚 HTML" value={get('footer_html')} onValueChange={v => set('footer_html', v)} minRows={2} placeholder="自定义页脚内容，支持 HTML" />
+              </CardBody>
+            </Card>
 
-          {/* Stripe */}
-          {get('payment_provider') === 'stripe' && (
-          <Card>
-            <CardBody className="gap-4 p-5">
-              <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Stripe</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="Secret Key" type="password" value={get('stripe_secret_key')} onValueChange={v => set('stripe_secret_key', v)} placeholder="sk_live_..." />
-                <Input label="Webhook Secret" type="password" value={get('stripe_webhook_secret')} onValueChange={v => set('stripe_webhook_secret', v)} placeholder="whsec_..." description="在 Stripe Dashboard → Webhooks 获取" />
-                <Input label="货币代码" value={get('stripe_currency')} onValueChange={v => set('stripe_currency', v)} placeholder="usd" description="留空默认 usd" />
-                <Input label="支付成功跳转地址" value={get('stripe_success_url')} onValueChange={v => set('stripe_success_url', v)} placeholder="留空则自动生成" />
-                <Input label="支付取消跳转地址" value={get('stripe_cancel_url')} onValueChange={v => set('stripe_cancel_url', v)} placeholder="留空则同成功地址" />
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-[var(--text-secondary)]">Stripe Webhook 地址（在 Dashboard 注册）</span>
-                  <div className="px-3 py-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-color)] text-sm text-[var(--text-secondary)] font-mono break-all select-all">
-                    {get('system_url') ? `${get('system_url')}/api/stripe/webhook` : <span className="italic opacity-50">请先设置系统 URL</span>}
-                  </div>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <CreditCard size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>充值与计费</span>
                 </div>
-              </div>
-            </CardBody>
-          </Card>
-          )}
-
-          {/* Creem */}
-          {get('payment_provider') === 'creem' && (
-          <Card>
-            <CardBody className="gap-4 p-5">
-              <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Creem</p>
-              <Switch isSelected={get('creem_test_mode') === 'true'} onValueChange={v => set('creem_test_mode', String(v))}>
-                测试模式（使用 test-api.creem.io）
-              </Switch>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="API Key" type="password" value={get('creem_api_key')} onValueChange={v => set('creem_api_key', v)} placeholder="creem_..." />
-                <Input label="Webhook Secret" type="password" value={get('creem_webhook_secret')} onValueChange={v => set('creem_webhook_secret', v)} description="在 Creem Dashboard → Developers → Webhook 获取" />
-                <Input label="Product ID（旧版单产品）" value={get('creem_product_id')} onValueChange={v => set('creem_product_id', v)} placeholder="prod_..." description="仅当未配置产品目录时使用" />
-                <Input label="支付成功跳转地址" value={get('creem_success_url')} onValueChange={v => set('creem_success_url', v)} placeholder="留空则自动生成" />
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-[var(--text-secondary)]">Creem Webhook 地址（在 Dashboard 注册）</span>
-                  <div className="px-3 py-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-color)] text-sm text-[var(--text-secondary)] font-mono break-all select-all">
-                    {get('system_url') ? `${get('system_url')}/api/creem/webhook` : <span className="italic opacity-50">请先设置系统 URL</span>}
-                  </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="最低充值金额" type="number" value={get('min_topup')} onValueChange={v => set('min_topup', v)} description="单位：元" />
+                  <Input label="默认价格" type="number" value={get('price')} onValueChange={v => set('price', v)} description="每 500000 Quota 对应的金额" />
                 </div>
-              </div>
-              <Textarea
-                label="产品目录 JSON（多产品时使用，优先级高于单 Product ID）"
-                value={get('creem_products')}
-                onValueChange={v => set('creem_products', v)}
-                minRows={3}
-                placeholder={'[{"product_id":"prod_xxx","name":"10元套餐","price":10.0,"quota":5000000}]'}
-                description="每个产品需包含 product_id、name、price（货币金额）、quota（充值额度）四个字段"
-              />
-            </CardBody>
-          </Card>
-          )}
+              </CardBody>
+            </Card>
           </div>
         </Tab>
 
-        {/* ── 安全 ── */}
-        <Tab key="security" title="🛡️ 安全">
+        {/* ════════ 支付 ════════ */}
+        <Tab key="payment" title={<TabIcon icon={CreditCard} label="支付" />}>
+          <div className="space-y-4">
+            {/* 支付总控 */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <CreditCard size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>支付总控</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <SettingRow title="开放充值" description="允许用户在前端充值额度">
+                  <Switch isSelected={get('enable_topup') === 'true'} onValueChange={v => set('enable_topup', v ? 'true' : 'false')} />
+                </SettingRow>
+                <Divider />
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>支付渠道</span>
+                  <div className="flex gap-2 flex-wrap">
+                    {([
+                      { key: 'epay', label: '易支付' },
+                      { key: 'stripe', label: 'Stripe' },
+                      { key: 'creem', label: 'Creem' },
+                    ] as const).map(item => {
+                      const active = get('payment_provider') === item.key;
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => set('payment_provider', item.key)}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-sm transition-all duration-200
+                            ${active
+                              ? 'border-[var(--accent-primary)] bg-[var(--nav-active-bg)] text-[var(--accent-primary)] font-semibold'
+                              : 'border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] cursor-pointer'
+                            }`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>选择启用的支付渠道，仅该渠道的配置会生效</p>
+                </div>
+              </CardBody>
+            </Card>
+
+            {/* 渠道配置详情 */}
+            {get('payment_provider') === 'epay' && (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>易支付</span>
+                    <Chip size="sm" color="primary" variant="flat">EPay</Chip>
+                  </div>
+                </CardHeader>
+                <CardBody className="gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input label="API 地址" value={get('epay_api_url')} onValueChange={v => set('epay_api_url', v)} />
+                    <Input label="PID" value={get('epay_pid')} onValueChange={v => set('epay_pid', v)} />
+                    <Input label="KEY" type="password" value={get('epay_key')} onValueChange={v => set('epay_key', v)} />
+                    <Input label="通道类型" value={get('epay_type')} onValueChange={v => set('epay_type', v)} placeholder="alipay / wxpay" />
+                  </div>
+                  <UrlBlock label="异步回调地址（在易支付后台填写）" url={systemUrl ? `${systemUrl}/api/payment/notify` : null} />
+                  <UrlBlock label="同步返回地址" url={systemUrl || null} />
+                </CardBody>
+              </Card>
+            )}
+
+            {get('payment_provider') === 'stripe' && (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Stripe</span>
+                    <Chip size="sm" color="success" variant="flat">Card</Chip>
+                  </div>
+                </CardHeader>
+                <CardBody className="gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input label="Secret Key" type="password" value={get('stripe_secret_key')} onValueChange={v => set('stripe_secret_key', v)} placeholder="sk_live_..." />
+                    <Input label="Webhook Secret" type="password" value={get('stripe_webhook_secret')} onValueChange={v => set('stripe_webhook_secret', v)} placeholder="whsec_..." description="Stripe Dashboard → Webhooks 获取" />
+                    <Input label="货币代码" value={get('stripe_currency')} onValueChange={v => set('stripe_currency', v)} placeholder="usd" description="留空默认 usd" />
+                    <Input label="支付成功跳转" value={get('stripe_success_url')} onValueChange={v => set('stripe_success_url', v)} placeholder="留空自动生成" />
+                    <Input label="支付取消跳转" value={get('stripe_cancel_url')} onValueChange={v => set('stripe_cancel_url', v)} placeholder="留空同成功地址" />
+                  </div>
+                  <UrlBlock label="Webhook 端点（在 Stripe Dashboard 注册）" url={systemUrl ? `${systemUrl}/api/stripe/webhook` : null} />
+                </CardBody>
+              </Card>
+            )}
+
+            {get('payment_provider') === 'creem' && (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Creem</span>
+                    <Chip size="sm" color="warning" variant="flat">SaaS</Chip>
+                  </div>
+                </CardHeader>
+                <CardBody className="gap-4">
+                  <SettingRow title="测试模式" description="使用 test-api.creem.io 而非生产环境">
+                    <Switch isSelected={get('creem_test_mode') === 'true'} onValueChange={v => set('creem_test_mode', String(v))} />
+                  </SettingRow>
+                  <Divider />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input label="API Key" type="password" value={get('creem_api_key')} onValueChange={v => set('creem_api_key', v)} placeholder="creem_..." />
+                    <Input label="Webhook Secret" type="password" value={get('creem_webhook_secret')} onValueChange={v => set('creem_webhook_secret', v)} description="Creem Dashboard → Developers → Webhook" />
+                    <Input label="Product ID（旧版单产品）" value={get('creem_product_id')} onValueChange={v => set('creem_product_id', v)} placeholder="prod_..." description="仅当未配置产品目录时使用" />
+                    <Input label="支付成功跳转" value={get('creem_success_url')} onValueChange={v => set('creem_success_url', v)} placeholder="留空自动生成" />
+                  </div>
+                  <UrlBlock label="Webhook 端点（在 Creem Dashboard 注册）" url={systemUrl ? `${systemUrl}/api/creem/webhook` : null} />
+                  <Textarea
+                    label="产品目录 JSON（多产品，优先级高于单 Product ID）"
+                    value={get('creem_products')}
+                    onValueChange={v => set('creem_products', v)}
+                    minRows={3}
+                    placeholder={'[{"product_id":"prod_xxx","name":"10元套餐","price":10.0,"quota":5000000}]'}
+                    description="每个产品需包含 product_id、name、price（货币金额）、quota（充值额度）"
+                  />
+                </CardBody>
+              </Card>
+            )}
+          </div>
+        </Tab>
+
+        {/* ════════ 安全 ════════ */}
+        <Tab key="security" title={<TabIcon icon={Shield} label="安全" />}>
           <div className="space-y-4">
             <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>宸汐御安全通讯协议</p>
-                <Switch
-                  isSelected={get('cxsec_enabled', 'false') === 'true'}
-                  onValueChange={v => set('cxsec_enabled', String(v))}
-                >
-                  启用宸汐御安全（CxSec）加密通讯
-                </Switch>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Shield size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>宸汐安全套件</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-3">
+                <SettingRow title="宸汐御安全（CxSec）" description="ECDH+AES-256-GCM 加密通讯，保护登录/注册等敏感接口">
+                  <Switch isSelected={get('cxsec_enabled', 'false') === 'true'} onValueChange={v => set('cxsec_enabled', String(v))} />
+                </SettingRow>
+                <Divider />
                 <Input
-                  label="受保护的 API 路径（逗号分隔）"
+                  label="受保护的 API 路径"
                   value={get('cxsec_protected_paths', '/api/user/login,/api/user/register,/api/user/login/2fa,/api/user/password/reset-request,/api/user/password/reset-confirm,/api/user/checkin')}
                   onValueChange={v => set('cxsec_protected_paths', v)}
-                  description="前端拦截器只对这些路径启用 ECDH+AES-256-GCM 加密，多个路径用英文逗号分隔"
+                  description="前端拦截器只对这些路径启用加密，多个路径用英文逗号分隔"
                   isDisabled={get('cxsec_enabled', 'false') !== 'true'}
                 />
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>宸汐清源上下文净化</p>
-                <Switch
-                  isSelected={get('qingyuan_enabled', 'false') === 'true'}
-                  onValueChange={v => set('qingyuan_enabled', String(v))}
-                >
-                  启用宸汐清源（提示词注入检测 / 工具调用校验 / 响应内容净化）
-                </Switch>
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  具体的检测策略请前往「宸汐清源」管理页配置，此开关是模块的总闸；关闭后所有策略均不生效。
+                <Divider />
+                <SettingRow title="宸汐清源" description="提示词注入检测 / 工具调用校验 / 响应内容净化">
+                  <Switch isSelected={get('qingyuan_enabled', 'false') === 'true'} onValueChange={v => set('qingyuan_enabled', String(v))} />
+                </SettingRow>
+                <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                  清源检测策略请前往「安全中心 → 宸汐清源」配置；宸汐玄鉴行为风控请在「安全中心 → 宸汐玄鉴」中开启（仅超级管理员可见）。
                 </p>
               </CardBody>
             </Card>
 
             <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>宸汐玄鉴行为风控</p>
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  用户行为风控、破限与逆向探测拦截默认关闭，需要单独在「宸汐玄鉴」管理页（仅超级管理员可见）中开启并配置检测策略。
-                </p>
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>日志留存</p>
-                <Input
-                  label="日志留存天数"
-                  type="number"
-                  value={get('log_retention_days', '180')}
-                  onValueChange={v => set('log_retention_days', v)}
-                  description="根据《网络安全法》第 21 条，网络日志留存不少于 6 个月（180 天）；低于 180 的配置将被系统强制按 180 天执行，超期日志由定时任务自动清理"
-                />
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>内容审查（腾讯云天御）</p>
-                <Switch isSelected={get('content_moderation_enabled') === 'true'} onValueChange={v => set('content_moderation_enabled', String(v))}>
-                  启用内容审查
-                </Switch>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Shield size={16} style={{ color: 'var(--accent-cosmic)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>内容审查</span>
+                  <Chip size="sm" color="info" variant="flat">腾讯云天御</Chip>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <SettingRow title="启用内容审查" description="对用户请求进行关键词和腾讯云 TMS/IMS 双重检测">
+                  <Switch isSelected={get('content_moderation_enabled') === 'true'} onValueChange={v => set('content_moderation_enabled', String(v))} />
+                </SettingRow>
+                <Divider />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Input label="腾讯云 SecretId" value={get('tencent_moderation_secret_id')} onValueChange={v => set('tencent_moderation_secret_id', v)} />
                   <Input label="腾讯云 SecretKey" type="password" value={get('tencent_moderation_secret_key')} onValueChange={v => set('tencent_moderation_secret_key', v)} />
-                  <Input label="腾讯云地域" value={get('tencent_moderation_region')} onValueChange={v => set('tencent_moderation_region', v)} placeholder="ap-guangzhou" />
-                  <Input label="审核策略 BizType" value={get('tencent_moderation_biz_type')} onValueChange={v => set('tencent_moderation_biz_type', v)} description="在腾讯云控制台配置的策略编号，留空则使用账号默认策略" />
+                  <Input label="地域" value={get('tencent_moderation_region')} onValueChange={v => set('tencent_moderation_region', v)} placeholder="ap-guangzhou" />
+                  <Input label="审核策略 BizType" value={get('tencent_moderation_biz_type')} onValueChange={v => set('tencent_moderation_biz_type', v)} description="腾讯云控制台配置的策略编号，留空用默认" />
                   <Input label="审查超时（秒）" type="number" value={get('content_moderation_timeout')} onValueChange={v => set('content_moderation_timeout', v)} />
                 </div>
                 <Textarea label="敏感词（逗号分隔）" value={get('content_moderation_keywords')} onValueChange={v => set('content_moderation_keywords', v)} minRows={2} />
-                <Textarea label="白名单用户 ID" value={get('content_moderation_whitelist_users')} onValueChange={v => set('content_moderation_whitelist_users', v)} minRows={2} />
-                <Textarea label="白名单模型" value={get('content_moderation_whitelist_models')} onValueChange={v => set('content_moderation_whitelist_models', v)} minRows={2} />
-                <Textarea label="白名单 IP" value={get('content_moderation_whitelist_ips')} onValueChange={v => set('content_moderation_whitelist_ips', v)} minRows={2} />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Textarea label="白名单用户 ID" value={get('content_moderation_whitelist_users')} onValueChange={v => set('content_moderation_whitelist_users', v)} minRows={2} />
+                  <Textarea label="白名单模型" value={get('content_moderation_whitelist_models')} onValueChange={v => set('content_moderation_whitelist_models', v)} minRows={2} />
+                  <Textarea label="白名单 IP" value={get('content_moderation_whitelist_ips')} onValueChange={v => set('content_moderation_whitelist_ips', v)} minRows={2} />
+                </div>
               </CardBody>
             </Card>
 
             <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Turnstile 人机验证</p>
-                <Switch isSelected={get('turnstile_check_enabled') === 'true'} onValueChange={v => set('turnstile_check_enabled', String(v))}>
-                  启用 Turnstile 验证
-                </Switch>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Shield size={16} style={{ color: 'var(--color-warning)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>人机验证</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <SettingRow title="Cloudflare Turnstile" description="无需用户交互的无感人机验证">
+                  <Switch isSelected={get('turnstile_check_enabled') === 'true'} onValueChange={v => set('turnstile_check_enabled', String(v))} />
+                </SettingRow>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Input label="站点密钥" value={get('turnstile_site_key')} onValueChange={v => set('turnstile_site_key', v)} />
                   <Input label="私钥" type="password" value={get('turnstile_secret_key')} onValueChange={v => set('turnstile_secret_key', v)} />
                 </div>
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>极验 GeeTest 人机验证</p>
-                <Switch isSelected={get('geetest_enabled') === 'true'} onValueChange={v => set('geetest_enabled', String(v))}>
-                  启用极验验证
-                </Switch>
+                <Divider />
+                <SettingRow title="极验 GeeTest" description="滑动拼图/点选文字等交互式验证">
+                  <Switch isSelected={get('geetest_enabled') === 'true'} onValueChange={v => set('geetest_enabled', String(v))} />
+                </SettingRow>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input label="Captcha ID" value={get('geetest_id')} onValueChange={v => set('geetest_id', v)} placeholder="极验后台获取" />
+                  <Input label="Captcha ID" value={get('geetest_id')} onValueChange={v => set('geetest_id', v)} />
                   <Input label="Captcha Key" type="password" value={get('geetest_key')} onValueChange={v => set('geetest_key', v)} />
                 </div>
               </CardBody>
             </Card>
 
             <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Redis 缓存</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Settings size={16} style={{ color: 'var(--accent-cosmic)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>基础设施</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <Input label="Redis 地址" value={get('redis_addr')} onValueChange={v => set('redis_addr', v)} placeholder="127.0.0.1:6379" />
                   <Input label="Redis 密码" type="password" value={get('redis_password')} onValueChange={v => set('redis_password', v)} />
                   <Input label="Redis 数据库" type="number" value={get('redis_db')} onValueChange={v => set('redis_db', v)} placeholder="0" />
                 </div>
+                <Divider />
+                <Input
+                  label="日志留存天数"
+                  type="number"
+                  value={get('log_retention_days', '180')}
+                  onValueChange={v => set('log_retention_days', v)}
+                  description="《网络安全法》第 21 条要求不少于 6 个月（180 天），低于 180 将被强制按 180 执行"
+                />
               </CardBody>
             </Card>
           </div>
         </Tab>
 
-        {/* ── OAuth ── */}
-        <Tab key="oauth" title="🔗 OAuth">
+        {/* ════════ OAuth ════════ */}
+        <Tab key="oauth" title={<TabIcon icon={Link2} label="OAuth" />}>
+          <div className="space-y-4">
+            {[
+              { key: 'github', label: 'GitHub', icon: '🐙', fields: [
+                { k: 'github_client_id', l: '客户端 ID' },
+                { k: 'github_client_secret', l: '客户端密钥', pw: true },
+              ]},
+              { key: 'linuxdo', label: 'LinuxDO', icon: '🐧', fields: [
+                { k: 'linuxdo_client_id', l: '客户端 ID' },
+                { k: 'linuxdo_client_secret', l: '客户端密钥', pw: true },
+              ], extra: (
+                <>
+                  <Divider />
+                  <p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>各等级初始额度（500000 = $1）</p>
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                    {[0, 1, 2, 3, 4, 5].map(level => (
+                      <Input key={level} label={`L${level}`} type="number" placeholder="0"
+                        value={get(`linuxdo_quota_level_${level}`, '0')}
+                        onValueChange={v => set(`linuxdo_quota_level_${level}`, v)} />
+                    ))}
+                  </div>
+                </>
+              )},
+              { key: 'discord', label: 'Discord', icon: '🎮', fields: [
+                { k: 'discord_client_id', l: '客户端 ID' },
+                { k: 'discord_client_secret', l: '客户端密钥', pw: true },
+              ]},
+              { key: 'telegram', label: 'Telegram', icon: '✈️', fields: [
+                { k: 'telegram_bot_token', l: 'Bot Token', pw: true, ph: '从 @BotFather 获取' },
+              ]},
+              { key: 'wechat', label: '微信扫码', icon: '💬', fields: [
+                { k: 'wechat_app_id', l: 'AppID', ph: '微信开放平台 AppID' },
+                { k: 'wechat_app_secret', l: 'AppSecret', pw: true, ph: '微信开放平台 AppSecret' },
+              ]},
+              { key: 'oidc', label: 'OIDC', icon: '🔐', fields: [
+                { k: 'oidc_client_id', l: '客户端 ID' },
+                { k: 'oidc_client_secret', l: '客户端密钥', pw: true },
+                { k: 'oidc_issuer_url', l: 'Issuer URL', ph: 'https://accounts.example.com', span2: true },
+              ]},
+            ].map(({ key, label, icon, fields, extra }) => (
+              <Card key={key}>
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{icon}</span>
+                    <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{label}</span>
+                  </div>
+                </CardHeader>
+                <CardBody className="gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {fields.map(f => (
+                      <Input
+                        key={f.k}
+                        label={f.l}
+                        type={f.pw ? 'password' : 'text'}
+                        value={get(f.k)}
+                        onValueChange={v => set(f.k, v)}
+                        placeholder={f.ph || ''}
+                        className={f.span2 ? 'md:col-span-2' : ''}
+                      />
+                    ))}
+                  </div>
+                  {extra}
+                </CardBody>
+              </Card>
+            ))}
+          </div>
+        </Tab>
+
+        {/* ════════ 邮件 ════════ */}
+        <Tab key="smtp" title={<TabIcon icon={Mail} label="邮件" />}>
           <div className="space-y-4">
             <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>🐙 GitHub OAuth</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input label="客户端 ID" value={get('github_client_id')} onValueChange={v => set('github_client_id', v)} />
-                  <Input label="客户端密钥" type="password" value={get('github_client_secret')} onValueChange={v => set('github_client_secret', v)} />
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Mail size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>SMTP 配置</span>
                 </div>
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>🐧 LinuxDO OAuth</p>
+              </CardHeader>
+              <CardBody className="gap-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input label="客户端 ID" value={get('linuxdo_client_id')} onValueChange={v => set('linuxdo_client_id', v)} />
-                  <Input label="客户端密钥" type="password" value={get('linuxdo_client_secret')} onValueChange={v => set('linuxdo_client_secret', v)} />
+                  <Input label="SMTP 服务器" value={get('smtp_server')} onValueChange={v => set('smtp_server', v)} placeholder="smtp.gmail.com" />
+                  <Input label="端口" value={get('smtp_port')} onValueChange={v => set('smtp_port', v)} placeholder="587" />
+                  <Input label="账号" value={get('smtp_account')} onValueChange={v => set('smtp_account', v)} />
+                  <Input label="密码" type="password" value={get('smtp_password')} onValueChange={v => set('smtp_password', v)} />
+                  <Input label="发件人地址" value={get('smtp_from')} onValueChange={v => set('smtp_from', v)} className="md:col-span-2" />
                 </div>
                 <Divider />
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>各等级初始额度（500000 = $1）</p>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {[0, 1, 2, 3, 4, 5].map(level => (
-                    <Input key={level} label={`等级 ${level}`} type="number" placeholder="0"
-                      value={get(`linuxdo_quota_level_${level}`, '0')}
-                      onValueChange={v => set(`linuxdo_quota_level_${level}`, v)} />
-                  ))}
-                </div>
+                <SettingRow title="SSL/TLS" description="启用加密连接">
+                  <Switch isSelected={get('smtp_ssl_enabled') === 'true'} onValueChange={v => set('smtp_ssl_enabled', String(v))} />
+                </SettingRow>
               </CardBody>
             </Card>
 
             <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>🎮 Discord OAuth</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input label="客户端 ID" value={get('discord_client_id')} onValueChange={v => set('discord_client_id', v)} />
-                  <Input label="客户端密钥" type="password" value={get('discord_client_secret')} onValueChange={v => set('discord_client_secret', v)} />
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Shield size={16} style={{ color: 'var(--accent-cosmic)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>邮箱验证与域名限制</span>
                 </div>
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>✈️ Telegram 登录</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input label="Bot Token" type="password" value={get('telegram_bot_token')} onValueChange={v => set('telegram_bot_token', v)} placeholder="从 @BotFather 获取" />
-                </div>
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>💬 微信扫码登录</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input label="AppID" value={get('wechat_app_id')} onValueChange={v => set('wechat_app_id', v)} placeholder="微信开放平台 AppID" />
-                  <Input label="AppSecret" type="password" value={get('wechat_app_secret')} onValueChange={v => set('wechat_app_secret', v)} placeholder="微信开放平台 AppSecret" />
-                </div>
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardBody className="gap-4 p-5">
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>🔐 OIDC（通用 OAuth2）</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input label="客户端 ID" value={get('oidc_client_id')} onValueChange={v => set('oidc_client_id', v)} />
-                  <Input label="客户端密钥" type="password" value={get('oidc_client_secret')} onValueChange={v => set('oidc_client_secret', v)} />
-                  <Input label="Issuer URL" value={get('oidc_issuer_url')} onValueChange={v => set('oidc_issuer_url', v)} placeholder="https://accounts.example.com" className="col-span-2" />
-                </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <SettingRow title="注册邮箱验证" description="注册时需要输入邮箱验证码">
+                  <Switch isSelected={get('email_verification_enabled') === 'true'} onValueChange={v => set('email_verification_enabled', String(v))} />
+                </SettingRow>
+                <Divider />
+                <SettingRow title="限制注册邮箱域名" description="仅允许白名单内域名的邮箱注册">
+                  <Switch isSelected={get('email_domain_restriction_enabled') === 'true'} onValueChange={v => set('email_domain_restriction_enabled', String(v))} />
+                </SettingRow>
+                <Textarea label="允许的邮箱域名（逗号分隔）" value={get('email_domain_whitelist')} onValueChange={v => set('email_domain_whitelist', v)} minRows={2} placeholder="example.com,company.org" />
               </CardBody>
             </Card>
           </div>
         </Tab>
 
-        {/* ── 邮件 ── */}
-        <Tab key="smtp" title="📧 邮件">
+        {/* ════════ 邀请 ════════ */}
+        <Tab key="invitation" title={<TabIcon icon={Gift} label="邀请" />}>
           <Card>
-            <CardBody className="gap-4 p-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="SMTP 服务器" value={get('smtp_server')} onValueChange={v => set('smtp_server', v)} />
-                <Input label="SMTP 端口" value={get('smtp_port')} onValueChange={v => set('smtp_port', v)} placeholder="587" />
-                <Input label="SMTP 账号" value={get('smtp_account')} onValueChange={v => set('smtp_account', v)} />
-                <Input label="SMTP 密码" type="password" value={get('smtp_password')} onValueChange={v => set('smtp_password', v)} />
-                <Input label="发件人地址" value={get('smtp_from')} onValueChange={v => set('smtp_from', v)} />
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Gift size={16} style={{ color: 'var(--accent-primary)' }} />
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>邀请奖励</span>
               </div>
-              <Switch isSelected={get('smtp_ssl_enabled') === 'true'} onValueChange={v => set('smtp_ssl_enabled', String(v))}>
-                启用 SSL/TLS
-              </Switch>
-              <Switch isSelected={get('email_verification_enabled') === 'true'} onValueChange={v => set('email_verification_enabled', String(v))}>
-                注册时需要邮箱验证码
-              </Switch>
+            </CardHeader>
+            <CardBody className="gap-4">
+              <SettingRow title="注册必须使用邀请码" description="开启后新用户注册需填写有效邀请码">
+                <Switch isSelected={get('invitation_enabled') === 'true'} onValueChange={v => set('invitation_enabled', String(v))} />
+              </SettingRow>
               <Divider />
-              <Switch isSelected={get('email_domain_restriction_enabled') === 'true'} onValueChange={v => set('email_domain_restriction_enabled', String(v))}>
-                限制注册邮箱域名
-              </Switch>
-              <Textarea label="允许的邮箱域名（逗号分隔）" value={get('email_domain_whitelist')} onValueChange={v => set('email_domain_whitelist', v)} minRows={2} placeholder="example.com,company.org" />
-            </CardBody>
-          </Card>
-        </Tab>
-
-        {/* ── 邀请 ── */}
-        <Tab key="invitation" title="🎁 邀请">
-          <Card>
-            <CardBody className="gap-4 p-5">
-              <Switch isSelected={get('invitation_enabled') === 'true'} onValueChange={v => set('invitation_enabled', String(v))}>
-                注册必须使用邀请码
-              </Switch>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Input label="邀请码成本" type="number" placeholder="0" value={get('invitation_cost')} onValueChange={v => set('invitation_cost', v)} description="生成时扣除额度" />
-                <Input label="邀请者奖励" type="number" placeholder="0" value={get('invitation_reward')} onValueChange={v => set('invitation_reward', v)} description="被邀请用户注册时" />
+                <Input label="邀请者奖励" type="number" placeholder="0" value={get('invitation_reward')} onValueChange={v => set('invitation_reward', v)} description="被邀请人注册时发放" />
                 <Input label="新用户初始额度" type="number" placeholder="0" value={get('new_user_reward')} onValueChange={v => set('new_user_reward', v)} description="注册即赠" />
               </div>
             </CardBody>
           </Card>
         </Tab>
 
-        {/* ── 签到 ── */}
-        <Tab key="checkin" title="📅 签到">
+        {/* ════════ 签到 ════════ */}
+        <Tab key="checkin" title={<TabIcon icon={CalendarCheck} label="签到" />}>
           <Card>
-            <CardBody className="gap-4 p-5">
-              <Switch isSelected={get('checkin_enabled') === 'true'} onValueChange={v => set('checkin_enabled', String(v))}>
-                启用每日签到
-              </Switch>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  label="最小奖励额度"
-                  type="number"
-                  placeholder="例如：1000"
-                  value={get('checkin_min_reward')}
-                  onValueChange={v => set('checkin_min_reward', v)}
-                  description="每次签到随机奖励下限（Quota 单位）"
-                />
-                <Input
-                  label="最大奖励额度"
-                  type="number"
-                  placeholder="例如：10000"
-                  value={get('checkin_max_reward')}
-                  onValueChange={v => set('checkin_max_reward', v)}
-                  description="每次签到随机奖励上限（Quota 单位）"
-                />
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <CalendarCheck size={16} style={{ color: 'var(--accent-primary)' }} />
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>每日签到</span>
               </div>
-              <Switch isSelected={get('checkin_captcha') === 'true'} onValueChange={v => set('checkin_captcha', String(v))}>
-                签到需要人机验证
-              </Switch>
+            </CardHeader>
+            <CardBody className="gap-4">
+              <SettingRow title="启用每日签到" description="允许用户每日签到获取随机额度奖励">
+                <Switch isSelected={get('checkin_enabled') === 'true'} onValueChange={v => set('checkin_enabled', String(v))} />
+              </SettingRow>
+              <Divider />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input label="最小奖励额度" type="number" placeholder="1000" value={get('checkin_min_reward')} onValueChange={v => set('checkin_min_reward', v)} description="Quota 单位" />
+                <Input label="最大奖励额度" type="number" placeholder="10000" value={get('checkin_max_reward')} onValueChange={v => set('checkin_max_reward', v)} description="Quota 单位" />
+              </div>
+              <Divider />
+              <SettingRow title="签到需要人机验证" description="防止自动脚本刷签到">
+                <Switch isSelected={get('checkin_captcha') === 'true'} onValueChange={v => set('checkin_captcha', String(v))} />
+              </SettingRow>
             </CardBody>
           </Card>
         </Tab>
 
-        {/* ── 通知 ── */}
-        <Tab key="notify" title="🔔 通知">
-          <Card>
-            <CardBody className="gap-4 p-5">
-              <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>余额预警</p>
-              <Input
-                label="余额预警阈值（quota 单位）"
-                type="number"
-                value={get('low_balance_threshold', '500000')}
-                onValueChange={v => set('low_balance_threshold', v)}
-                description="用户充值入账后，若余额低于此值则推送提醒。默认 500000 ≈ $1"
-              />
-            </CardBody>
-          </Card>
-          <Card className="mt-4">
-            <CardBody className="gap-4 p-5">
-              <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>渠道异常告警</p>
-              <Switch isSelected={get('channel_alert_enabled') === 'true'} onValueChange={v => set('channel_alert_enabled', String(v))}>
-                渠道检查失败时通知所有管理员
-              </Switch>
-              <p style={{ fontSize: '12px', color: 'var(--text-faint)' }}>
-                各管理员的通知渠道（邮件 / Webhook / Bark / Gotify）需在「个人资料」→「通知设置」中单独配置
-              </p>
-            </CardBody>
-          </Card>
+        {/* ════════ 通知 ════════ */}
+        <Tab key="notify" title={<TabIcon icon={Bell} label="通知" />}>
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Bell size={16} style={{ color: 'var(--color-warning)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>余额预警</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <Input
+                  label="余额预警阈值"
+                  type="number"
+                  value={get('low_balance_threshold', '500000')}
+                  onValueChange={v => set('low_balance_threshold', v)}
+                  description="用户充值入账后，若余额低于此值则推送提醒。默认 500000 ≈ $1"
+                />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Bell size={16} style={{ color: 'var(--color-danger)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>渠道异常告警</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-3">
+                <SettingRow title="渠道检查失败时通知管理员" description="渠道健康检查失败时自动推送告警">
+                  <Switch isSelected={get('channel_alert_enabled') === 'true'} onValueChange={v => set('channel_alert_enabled', String(v))} />
+                </SettingRow>
+                <p className="text-xs leading-relaxed" style={{ color: 'var(--text-faint)' }}>
+                  各管理员的通知渠道（邮件 / Webhook / Bark / Gotify）需在「个人资料 → 通知设置」中单独配置
+                </p>
+              </CardBody>
+            </Card>
+          </div>
         </Tab>
 
-        {/* ── 系统 ── */}
-        <Tab key="system" title="⚙️ 系统">
+        {/* ════════ 系统 ════════ */}
+        <Tab key="system" title={<TabIcon icon={Settings} label="系统" />}>
           <Card>
-            <CardBody className="gap-4 p-5">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Settings size={16} style={{ color: 'var(--accent-primary)' }} />
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>系统参数</span>
+              </div>
+            </CardHeader>
+            <CardBody className="gap-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input label="全局 RPM 限制" type="number" value={get('model_rpm')} onValueChange={v => set('model_rpm', v)} description="每分钟最大请求数，0 表示不限制" />
               </div>
-              <Switch isSelected={get('thinking_to_content') === 'true'} onValueChange={v => set('thinking_to_content', String(v))}>
-                将思考内容转换为普通消息（thinking_to_content）
-              </Switch>
+              <Divider />
+              <SettingRow title="thinking_to_content" description="将思考链（thinking）内容转换为普通消息输出">
+                <Switch isSelected={get('thinking_to_content') === 'true'} onValueChange={v => set('thinking_to_content', String(v))} />
+              </SettingRow>
             </CardBody>
           </Card>
         </Tab>
 
-        {/* ── 倍率 ── */}
-        <Tab key="pricing" title="📊 倍率">
+        {/* ════════ 倍率 ════════ */}
+        <Tab key="pricing" title={<TabIcon icon={BarChart3} label="倍率" />}>
           <Card>
-            <CardBody style={{ padding: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 16px' }}>
+            <CardHeader>
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-2">
+                  <BarChart3 size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>模型计费倍率</span>
+                </div>
                 <Button size="sm" color="primary" variant="flat" startContent={<Plus size={15} />} onPress={handleAddPricing}>
                   添加模型
                 </Button>
               </div>
+            </CardHeader>
+            <CardBody style={{ padding: 0 }}>
               <div className="data-table-wrap" style={{ borderRadius: 0, border: 'none', boxShadow: 'none' }}>
                 <table className="data-table">
                   <thead>
@@ -609,12 +720,12 @@ export default function SystemSettings() {
                   </thead>
                   <tbody>
                     {pricingItems.length === 0 ? (
-                      <tr><td colSpan={4}><EmptyState icon="📊" title="暂无倍率配置" description="添加模型以自定义计费倍率" /></td></tr>
+                      <tr><td colSpan={4}><EmptyState icon="📊" title="暂无倍率配置" description="添加模型以自定义计费倍率，未配置的模型使用默认价格" /></td></tr>
                     ) : pricingItems.map(item => (
                       <tr key={item.model}>
                         <td style={{ fontWeight: 600, fontFamily: 'monospace' }}>{item.model}</td>
-                        <td>{item.ratio}x</td>
-                        <td>{item.completion_ratio}x</td>
+                        <td><Chip size="sm" variant="flat">{item.ratio}x</Chip></td>
+                        <td><Chip size="sm" variant="flat">{item.completion_ratio}x</Chip></td>
                         <td>
                           <div className="flex items-center gap-2">
                             <Tooltip content="编辑"><span className="text-default-400 cursor-pointer active:opacity-50" onClick={() => handleEditPricing(item)}><Edit size={16} /></span></Tooltip>

@@ -225,6 +225,21 @@ func Relay(c *gin.Context) {
 		return
 	}
 
+	// 4.5 宸汐玄鉴 AI 审核（预审 / 规则初审+AI复审 / 两者）
+	// 在渠道选择后、qingyuan 净化前执行，审核不通过直接拦截
+	if xuanjian.IsEnabled() {
+		allowed, blockMsg := xuanjian.AIReviewCheck(token.Id, user.Id, openAIReq.Messages, openAIReq.Prompt)
+		if !allowed {
+			go RecordFailLog(c, token, openAIReq.Model, blockMsg)
+			c.JSON(http.StatusBadRequest, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
+				Message: blockMsg,
+				Type:    "invalid_request_error",
+				Code:    "ai_review_blocked",
+			}})
+			return
+		}
+	}
+
 	requestedModel := openAIReq.Model
 	baseReq := openAIReq
 

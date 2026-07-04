@@ -19,6 +19,14 @@ const (
 	ModeStrict  = "strict"
 )
 
+// AI 审核模式
+const (
+	AIReviewOff  = "off"  // 关闭 AI 审核
+	AIReviewPre  = "pre"  // AI 预审：用户消息先经 AI 审核
+	AIReviewRe   = "re"   // 规则引擎初审 + AI 复审
+	AIReviewBoth = "both" // 先 AI 预审，再规则初审 + AI 复审
+)
+
 // XJConfig 宸汐玄鉴完整策略配置
 type XJConfig struct {
 	Mode string `json:"mode"` // off/monitor/protect/strict
@@ -54,6 +62,23 @@ type XJConfig struct {
 	// 白名单豁免（这些 token/用户不参与任何行为检测）
 	ExemptTokenIDs []int `json:"exempt_token_ids"`
 	ExemptUserIDs  []int `json:"exempt_user_ids"`
+
+	// ── AI 审核配置 ──────────────────────────────────────────────────────
+	// ai_review_mode:
+	//   "off"  — 关闭 AI 审核
+	//   "pre"  — AI 预审：用户消息先经 AI 审核，通过才转发给实际模型
+	//   "re"   — 规则引擎初审 + AI 复审：规则命中后再用 AI 复确认
+	//   "both" — 先 AI 预审，通过后规则初审命中再 AI 复审
+	AIReviewMode         string `json:"ai_review_mode"`          // off/pre/re/both
+	AIReviewChannelID    int    `json:"ai_review_channel_id"`    // 审核用渠道 ID（从已有渠道选一个）
+	AIReviewModel        string `json:"ai_review_model"`         // 审核用模型名（如 gpt-4o-mini）
+	AIReviewTimeoutSec   int    `json:"ai_review_timeout_sec"`   // 审核超时秒数，默认 10
+	AIReviewBlockScore   int    `json:"ai_review_block_score"`   // 风险分达到此值则拦截，默认 70
+	AIReviewMaxTextChars int    `json:"ai_review_max_text_chars"` // 送审文本最大字符数，默认 2000
+
+	// 自定义审核提示词（留空则使用内置默认提示词）
+	AIReviewPrePrompt string `json:"ai_review_pre_prompt"` // AI 预审系统提示词
+	AIReviewRePrompt  string `json:"ai_review_re_prompt"`  // AI 复审系统提示词
 }
 
 // Finding 玄鉴检测到的单个风险发现
@@ -89,6 +114,15 @@ func DefaultConfig() XJConfig {
 		AutoBanScore:             95,
 		ExemptTokenIDs:           []int{},
 		ExemptUserIDs:            []int{},
+
+		AIReviewMode:         "off",
+		AIReviewChannelID:    0,
+		AIReviewModel:        "",
+		AIReviewTimeoutSec:   10,
+		AIReviewBlockScore:   70,
+		AIReviewMaxTextChars: 2000,
+		AIReviewPrePrompt:    "",
+		AIReviewRePrompt:     "",
 	}
 }
 

@@ -4,11 +4,14 @@ import (
 	"STfreApi/common"
 	"STfreApi/model"
 	"STfreApi/service"
+	"STfreApi/service/xuanjian"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -87,6 +90,41 @@ func RelayGeminiNative(c *gin.Context) {
 		return
 	}
 
+	// 5.5 宸汐玄鉴 AI 审核（预审 / 规则初审+AI复审 / 两者）
+	// 同时构造 reviewMessages 供事后分析使用
+	reviewMessages := make([]interface{}, 0)
+	{
+		var geminiReq struct {
+			Contents []struct {
+				Role  string `json:"role"`
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"contents"`
+		}
+		if json.Unmarshal(bodyBytes, &geminiReq) == nil {
+			for _, content := range geminiReq.Contents {
+				var text string
+				for _, part := range content.Parts {
+					text += part.Text + " "
+				}
+				if text != "" {
+					reviewMessages = append(reviewMessages, map[string]interface{}{
+						"role": content.Role, "content": text,
+					})
+				}
+			}
+		}
+	}
+	if xuanjian.IsEnabled() && len(reviewMessages) > 0 {
+		allowed, blockMsg := xuanjian.AIReviewCheck(token.Id, user.Id, reviewMessages, "")
+		if !allowed {
+			go RecordFailLog(c, token, modelName, blockMsg)
+			c.JSON(http.StatusBadRequest, gin.H{"error": blockMsg})
+			return
+		}
+	}
+
 	// 6. Forward to upstream Gemini
 	baseURL := channel.BaseURL
 	if baseURL == "" {
@@ -129,5 +167,24 @@ func RelayGeminiNative(c *gin.Context) {
 		go RecordConsumeLog(c, token, mappedModel,
 			promptTokens, completionTokens)
 		go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(apiKey), channel.Id, mappedModel, promptTokens, completionTokens, 0)
+
+		// 宸汐玄鉴：异步行为分析
+		if xuanjian.IsEnabled() && len(reviewMessages) > 0 {
+			promptSnippet := xuanjian.CollectPromptSnippet(reviewMessages, "", 2000)
+			go xuanjian.RecordRequest(xuanjian.RequestRecord{
+				TokenID:          token.Id,
+				TokenName:        token.Name,
+				UserID:           user.Id,
+				TokenCreatedAt:   time.Unix(token.CreatedTime, 0),
+				IP:               c.ClientIP(),
+				UserAgent:        c.GetHeader("User-Agent"),
+				Model:            mappedModel,
+				PromptTokens:     promptTokens,
+				CompletionTokens: completionTokens,
+				PromptSnippet:    promptSnippet,
+				Messages:         reviewMessages,
+				StatusCode:       resp.StatusCode,
+			})
+		}
 	}
 }

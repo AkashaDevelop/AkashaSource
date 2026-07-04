@@ -8,6 +8,8 @@ import (
 	"STfreApi/middleware"
 	"STfreApi/model"
 	"STfreApi/service"
+	"STfreApi/service/qingyuan"
+	"STfreApi/service/xuanjian"
 	"bufio"
 	"bytes"
 	"encoding/json"
@@ -15,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -102,11 +105,62 @@ func RelayMessages(c *gin.Context) {
 		return
 	}
 
+	// 6.5 宸汐玄鉴 AI 审核（预审 / 规则初审+AI复审 / 两者）
+	// 同时构造 reviewMessages 供事后分析使用
+	reviewMessages := make([]interface{}, 0, len(claudeReq.Messages))
+	for _, msg := range claudeReq.Messages {
+		var contentStr string
+		if json.Unmarshal(msg.Content, &contentStr) == nil {
+			reviewMessages = append(reviewMessages, map[string]interface{}{
+				"role": msg.Role, "content": contentStr,
+			})
+		}
+	}
+	if xuanjian.IsEnabled() {
+		allowed, blockMsg := xuanjian.AIReviewCheck(token.Id, user.Id, reviewMessages, "")
+		if !allowed {
+			go RecordFailLog(c, token, claudeReq.Model, blockMsg)
+			sendClaudeError(c, http.StatusBadRequest, "invalid_request_error", blockMsg)
+			return
+		}
+	}
+
+	// 6.6 清源净化：转换为 OpenAI 格式后执行净化检查
+	sanitizedOpenAIReq := claudeToOpenAIRequest(&claudeReq)
+	var sanitizeResult = &qingyuan.RequestResult{}
+	if len(channels) > 0 {
+		policy := qingyuan.ResolvePolicy(channels[0].Id, claudeReq.Model, mappedModels[0])
+		reqCtx := qingyuan.RequestContext{
+			RequestId:      c.GetString("request_id"),
+			UserId:         user.Id,
+			TokenId:        token.Id,
+			TokenName:      token.Name,
+			ChannelId:      channels[0].Id,
+			ChannelName:    channels[0].Name,
+			ChannelType:    channels[0].Type,
+			RequestedModel: claudeReq.Model,
+			MappedModel:    mappedModels[0],
+			UserGroup:      user.Group,
+			ClientIP:       c.ClientIP(),
+		}
+		sanitizeResult, _ = qingyuan.ApplyRequest(c.Request.Context(), sanitizedOpenAIReq, reqCtx, policy)
+		if sanitizeResult.Blocked {
+			msg := sanitizeResult.Message
+			if msg == "" {
+				msg = "请求被安全策略拒绝，如有疑问请联系管理员"
+			}
+			go RecordFailLog(c, token, claudeReq.Model, msg)
+			sendClaudeError(c, http.StatusBadRequest, "invalid_request_error", msg)
+			return
+		}
+	}
+
 	// 7. Try channels
 	var lastError error
 	for i, channel := range channels {
 		mappedModel := mappedModels[i]
 		claudeReq.Model = mappedModel
+		sanitizedOpenAIReq.Model = mappedModel
 		channel.Key = service.GetNextKey(channel.Key)
 
 		if channel.Type == model.ChannelTypeAnthropic {
@@ -119,12 +173,36 @@ func RelayMessages(c *gin.Context) {
 			if usage != nil {
 				go RecordConsumeLog(c, token, mappedModel, usage.PromptTokens, usage.CompletionTokens)
 				go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(tokenKey), channel.Id, mappedModel, usage.PromptTokens, usage.CompletionTokens, usage.CachedTokens)
+				// 宸汐玄鉴：异步行为分析
+				if xuanjian.IsEnabled() {
+					promptSnippet := xuanjian.CollectPromptSnippet(reviewMessages, "", 2000)
+					qyTypes := make([]string, 0, len(sanitizeResult.Findings))
+					for _, f := range sanitizeResult.Findings {
+						qyTypes = append(qyTypes, f.Type)
+					}
+					go xuanjian.RecordRequest(xuanjian.RequestRecord{
+						TokenID:          token.Id,
+						TokenName:        token.Name,
+						UserID:           user.Id,
+						TokenCreatedAt:   time.Unix(token.CreatedTime, 0),
+						IP:               c.ClientIP(),
+						UserAgent:        c.GetHeader("User-Agent"),
+						Model:            mappedModel,
+						PromptTokens:     usage.PromptTokens,
+						CompletionTokens: usage.CompletionTokens,
+						PromptSnippet:    promptSnippet,
+						Messages:         reviewMessages,
+						StatusCode:       200,
+						QYFindings:       qyTypes,
+						QYRiskScore:      sanitizeResult.RiskScore,
+					})
+				}
 			}
 			return
 		}
 
 		// Non-Claude channel: convert to OpenAI format, relay, convert response back
-		usage, err := relayClaudeViaOpenAI(c, channel, &claudeReq, token)
+		usage, err := relayClaudeViaOpenAI(c, channel, sanitizedOpenAIReq, token)
 		if err != nil {
 			lastError = err
 			continue
@@ -132,6 +210,30 @@ func RelayMessages(c *gin.Context) {
 		if usage != nil {
 			go RecordConsumeLog(c, token, mappedModel, usage.PromptTokens, usage.CompletionTokens)
 			go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(tokenKey), channel.Id, mappedModel, usage.PromptTokens, usage.CompletionTokens, usage.CachedTokens)
+			// 宸汐玄鉴：异步行为分析
+			if xuanjian.IsEnabled() {
+				promptSnippet := xuanjian.CollectPromptSnippet(sanitizedOpenAIReq.Messages, sanitizedOpenAIReq.Prompt, 2000)
+				qyTypes := make([]string, 0, len(sanitizeResult.Findings))
+				for _, f := range sanitizeResult.Findings {
+					qyTypes = append(qyTypes, f.Type)
+				}
+				go xuanjian.RecordRequest(xuanjian.RequestRecord{
+					TokenID:          token.Id,
+					TokenName:        token.Name,
+					UserID:           user.Id,
+					TokenCreatedAt:   time.Unix(token.CreatedTime, 0),
+					IP:               c.ClientIP(),
+					UserAgent:        c.GetHeader("User-Agent"),
+					Model:            mappedModel,
+					PromptTokens:     usage.PromptTokens,
+					CompletionTokens: usage.CompletionTokens,
+					PromptSnippet:    promptSnippet,
+					Messages:         sanitizedOpenAIReq.Messages,
+					StatusCode:       200,
+					QYFindings:       qyTypes,
+					QYRiskScore:      sanitizeResult.RiskScore,
+				})
+			}
 		}
 		return
 	}
@@ -248,12 +350,9 @@ func streamPassthroughClaude(c *gin.Context, resp *http.Response) (*dto.Usage, e
 	return usage, nil
 }
 
-// relayClaudeViaOpenAI converts Anthropic request to OpenAI format,
-// sends to a non-Claude channel, then converts the response back to Anthropic format.
-func relayClaudeViaOpenAI(c *gin.Context, channel *model.Channel, req *claude.ClaudeRequest, token *model.Token) (*dto.Usage, error) {
-	// Convert Claude messages to OpenAI messages
-	openAIReq := claudeToOpenAIRequest(req)
-
+// relayClaudeViaOpenAI sends an OpenAI-format request to a non-Claude channel,
+// then converts the response back to Anthropic format.
+func relayClaudeViaOpenAI(c *gin.Context, channel *model.Channel, openAIReq *dto.OpenAIRequest, token *model.Token) (*dto.Usage, error) {
 	// Use the adapter system
 	adaptor := adapter.GetAdaptor(channel.Type, channel)
 	converted, err := adaptor.ConvertRequest(c, openAIReq)
@@ -275,9 +374,9 @@ func relayClaudeViaOpenAI(c *gin.Context, channel *model.Channel, req *claude.Cl
 	// Read the OpenAI response and convert back to Claude format
 	isStream := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 	if isStream {
-		return streamOpenAI2Claude(c, resp, req.Model)
+		return streamOpenAI2Claude(c, resp, openAIReq.Model)
 	}
-	return normalOpenAI2Claude(c, resp, req.Model)
+	return normalOpenAI2Claude(c, resp, openAIReq.Model)
 }
 
 // claudeToOpenAIRequest converts an Anthropic Messages request to OpenAI format

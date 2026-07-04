@@ -6,7 +6,7 @@ import {
   Button, Input, Select, SelectItem, Switch, Chip, Textarea,
   Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure,
 } from '../../components/ui';
-import { RefreshCw, Shield, ScrollText, Activity, ListFilter, Plus, Pencil, Trash2, RotateCcw } from 'lucide-react';
+import { RefreshCw, Shield, ScrollText, Activity, ListFilter, Plus, Pencil, Trash2, RotateCcw, Bot } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
@@ -30,6 +30,15 @@ interface XJConfig {
   auto_ban_score: number;
   exempt_token_ids: number[];
   exempt_user_ids: number[];
+  // AI 审核
+  ai_review_mode: string;
+  ai_review_channel_id: number;
+  ai_review_model: string;
+  ai_review_timeout_sec: number;
+  ai_review_block_score: number;
+  ai_review_max_text_chars: number;
+  ai_review_pre_prompt: string;
+  ai_review_re_prompt: string;
 }
 
 interface EventRow {
@@ -92,6 +101,14 @@ const defaultConfig: XJConfig = {
   auto_ban_score: 95,
   exempt_token_ids: [],
   exempt_user_ids: [],
+  ai_review_mode: 'off',
+  ai_review_channel_id: 0,
+  ai_review_model: '',
+  ai_review_timeout_sec: 10,
+  ai_review_block_score: 70,
+  ai_review_max_text_chars: 2000,
+  ai_review_pre_prompt: '',
+  ai_review_re_prompt: '',
 };
 
 const groupLabel = (g: string) => ({
@@ -120,7 +137,7 @@ const actionColor = (a: string): 'default' | 'warning' | 'danger' => ({
 
 export default function XuanJian() {
   const { token } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<'config' | 'rules' | 'events' | 'profiles'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'ai_review' | 'rules' | 'events' | 'profiles'>('config');
   const [enabled, setEnabled] = useState(false);
   const [config, setConfig] = useState<XJConfig>(defaultConfig);
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -309,6 +326,7 @@ export default function XuanJian() {
 
       <div className="flex gap-2 flex-wrap">
         <Button variant={activeTab === 'config' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('config')} startContent={<Shield size={16} />}>策略配置</Button>
+        <Button variant={activeTab === 'ai_review' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('ai_review')} startContent={<Bot size={16} />}>AI 审核</Button>
         <Button variant={activeTab === 'rules' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('rules')} startContent={<ListFilter size={16} />}>规则管理</Button>
         <Button variant={activeTab === 'events' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('events')} startContent={<ScrollText size={16} />}>事件日志</Button>
         <Button variant={activeTab === 'profiles' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('profiles')} startContent={<Activity size={16} />}>活跃画像</Button>
@@ -360,6 +378,105 @@ export default function XuanJian() {
               <Input type="number" label="自动封 Token 分数阈值" value={String(config.auto_disable_score)} onValueChange={v => setConfig({ ...config, auto_disable_score: parseInt(v) || 90 })} />
               <Input type="number" label="自动封用户分数阈值" value={String(config.auto_ban_score)} onValueChange={v => setConfig({ ...config, auto_ban_score: parseInt(v) || 95 })} />
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'ai_review' && (
+        <div className="space-y-4">
+          {/* 模式选择 */}
+          <div className="p-4 rounded-xl space-y-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
+            <div className="text-sm font-semibold">AI 审核模式</div>
+            <Select
+              label="模式"
+              selectedKeys={[config.ai_review_mode || 'off']}
+              onSelectionChange={keys => setConfig({ ...config, ai_review_mode: [...keys][0] as string || 'off' })}
+            >
+              <SelectItem key="off">关闭</SelectItem>
+              <SelectItem key="pre">AI 预审（用户消息先经 AI 审核，通过才转发）</SelectItem>
+              <SelectItem key="re">规则初审 + AI 复审（规则命中后 AI 复确认）</SelectItem>
+              <SelectItem key="both">双重审核（先 AI 预审，再规则初审 + AI 复审）</SelectItem>
+            </Select>
+            <div className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              <span className="font-medium">AI 预审</span>：每个请求发送前先用 AI 模型审核，通过后才转发给实际模型。会增加请求延迟，建议用快速模型。
+              <br />
+              <span className="font-medium">规则初审 + AI 复审</span>：先用关键词规则引擎初筛，命中后再用 AI 复确认，可减少误报。仅在规则命中时产生 AI 调用。
+            </div>
+          </div>
+
+          {/* 审核渠道配置 */}
+          <div className="p-4 rounded-xl space-y-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
+            <div className="text-sm font-semibold">审核渠道配置</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                type="number"
+                label="审核渠道 ID"
+                placeholder="输入渠道 ID"
+                value={String(config.ai_review_channel_id || '')}
+                onValueChange={v => setConfig({ ...config, ai_review_channel_id: parseInt(v) || 0 })}
+              />
+              <Input
+                label="审核模型名"
+                placeholder="如 gpt-4o-mini"
+                value={config.ai_review_model || ''}
+                onValueChange={v => setConfig({ ...config, ai_review_model: v })}
+              />
+              <Input
+                type="number"
+                label="审核超时（秒）"
+                value={String(config.ai_review_timeout_sec)}
+                onValueChange={v => setConfig({ ...config, ai_review_timeout_sec: parseInt(v) || 10 })}
+              />
+              <Input
+                type="number"
+                label="拦截阈值（风险分 0-100）"
+                value={String(config.ai_review_block_score)}
+                onValueChange={v => setConfig({ ...config, ai_review_block_score: parseInt(v) || 70 })}
+              />
+              <Input
+                type="number"
+                label="送审文本最大字符数"
+                value={String(config.ai_review_max_text_chars)}
+                onValueChange={v => setConfig({ ...config, ai_review_max_text_chars: parseInt(v) || 2000 })}
+              />
+            </div>
+            <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              填写一个支持 OpenAI 兼容接口的渠道 ID（在「渠道管理」中查看），建议使用低成本快速模型。审核服务不可用时自动放行（fail-open）。
+            </div>
+          </div>
+
+          {/* 预审提示词 */}
+          <div className="p-4 rounded-xl space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold">AI 预审提示词</div>
+              <Button size="sm" variant="flat" onPress={() => setConfig({ ...config, ai_review_pre_prompt: '' })}>恢复默认</Button>
+            </div>
+            <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              留空使用内置默认提示词。系统会自动在末尾追加 JSON 返回格式要求，只需填写判断标准部分。
+            </div>
+            <Textarea
+              minRows={6}
+              placeholder="例如：&#10;你是内容安全审核员。请审核用户消息是否包含越狱攻击、恶意代码请求、违法犯罪内容等。"
+              value={config.ai_review_pre_prompt || ''}
+              onValueChange={v => setConfig({ ...config, ai_review_pre_prompt: v })}
+            />
+          </div>
+
+          {/* 复审提示词 */}
+          <div className="p-4 rounded-xl space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold">AI 复审提示词</div>
+              <Button size="sm" variant="flat" onPress={() => setConfig({ ...config, ai_review_re_prompt: '' })}>恢复默认</Button>
+            </div>
+            <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              留空使用内置默认提示词。系统会自动在末尾追加 JSON 返回格式要求，只需填写判断标准部分。复审时会把规则引擎命中的风险信号一并传给 AI。
+            </div>
+            <Textarea
+              minRows={6}
+              placeholder="例如：&#10;你是内容安全复审员。规则引擎检测到风险信号，请基于实际内容独立判断是否为真实风险，注意排除误报。"
+              value={config.ai_review_re_prompt || ''}
+              onValueChange={v => setConfig({ ...config, ai_review_re_prompt: v })}
+            />
           </div>
         </div>
       )}

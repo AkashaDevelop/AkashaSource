@@ -5,6 +5,7 @@ package xuanjian
 // 所有检测和处置都在这里异步完成，绝对不阻塞主链路。
 
 import (
+	"log"
 	"strings"
 	"time"
 )
@@ -139,4 +140,71 @@ func ExtractQYFindingTypes(findings interface{}) []string {
 	// relay.go 会直接传 []qingyuan.Finding，这里用反射-free 方式：
 	// relay.go 自行提取 types 再传入，见 relay.go 的调用示例注释
 	return nil
+}
+
+// AIReviewCheck 在请求转发前执行 AI 审核
+// 根据配置的模式执行：
+//   - pre:  AI 预审 —— 用户消息先经 AI 审核，通过才转发
+//   - re:   规则引擎初审 + AI 复审 —— 规则命中后再用 AI 复确认
+//   - both: 先 AI 预审，通过后规则初审命中再 AI 复审
+//
+// 返回 allowed=true 表示放行，allowed=false 表示拦截并附带拦截原因
+func AIReviewCheck(tokenID, userID int, messages []interface{}, prompt string) (allowed bool, blockMsg string) {
+	if !IsEnabled() {
+		return true, ""
+	}
+	if IsExempt(tokenID, userID) {
+		return true, ""
+	}
+
+	cfg, _ := GetConfig()
+	mode := cfg.AIReviewMode
+	if mode == "" || mode == AIReviewOff {
+		return true, ""
+	}
+
+	// AI 预审
+	if mode == AIReviewPre || mode == AIReviewBoth {
+		result := PreReview(messages, prompt, cfg)
+		if !result.Pass && !result.Skipped {
+			msg := "请求被 AI 预审拦截"
+			if result.Reason != "" {
+				msg += "：" + result.Reason
+			}
+			// 记录审核事件
+			go recordEvent(tokenID, userID, result.RiskScore, "", "", "", Finding{
+				Type:     "ai_pre_review_block",
+				Group:    string(GroupJailbreak),
+				Score:    result.RiskScore,
+				Evidence: result.Reason,
+				Action:   "block",
+			})
+			return false, msg
+		}
+	}
+
+	// 规则初审 + AI 复审（异步，不阻塞请求转发）
+	// 规则引擎命中后，在后台异步执行 AI 复审，请求正常转发
+	// 若复审确认有风险，记录事件供事后处置
+	if mode == AIReviewRe || mode == AIReviewBoth {
+		findings := RulePreCheck(messages, prompt, cfg)
+		if len(findings) > 0 {
+			go func() {
+				result := ReReview(messages, prompt, findings, cfg)
+				if !result.Pass && !result.Skipped {
+					recordEvent(tokenID, userID, result.RiskScore, "", "", "", Finding{
+						Type:     "ai_re_review_block",
+						Group:    string(GroupJailbreak),
+						Score:    result.RiskScore,
+						Evidence: result.Reason,
+						Action:   "block",
+					})
+					log.Printf("[xuanjian] AI 复审确认风险: score=%d reason=%s", result.RiskScore, result.Reason)
+				}
+			}()
+			// 请求继续转发，不拦截
+		}
+	}
+
+	return true, ""
 }

@@ -7,6 +7,8 @@ import (
 	"STfreApi/middleware"
 	"STfreApi/model"
 	"STfreApi/service"
+	"STfreApi/service/qingyuan"
+	"STfreApi/service/xuanjian"
 	"bufio"
 	"bytes"
 	"encoding/json"
@@ -14,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -111,14 +114,60 @@ func RelayResponses(c *gin.Context) {
 		return
 	}
 
+	// 7.5 宸汐玄鉴 AI 审核（预审 / 规则初审+AI复审 / 两者）
+	if xuanjian.IsEnabled() {
+		allowed, blockMsg := xuanjian.AIReviewCheck(token.Id, user.Id, openAIReq.Messages, openAIReq.Prompt)
+		if !allowed {
+			go RecordFailLog(c, token, req.Model, blockMsg)
+			sendResponsesError(c, http.StatusBadRequest, "ai_review_blocked", blockMsg)
+			return
+		}
+	}
+
 	// 8. Try channels
 	var lastError error
 	for i, channel := range channels {
-		openAIReq.Model = mappedModels[i]
+		mappedModel := mappedModels[i]
+		openAIReq.Model = mappedModel
 		channel.Key = service.GetNextKey(channel.Key)
 
+		// 清源净化：深拷贝 → 策略解析 → 净化执行
+		attemptReq, copyErr := qingyuan.DeepCopyOpenAIRequest(openAIReq)
+		if copyErr != nil {
+			lastError = copyErr
+			continue
+		}
+		policy := qingyuan.ResolvePolicy(channel.Id, req.Model, mappedModel)
+		reqCtx := qingyuan.RequestContext{
+			RequestId:      c.GetString("request_id"),
+			UserId:         user.Id,
+			TokenId:        token.Id,
+			TokenName:      token.Name,
+			ChannelId:      channel.Id,
+			ChannelName:    channel.Name,
+			ChannelType:    channel.Type,
+			RequestedModel: req.Model,
+			MappedModel:    mappedModel,
+			UserGroup:      user.Group,
+			ClientIP:       c.ClientIP(),
+		}
+		sanitizeResult, sanitizeErr := qingyuan.ApplyRequest(c.Request.Context(), attemptReq, reqCtx, policy)
+		if sanitizeErr != nil {
+			lastError = sanitizeErr
+			continue
+		}
+		if sanitizeResult.Blocked {
+			msg := sanitizeResult.Message
+			if msg == "" {
+				msg = "请求被安全策略拒绝，如有疑问请联系管理员"
+			}
+			go RecordFailLog(c, token, mappedModel, msg)
+			sendResponsesError(c, http.StatusBadRequest, "context_sanitization_blocked", msg)
+			return
+		}
+
 		adaptor := adapter.GetAdaptor(channel.Type, channel)
-		converted, err := adaptor.ConvertRequest(c, openAIReq)
+		converted, err := adaptor.ConvertRequest(c, attemptReq)
 		if err != nil {
 			lastError = err
 			continue
@@ -154,6 +203,31 @@ func RelayResponses(c *gin.Context) {
 		if usage != nil {
 			go RecordConsumeLog(c, token, mappedModels[i], usage.PromptTokens, usage.CompletionTokens)
 			go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(tokenKey), channel.Id, mappedModels[i], usage.PromptTokens, usage.CompletionTokens, usage.CachedTokens)
+
+			// 宸汐玄鉴：异步行为分析
+			if xuanjian.IsEnabled() {
+				qyTypes := make([]string, 0, len(sanitizeResult.Findings))
+				for _, f := range sanitizeResult.Findings {
+					qyTypes = append(qyTypes, f.Type)
+				}
+				promptSnippet := xuanjian.CollectPromptSnippet(attemptReq.Messages, attemptReq.Prompt, 2000)
+				go xuanjian.RecordRequest(xuanjian.RequestRecord{
+					TokenID:          token.Id,
+					TokenName:        token.Name,
+					UserID:           user.Id,
+					TokenCreatedAt:   time.Unix(token.CreatedTime, 0),
+					IP:               c.ClientIP(),
+					UserAgent:        c.GetHeader("User-Agent"),
+					Model:            mappedModel,
+					PromptTokens:     usage.PromptTokens,
+					CompletionTokens: usage.CompletionTokens,
+					PromptSnippet:    promptSnippet,
+					Messages:         attemptReq.Messages,
+					StatusCode:       resp.StatusCode,
+					QYFindings:       qyTypes,
+					QYRiskScore:      sanitizeResult.RiskScore,
+				})
+			}
 		}
 		return
 	}

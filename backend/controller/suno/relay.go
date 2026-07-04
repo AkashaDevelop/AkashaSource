@@ -4,6 +4,7 @@ import (
 	"STfreApi/common"
 	"STfreApi/dto"
 	"STfreApi/model"
+	"STfreApi/service/xuanjian"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -51,6 +52,37 @@ func RelaySuno(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read body"})
 		return
+	}
+
+	// 宸汐玄鉴 AI 审核：提取 prompt/title/tags 等文本字段送审
+	if xuanjian.IsEnabled() {
+		var sunoReq struct {
+			Prompt string `json:"prompt"`
+			Title  string `json:"title"`
+			Tags   string `json:"tags"`
+		}
+		if json.Unmarshal(bodyBytes, &sunoReq) == nil {
+			var reviewText string
+			if sunoReq.Prompt != "" {
+				reviewText += sunoReq.Prompt + " "
+			}
+			if sunoReq.Title != "" {
+				reviewText += sunoReq.Title + " "
+			}
+			if sunoReq.Tags != "" {
+				reviewText += sunoReq.Tags
+			}
+			if reviewText != "" {
+				reviewMessages := []interface{}{
+					map[string]interface{}{"role": "user", "content": reviewText},
+				}
+				allowed, blockMsg := xuanjian.AIReviewCheck(token.Id, token.UserId, reviewMessages, "")
+				if !allowed {
+					c.JSON(http.StatusBadRequest, gin.H{"error": blockMsg})
+					return
+				}
+			}
+		}
 	}
 
 	// Forward to suno-api service
