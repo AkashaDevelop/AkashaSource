@@ -108,7 +108,16 @@ func RelayResponses(c *gin.Context) {
 	}
 
 	// 7. Select channels
-	channels, mappedModels, err := SelectChannelWithAffinity(openAIReq.Model, user.Group, tokenKey, defaultChannelAffinityRule)
+	usingGroup, err := service.ResolveUsingGroup(user.Group, token.Group)
+	if err != nil {
+		sendResponsesError(c, http.StatusForbidden, "invalid_request_error", err.Error())
+		return
+	}
+	if !middleware.GroupRateLimitMiddleware(service.ResolveBillingGroup(user.Group, token.Group)) {
+		sendResponsesError(c, http.StatusTooManyRequests, "rate_limit_error", fmt.Sprintf("分组 %s 请求过于频繁", usingGroup))
+		return
+	}
+	channels, mappedModels, channelGroups, err := SelectChannelWithAffinity(openAIReq.Model, user.Group, usingGroup, token.CrossGroupRetry, tokenKey, defaultChannelAffinityRule)
 	if err != nil {
 		sendResponsesError(c, http.StatusServiceUnavailable, "server_error",
 			fmt.Sprintf("no available channel for model: %s", openAIReq.Model))
@@ -129,6 +138,7 @@ func RelayResponses(c *gin.Context) {
 	var lastError error
 	for i, channel := range channels {
 		mappedModel := mappedModels[i]
+		c.Set("billing_group", channelGroups[i])
 		openAIReq.Model = mappedModel
 		channel.Key = service.GetNextKey(channel.Key)
 
@@ -192,13 +202,20 @@ func RelayResponses(c *gin.Context) {
 		isStream := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 		responseID := fmt.Sprintf("resp_%s", common.GetUUID())
 
+		respCtx := qingyuan.ResponseContext{
+			RequestContext:   reqCtx,
+			UserRequestedAds: qingyuan.IsUserRequestingAds(attemptReq),
+			RequestTools:     attemptReq.Tools,
+		}
+
 		var usage *dto.Usage
+		var completionText string
 		if req.Stream && isStream {
-			usage, err = streamChatToResponses(c, resp, responseID, req.Model)
+			usage, completionText, err = streamChatToResponses(c, resp, responseID, req.Model, policy, respCtx)
 		} else if isStream {
-			usage, err = streamToNormalResponses(c, resp, responseID, req.Model)
+			usage, completionText, err = streamToNormalResponses(c, resp, responseID, req.Model, policy, respCtx)
 		} else {
-			usage, err = normalChatToResponses(c, resp, responseID, req.Model)
+			usage, completionText, err = normalChatToResponses(c, resp, responseID, req.Model, policy, respCtx)
 		}
 
 		if usage != nil {
@@ -210,26 +227,23 @@ func RelayResponses(c *gin.Context) {
 
 			// 宸汐玄鉴：异步行为分析
 			if xuanjian.IsEnabled() {
-				qyTypes := make([]string, 0, len(sanitizeResult.Findings))
-				for _, f := range sanitizeResult.Findings {
-					qyTypes = append(qyTypes, f.Type)
-				}
 				promptSnippet := xuanjian.CollectPromptSnippet(attemptReq.Messages, attemptReq.Prompt, 2000)
 				go xuanjian.RecordRequest(xuanjian.RequestRecord{
-					TokenID:          token.Id,
-					TokenName:        token.Name,
-					UserID:           user.Id,
-					TokenCreatedAt:   time.Unix(token.CreatedTime, 0),
-					IP:               c.ClientIP(),
-					UserAgent:        c.GetHeader("User-Agent"),
-					Model:            mappedModel,
-					PromptTokens:     usage.PromptTokens,
-					CompletionTokens: usage.CompletionTokens,
-					PromptSnippet:    promptSnippet,
-					Messages:         attemptReq.Messages,
-					StatusCode:       resp.StatusCode,
-					QYFindings:       qyTypes,
-					QYRiskScore:      sanitizeResult.RiskScore,
+					TokenID:           token.Id,
+					TokenName:         token.Name,
+					UserID:            user.Id,
+					TokenCreatedAt:    time.Unix(token.CreatedTime, 0),
+					IP:                c.ClientIP(),
+					UserAgent:         c.GetHeader("User-Agent"),
+					Model:             mappedModel,
+					PromptTokens:      usage.PromptTokens,
+					CompletionTokens:  usage.CompletionTokens,
+					PromptSnippet:     promptSnippet,
+					CompletionSnippet: xuanjian.TruncateSnippet(completionText, 500),
+					Messages:          attemptReq.Messages,
+					StatusCode:        resp.StatusCode,
+					QYFindings:        xuanjian.ExtractQYFindingTypes(sanitizeResult.Findings),
+					QYRiskScore:       sanitizeResult.RiskScore,
 				})
 			}
 		}
@@ -296,21 +310,33 @@ func responsesToChatRequest(req *ResponsesRequest) *dto.OpenAIRequest {
 }
 
 // normalChatToResponses converts a non-streaming OpenAI chat response to Responses API format
-func normalChatToResponses(c *gin.Context, resp *http.Response, responseID, modelName string) (*dto.Usage, error) {
+func normalChatToResponses(c *gin.Context, resp *http.Response, responseID, modelName string, policy qingyuan.ResolvedPolicy, rc qingyuan.ResponseContext) (*dto.Usage, string, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, "", err
+	}
+
+	// 这一步天然就是标准 OpenAI ChatCompletion 形状，直接复用 ApplyOpenAIResponse 的检测/清理逻辑～
+	if qingyuan.IsEnabled(policy) {
+		if result, err := qingyuan.ApplyOpenAIResponse(c.Request.Context(), body, rc, policy); err == nil && result != nil {
+			if result.Blocked {
+				return nil, "", fmt.Errorf("response blocked by qingyuan: %s", result.Message)
+			}
+			body = result.Body
+		}
 	}
 
 	var chatResp dto.ChatCompletionResponse
 	if err := json.Unmarshal(body, &chatResp); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Build output items
 	var outputItems []map[string]interface{}
+	completionText := ""
 	if len(chatResp.Choices) > 0 {
 		msg := chatResp.Choices[0].Message
+		completionText = msg.Content
 		outputItem := map[string]interface{}{
 			"type":   "message",
 			"id":     fmt.Sprintf("msg_%s", common.GetUUID()),
@@ -337,11 +363,13 @@ func normalChatToResponses(c *gin.Context, resp *http.Response, responseID, mode
 	}
 
 	c.JSON(http.StatusOK, result)
-	return &chatResp.Usage, nil
+	return &chatResp.Usage, completionText, nil
 }
 
-// streamChatToResponses converts streaming OpenAI SSE to Responses API SSE format
-func streamChatToResponses(c *gin.Context, resp *http.Response, responseID, modelName string) (*dto.Usage, error) {
+// streamChatToResponses converts streaming OpenAI SSE to Responses API SSE format，
+// 有清源策略时把文本增量喂给 TailBufferCore，收尾事件永远等 Finalize() 放完尾巴才发，
+// 避免"尾部被拦下来，但收尾帧已经先发出去了"这种协议错序～
+func streamChatToResponses(c *gin.Context, resp *http.Response, responseID, modelName string, policy qingyuan.ResolvedPolicy, rc qingyuan.ResponseContext) (*dto.Usage, string, error) {
 	common.SetEventStreamHeaders(c)
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -350,7 +378,12 @@ func streamChatToResponses(c *gin.Context, resp *http.Response, responseID, mode
 	usage := &dto.Usage{}
 	started := false
 	msgID := fmt.Sprintf("msg_%s", common.GetUUID())
-	var textBuf strings.Builder
+	finishReason := ""
+
+	var core *qingyuan.TailBufferCore
+	if qingyuan.IsEnabled(policy) {
+		core = qingyuan.NewTailBufferCore(policy)
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -392,61 +425,95 @@ func streamChatToResponses(c *gin.Context, resp *http.Response, responseID, mode
 		delta := chunk.Choices[0].Delta
 
 		if delta.Content != "" {
-			textBuf.WriteString(delta.Content)
-			writeResponsesSSE(c, "response.output_text.delta", gin.H{
-				"output_index":  0,
-				"content_index": 0,
-				"delta":         delta.Content,
-			})
+			if core == nil {
+				writeResponsesSSE(c, "response.output_text.delta", gin.H{
+					"output_index":  0,
+					"content_index": 0,
+					"delta":         delta.Content,
+				})
+			} else {
+				rendered := renderResponsesSSE("response.output_text.delta", gin.H{
+					"output_index":  0,
+					"content_index": 0,
+					"delta":         delta.Content,
+				})
+				for _, released := range core.Feed(delta.Content, rendered) {
+					c.Writer.Write(released.([]byte))
+					c.Writer.Flush()
+				}
+			}
 		}
 
 		if chunk.Choices[0].FinishReason != "" {
-			writeResponsesSSE(c, "response.output_text.done", gin.H{
-				"output_index":  0,
-				"content_index": 0,
-				"text":          textBuf.String(),
-			})
-			writeResponsesSSE(c, "response.content_part.done", gin.H{
-				"output_index":  0,
-				"content_index": 0,
-				"part":          gin.H{"type": "output_text", "text": textBuf.String()},
-			})
-			writeResponsesSSE(c, "response.output_item.done", gin.H{
-				"output_index": 0,
-				"item": gin.H{
-					"type": "message", "id": msgID, "role": "assistant", "status": "completed",
-					"content": []gin.H{{"type": "output_text", "text": textBuf.String()}},
-				},
-			})
-			writeResponsesSSE(c, "response.completed", gin.H{
-				"response": gin.H{
-					"id": responseID, "object": "response", "status": "completed", "model": modelName,
-					"output": []gin.H{{
-						"type": "message", "id": msgID, "role": "assistant", "status": "completed",
-						"content": []gin.H{{"type": "output_text", "text": textBuf.String()}},
-					}},
-					"usage": gin.H{
-						"input_tokens":  usage.PromptTokens,
-						"output_tokens": usage.CompletionTokens,
-						"total_tokens":  usage.TotalTokens,
-					},
-				},
-			})
+			finishReason = chunk.Choices[0].FinishReason
 		}
 	}
 
-	return usage, nil
+	completionText := ""
+	if core != nil {
+		released, fullText, findings := core.Finalize(rc.RequestTools)
+		for _, r := range released {
+			c.Writer.Write(r.([]byte))
+		}
+		c.Writer.Flush()
+		completionText = fullText
+		qingyuan.RecordResponseFindings(rc, policy, findings, false)
+	}
+
+	if finishReason != "" {
+		writeResponsesSSE(c, "response.output_text.done", gin.H{
+			"output_index":  0,
+			"content_index": 0,
+			"text":          completionText,
+		})
+		writeResponsesSSE(c, "response.content_part.done", gin.H{
+			"output_index":  0,
+			"content_index": 0,
+			"part":          gin.H{"type": "output_text", "text": completionText},
+		})
+		writeResponsesSSE(c, "response.output_item.done", gin.H{
+			"output_index": 0,
+			"item": gin.H{
+				"type": "message", "id": msgID, "role": "assistant", "status": "completed",
+				"content": []gin.H{{"type": "output_text", "text": completionText}},
+			},
+		})
+		writeResponsesSSE(c, "response.completed", gin.H{
+			"response": gin.H{
+				"id": responseID, "object": "response", "status": "completed", "model": modelName,
+				"output": []gin.H{{
+					"type": "message", "id": msgID, "role": "assistant", "status": "completed",
+					"content": []gin.H{{"type": "output_text", "text": completionText}},
+				}},
+				"usage": gin.H{
+					"input_tokens":  usage.PromptTokens,
+					"output_tokens": usage.CompletionTokens,
+					"total_tokens":  usage.TotalTokens,
+				},
+			},
+		})
+	}
+
+	return usage, completionText, nil
 }
 
 func writeResponsesSSE(c *gin.Context, eventType string, data interface{}) {
-	jsonBytes, _ := json.Marshal(data)
-	c.Writer.WriteString("event: " + eventType + "\n")
-	c.Writer.WriteString("data: " + string(jsonBytes) + "\n\n")
+	c.Writer.Write(renderResponsesSSE(eventType, data))
 	c.Writer.Flush()
 }
 
-// streamToNormalResponses collects a streaming OpenAI response into a single Responses API JSON response
-func streamToNormalResponses(c *gin.Context, resp *http.Response, responseID, modelName string) (*dto.Usage, error) {
+// renderResponsesSSE 只渲染成字节，不负责写出去——供需要"先攒住再决定发不发"的场景使用～
+func renderResponsesSSE(eventType string, data interface{}) []byte {
+	jsonBytes, _ := json.Marshal(data)
+	var buf bytes.Buffer
+	buf.WriteString("event: " + eventType + "\n")
+	buf.WriteString("data: " + string(jsonBytes) + "\n\n")
+	return buf.Bytes()
+}
+
+// streamToNormalResponses collects a streaming OpenAI response into a single Responses API JSON response，
+// 先把整段流收完整聚合，再统一跑一遍检测/清理——这是最安全的一种场景，什么都还没发给客户端～
+func streamToNormalResponses(c *gin.Context, resp *http.Response, responseID, modelName string, policy qingyuan.ResolvedPolicy, rc qingyuan.ResponseContext) (*dto.Usage, string, error) {
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
 		if atEOF && len(data) == 0 {
@@ -482,12 +549,24 @@ func streamToNormalResponses(c *gin.Context, resp *http.Response, responseID, mo
 		}
 	}
 
+	completionText := textBuf.String()
+	if qingyuan.IsEnabled(policy) {
+		cleaned, blocked, blockMsg, findings := qingyuan.AnalyzeText(completionText, nil, rc, policy)
+		if blocked {
+			return nil, "", fmt.Errorf("response blocked by qingyuan: %s", blockMsg)
+		}
+		if len(findings) > 0 {
+			qingyuan.RecordResponseFindings(rc, policy, findings, cleaned != completionText)
+		}
+		completionText = cleaned
+	}
+
 	msgID := fmt.Sprintf("msg_%s", common.GetUUID())
 	result := gin.H{
 		"id": responseID, "object": "response", "status": "completed", "model": modelName,
 		"output": []gin.H{{
 			"type": "message", "id": msgID, "role": "assistant", "status": "completed",
-			"content": []gin.H{{"type": "output_text", "text": textBuf.String()}},
+			"content": []gin.H{{"type": "output_text", "text": completionText}},
 		}},
 		"usage": gin.H{
 			"input_tokens":  usage.PromptTokens,
@@ -497,5 +576,5 @@ func streamToNormalResponses(c *gin.Context, resp *http.Response, responseID, mo
 	}
 
 	c.JSON(http.StatusOK, result)
-	return usage, nil
+	return usage, completionText, nil
 }

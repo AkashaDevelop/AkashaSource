@@ -286,29 +286,19 @@ func GetUserGroups(c *gin.Context) {
 		return
 	}
 
-	var groups []model.Group
-	if err := common.DB.Find(&groups).Error; err != nil {
-		common.Fail(c, common.CodeServerError, "获取分组失败")
-		return
-	}
-
-	usable := make(map[string]map[string]interface{})
-	for _, g := range groups {
-		name := strings.TrimSpace(g.Name)
-		if name == "" {
+	userUsableGroups := service.GetUserUsableGroups(user.Group)
+	usable := make(map[string]map[string]interface{}, len(userUsableGroups))
+	for name, desc := range userUsableGroups {
+		if name == "auto" {
+			usable[name] = map[string]interface{}{
+				"ratio": "自动",
+				"desc":  desc,
+			}
 			continue
 		}
 		usable[name] = map[string]interface{}{
-			"ratio": 1,
-			"desc":  g.Description,
-		}
-	}
-	if user.Group != "" {
-		if _, ok := usable[user.Group]; !ok {
-			usable[user.Group] = map[string]interface{}{
-				"ratio": 1,
-				"desc":  "",
-			}
+			"ratio": service.GetUserGroupRatio(user.Group, name),
+			"desc":  desc,
 		}
 	}
 

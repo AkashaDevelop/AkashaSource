@@ -1,14 +1,15 @@
 package qingyuan
 
 import (
+	"strconv"
 	"strings"
 )
 
 // detectMultimodalRisks 检测多模态内容的潜在风险
 // 设计文档 4.6: 多模态内容注入
-func detectMultimodalRisks(messages []interface{}, policy ResolvedPolicy) []Finding {
+// hasTools 由调用方传入（该请求是否声明了工具），不再在这里瞎猜～
+func detectMultimodalRisks(messages []interface{}, policy ResolvedPolicy, hasTools bool) []Finding {
 	findings := []Finding{}
-	hasTools := false // 需要外部传入,这里暂时从上下文推断
 
 	for i, m := range messages {
 		mm, ok := m.(map[string]any)
@@ -133,7 +134,7 @@ func buildPath(parts ...interface{}) string {
 		case string:
 			strs = append(strs, v)
 		case int:
-			strs = append(strs, "["+string(rune(v+'0'))+"]")
+			strs = append(strs, "["+strconv.Itoa(v)+"]")
 		}
 	}
 	return strings.Join(strs, ".")

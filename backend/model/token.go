@@ -14,6 +14,10 @@ type Token struct {
 	UsedQuota      int64  `json:"used_quota" gorm:"default:0"` // 该令牌的用量
 	AllowedIPs     string `json:"allowed_ips" gorm:"type:text"`
 	AllowedModels  string `json:"allowed_models" gorm:"type:text"`
+	// Group 令牌自己的分组，覆盖用户默认分组；为空则跟随 User.Group～
+	Group string `json:"group" gorm:"default:''"`
+	// CrossGroupRetry 仅 Group=="auto" 时生效：本组重试次数用尽后要不要去敲下一个候选分组的门～
+	CrossGroupRetry bool `json:"cross_group_retry" gorm:"default:false"`
 }
 
 const (

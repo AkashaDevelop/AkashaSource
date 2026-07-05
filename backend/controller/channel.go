@@ -253,6 +253,10 @@ func AddChannel(c *gin.Context) {
 		common.Fail(c, common.CodeServerError, "创建渠道失败")
 		return
 	}
+	if err := channel.AddAbilities(nil); err != nil {
+		common.Fail(c, common.CodeServerError, "渠道已创建，但同步能力表失败")
+		return
+	}
 	if err := syncModelConfigsFromChannelModels(channel.Models); err != nil {
 		common.Fail(c, common.CodeServerError, "渠道已创建，但同步模型管理失败")
 		return
@@ -281,6 +285,10 @@ func AddChannels(c *gin.Context) {
 		return
 	}
 	for _, channel := range channels {
+		if err := channel.AddAbilities(nil); err != nil {
+			common.Fail(c, common.CodeServerError, "批量创建成功，但同步能力表失败")
+			return
+		}
 		if err := syncModelConfigsFromChannelModels(channel.Models); err != nil {
 			common.Fail(c, common.CodeServerError, "批量创建成功，但同步模型管理失败")
 			return
@@ -291,18 +299,25 @@ func AddChannels(c *gin.Context) {
 
 func DeleteChannel(c *gin.Context) {
 	id := c.Param("id")
+	channelId, _ := strconv.Atoi(id)
 	if err := common.DB.Delete(&model.Channel{}, id).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "删除渠道失败")
 		return
 	}
+	_ = model.DeleteAbilitiesByChannelId(channelId)
 	common.OKMsg(c, "渠道已删除", nil)
 }
 
 func DeleteDisabledChannel(c *gin.Context) {
+	var disabledIds []int
+	common.DB.Model(&model.Channel{}).Where("status IN ?", []int{model.ChannelStatusDisabled, model.ChannelStatusAutoDisabled}).Pluck("id", &disabledIds)
 	res := common.DB.Where("status IN ?", []int{model.ChannelStatusDisabled, model.ChannelStatusAutoDisabled}).Delete(&model.Channel{})
 	if res.Error != nil {
 		common.Fail(c, common.CodeServerError, "删除禁用渠道失败")
 		return
+	}
+	if len(disabledIds) > 0 {
+		common.DB.Where("channel_id IN ?", disabledIds).Delete(&model.Ability{})
 	}
 	common.OK(c, gin.H{"deleted": res.RowsAffected})
 }
@@ -322,9 +337,15 @@ func DisableTagChannels(c *gin.Context) {
 		common.Fail(c, common.CodeParamError, "参数错误")
 		return
 	}
-	if err := common.DB.Model(&model.Channel{}).Where("tags LIKE ?", "%"+strings.TrimSpace(req.Tag)+"%").Update("status", model.ChannelStatusDisabled).Error; err != nil {
+	tagFilter := "%" + strings.TrimSpace(req.Tag) + "%"
+	var ids []int
+	common.DB.Model(&model.Channel{}).Where("tags LIKE ?", tagFilter).Pluck("id", &ids)
+	if err := common.DB.Model(&model.Channel{}).Where("tags LIKE ?", tagFilter).Update("status", model.ChannelStatusDisabled).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "批量禁用失败")
 		return
+	}
+	if len(ids) > 0 {
+		common.DB.Model(&model.Ability{}).Where("channel_id IN ?", ids).Update("enabled", false)
 	}
 	common.OK(c, nil)
 }
@@ -335,9 +356,15 @@ func EnableTagChannels(c *gin.Context) {
 		common.Fail(c, common.CodeParamError, "参数错误")
 		return
 	}
-	if err := common.DB.Model(&model.Channel{}).Where("tags LIKE ?", "%"+strings.TrimSpace(req.Tag)+"%").Update("status", model.ChannelStatusActive).Error; err != nil {
+	tagFilter := "%" + strings.TrimSpace(req.Tag) + "%"
+	var ids []int
+	common.DB.Model(&model.Channel{}).Where("tags LIKE ?", tagFilter).Pluck("id", &ids)
+	if err := common.DB.Model(&model.Channel{}).Where("tags LIKE ?", tagFilter).Update("status", model.ChannelStatusActive).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "批量启用失败")
 		return
+	}
+	if len(ids) > 0 {
+		common.DB.Model(&model.Ability{}).Where("channel_id IN ?", ids).Update("enabled", true)
 	}
 	common.OK(c, nil)
 }
@@ -368,20 +395,23 @@ func EditTagChannels(c *gin.Context) {
 		common.Fail(c, common.CodeParamError, "无可更新字段")
 		return
 	}
-	if err := common.DB.Model(&model.Channel{}).Where("tags LIKE ?", "%"+strings.TrimSpace(req.Tag)+"%").Updates(updates).Error; err != nil {
+	tagFilter := "%" + strings.TrimSpace(req.Tag) + "%"
+	if err := common.DB.Model(&model.Channel{}).Where("tags LIKE ?", tagFilter).Updates(updates).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "批量编辑失败")
 		return
+	}
+	// priority/weight/models/model_mapping 任一变了，能力表都得跟着重新长一遍～
+	var affected []model.Channel
+	common.DB.Where("tags LIKE ?", tagFilter).Find(&affected)
+	for i := range affected {
+		_ = affected[i].UpdateAbilities(nil)
 	}
 	common.OK(c, nil)
 }
 
 func FixChannelsAbilities(c *gin.Context) {
-	var total int64
-	if err := common.DB.Model(&model.Channel{}).Count(&total).Error; err != nil {
-		common.Fail(c, common.CodeServerError, "执行修复失败")
-		return
-	}
-	common.OK(c, gin.H{"success": total, "fails": 0})
+	success, fails := model.FixAllAbilities()
+	common.OK(c, gin.H{"success": success, "fails": fails})
 }
 
 func UpdateChannel(c *gin.Context) {
@@ -397,6 +427,15 @@ func UpdateChannel(c *gin.Context) {
 	if err := common.DB.Model(&channel).Updates(channel).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "更新渠道失败")
 		return
+	}
+	// GORM 的 Updates(struct) 会跳过零值字段，这里的 channel 变量并不完整，
+	// 要重新查一遍完整数据才能安心地拿去重建能力表～
+	var fresh model.Channel
+	if err := common.DB.First(&fresh, channel.Id).Error; err == nil {
+		if err := fresh.UpdateAbilities(nil); err != nil {
+			common.Fail(c, common.CodeServerError, "渠道已更新，但同步能力表失败")
+			return
+		}
 	}
 	if err := syncModelConfigsFromChannelModels(channel.Models); err != nil {
 		common.Fail(c, common.CodeServerError, "渠道已更新，但同步模型管理失败")

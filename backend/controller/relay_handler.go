@@ -119,15 +119,21 @@ func RecordConsumeLog(c *gin.Context, token *model.Token, modelName string, prom
 	detail, _ := c.Get("usage_detail")
 	d, _ := detail.(usageDetail)
 
-	// 查询用户分组
+	// 查询用户分组，令牌自己有独立分组的话优先按令牌的算账～
 	var userGroup string
 	common.DB.Model(&model.User{}).Where("id = ?", token.UserId).Select("group").Scan(&userGroup)
+	// auto 分组下具体命中了哪个候选分组，selector.go 已经通过 c.Set("billing_group", ...) 逐次记录，
+	// 这里直接读那份"实际命中"的记录来算账，不能笼统按 auto 或用户自己的分组打马虎眼～
+	billingGroup := c.GetString("billing_group")
+	if billingGroup == "" {
+		billingGroup = service.ResolveBillingGroup(userGroup, token.Group)
+	}
 
 	// 计算实际消耗
 	finalQuota, otherInfo := service.CalculateQuota(
 		modelName, promptTokens, completionTokens, cached,
 		d.ImageTokens, d.AudioTokens, d.AudioCompletionTokens,
-		d.WebSearchCount, d.FileSearchCount, userGroup,
+		d.WebSearchCount, d.FileSearchCount, userGroup, billingGroup,
 	)
 
 	// 从 context 获取额外信息（由调用者设置）
@@ -154,7 +160,7 @@ func RecordConsumeLog(c *gin.Context, token *model.Token, modelName string, prom
 		ChannelId:        channelId,
 		UseTime:          useTime,
 		IsStream:         isStream,
-		Group:            userGroup,
+		Group:            billingGroup,
 		Other:            otherInfo,
 		IP:               c.ClientIP(),
 		RequestId:        c.GetString("request_id"),
@@ -182,15 +188,19 @@ func RecordConsumeWithBilling(c *gin.Context, token *model.Token, modelName stri
 	isStream := c.GetBool("is_stream")
 	channelId := c.GetInt("channel_id")
 
-	// 查询用户分组
+	// 查询用户分组，令牌自己有独立分组的话优先按令牌的算账～
 	var userGroup string
 	common.DB.Model(&model.User{}).Where("id = ?", token.UserId).Select("group").Scan(&userGroup)
+	billingGroup := c.GetString("billing_group")
+	if billingGroup == "" {
+		billingGroup = service.ResolveBillingGroup(userGroup, token.Group)
+	}
 
 	// 计算实际消耗
 	finalQuota, otherInfo := service.CalculateQuota(
 		modelName, usage.PromptTokens, usage.CompletionTokens, cached,
 		usage.ImageTokens, usage.AudioTokens, usage.AudioCompletionTokens,
-		usage.WebSearchCount, usage.FileSearchCount, userGroup,
+		usage.WebSearchCount, usage.FileSearchCount, userGroup, billingGroup,
 	)
 
 	var username string
@@ -211,7 +221,7 @@ func RecordConsumeWithBilling(c *gin.Context, token *model.Token, modelName stri
 		ChannelId:        channelId,
 		UseTime:          useTime,
 		IsStream:         isStream,
-		Group:            userGroup,
+		Group:            billingGroup,
 		Other:            otherInfo,
 		IP:               c.ClientIP(),
 		RequestId:        c.GetString("request_id"),

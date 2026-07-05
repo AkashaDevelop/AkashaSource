@@ -48,8 +48,8 @@ type TokenProfile struct {
 	JailbreakAttempts int // 累计破限命中次数
 	LastJailbreakAt   time.Time
 
-	// MinHash prompt 环形缓冲（最近 50 条）
-	PromptHashes []uint64
+	// MinHash prompt 环形缓冲（最近 50 条，存完整签名才能做真正的近似相似度比较）
+	PromptHashes []MinHashSignature
 
 	// LLMjacking 专属：全量 quota（跨窗口累计，不重置）
 	TotalLifetimeQuota int64
@@ -188,7 +188,7 @@ func (p *TokenProfile) Update(rec RequestRecord, windowMinutes int) {
 	}
 
 	// prompt hash
-	if rec.PromptHash != 0 {
+	if !rec.PromptHash.IsZero() {
 		p.PromptHashes = append(p.PromptHashes, rec.PromptHash)
 		if len(p.PromptHashes) > 50 {
 			p.PromptHashes = p.PromptHashes[len(p.PromptHashes)-50:]

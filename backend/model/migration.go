@@ -142,6 +142,18 @@ func ApplyMigrations() {
 				return common.DB.AutoMigrate(&XuanJianRule{})
 			},
 		},
+		{
+			Version: 14,
+			Name:    "新增渠道能力表(Ability)，令牌分组字段随通用迁移自动补齐",
+			Apply: func() error {
+				if err := common.DB.AutoMigrate(&Ability{}); err != nil {
+					return err
+				}
+				// 新表刚建好，把现有渠道的能力全部回填一遍，免得升级完渠道全部选不到～
+				FixAllAbilities()
+				return nil
+			},
+		},
 	}
 
 	for _, step := range steps {

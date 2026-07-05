@@ -41,7 +41,8 @@ func UpdateGroup(c *gin.Context) {
 		common.Fail(c, common.CodeParamError, "ID 必填")
 		return
 	}
-	if err := common.DB.Model(&group).Updates(group).Error; err != nil {
+	// Select("*") 强制连零值字段一起更新，不然 QPM/AllowedChannels 想清空成 0/空都清不掉～
+	if err := common.DB.Model(&group).Select("*").Updates(group).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "更新分组失败")
 		return
 	}

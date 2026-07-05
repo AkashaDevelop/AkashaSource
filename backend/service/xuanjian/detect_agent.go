@@ -34,9 +34,9 @@ func DetectAgent(rec RequestRecord, p *TokenProfile, cfg XJConfig) []Finding {
 	}
 
 	// ── 重试风暴（30s 内 > 10 条相似请求）────────────────────────────────
-	if rec.PromptHash != 0 {
+	if !rec.PromptHash.IsZero() {
 		p.mu.Lock()
-		similarCount := CheckDuplicateInProfile(p.PromptHashes, rec.PromptHash)
+		similarCount := countSimilarPrompts(p.PromptHashes, rec.PromptHash, minHashSim)
 		p.mu.Unlock()
 		if similarCount >= 10 {
 			findings = append(findings, Finding{
@@ -49,10 +49,10 @@ func DetectAgent(rec RequestRecord, p *TokenProfile, cfg XJConfig) []Finding {
 		}
 	}
 
-	// ── 近似重复探测（宽松版：最近50条里相同 hash > 15 才触发）────────────
-	if cfg.EnableDuplicateDetection && rec.PromptHash != 0 {
+	// ── 近似重复探测（宽松版：最近50条里相似 hash > 15 才触发）────────────
+	if cfg.EnableDuplicateDetection && !rec.PromptHash.IsZero() {
 		p.mu.Lock()
-		dupCount := CheckDuplicateInProfile(p.PromptHashes, rec.PromptHash)
+		dupCount := countSimilarPrompts(p.PromptHashes, rec.PromptHash, minHashSim)
 		p.mu.Unlock()
 		if dupCount >= 15 {
 			findings = append(findings, Finding{

@@ -2,11 +2,15 @@ package controller
 
 import (
 	"STfreApi/common"
+	"STfreApi/middleware"
 	"STfreApi/model"
 	"STfreApi/service"
+	"STfreApi/service/xuanjian"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -53,7 +57,16 @@ func RelayRealtime(c *gin.Context) {
 	}
 
 	// 4. Select channel
-	channels, mappedModels, err := SelectChannelWithAffinity(modelName, user.Group, tokenKey, defaultChannelAffinityRule)
+	usingGroup, err := service.ResolveUsingGroup(user.Group, token.Group)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+	if !middleware.GroupRateLimitMiddleware(service.ResolveBillingGroup(user.Group, token.Group)) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": fmt.Sprintf("分组 %s 请求过于频繁", usingGroup)})
+		return
+	}
+	channels, mappedModels, _, err := SelectChannelWithAffinity(modelName, user.Group, usingGroup, token.CrossGroupRetry, tokenKey, defaultChannelAffinityRule)
 	if err != nil || len(channels) == 0 {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": fmt.Sprintf("no channel for model: %s", modelName),
@@ -101,6 +114,7 @@ func RelayRealtime(c *gin.Context) {
 
 	// 7. Bidirectional pipe
 	done := make(chan struct{})
+	var clientBytes, upstreamBytes int64
 
 	// Client -> Upstream
 	go func() {
@@ -110,6 +124,7 @@ func RelayRealtime(c *gin.Context) {
 			if err != nil {
 				return
 			}
+			atomic.AddInt64(&clientBytes, int64(len(msg)))
 			if err := upstreamConn.WriteMessage(msgType, msg); err != nil {
 				return
 			}
@@ -124,6 +139,7 @@ func RelayRealtime(c *gin.Context) {
 				clientConn.Close()
 				return
 			}
+			atomic.AddInt64(&upstreamBytes, int64(len(msg)))
 			if err := clientConn.WriteMessage(msgType, msg); err != nil {
 				return
 			}
@@ -131,4 +147,24 @@ func RelayRealtime(c *gin.Context) {
 	}()
 
 	<-done
+
+	// 宸汐玄鉴：Realtime 是双向事件流，没有单一 prompt/completion 的概念，做不了内容级检测，
+	// 但至少把这条连接的请求量记进行为画像，速率/规模类异常（比如疯狂建连）还是能查得到～
+	if xuanjian.IsEnabled() {
+		// 粗略按 4 字节/token 估算，够画像统计用，不追求精确
+		promptTokens := int(atomic.LoadInt64(&clientBytes) / 4)
+		completionTokens := int(atomic.LoadInt64(&upstreamBytes) / 4)
+		go xuanjian.RecordRequest(xuanjian.RequestRecord{
+			TokenID:          token.Id,
+			TokenName:        token.Name,
+			UserID:           user.Id,
+			TokenCreatedAt:   time.Unix(token.CreatedTime, 0),
+			IP:               c.ClientIP(),
+			UserAgent:        c.GetHeader("User-Agent"),
+			Model:            mappedModel,
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			StatusCode:       http.StatusOK,
+		})
+	}
 }

@@ -2,10 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import LoadingRows from '../../components/LoadingRows';
-import { Chip, Tooltip, Button, Input, Snippet } from '../../components/ui';
+import { Chip, Tooltip, Button, Input, Snippet, Select, SelectItem, Switch } from '../../components/ui';
 import {
   Edit, Trash2, Plus, RefreshCw, Search, X,
-  KeyRound, Clock, Wallet, Shield, Power,
+  KeyRound, Clock, Wallet, Shield, Power, Users,
   ChevronDown, ChevronUp, Copy, Check,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
@@ -26,6 +26,8 @@ interface Token {
   expired_time: number;
   allowed_ips: string;
   allowed_models: string;
+  group: string;
+  cross_group_retry: boolean;
 }
 
 /* ───── 常量 ───── */
@@ -67,6 +69,11 @@ function TokenDrawer({ isOpen, onClose, editingToken, authToken, onSuccess }: Dr
   const [allowedIps,     setAllowedIps]     = useState('');
   const [allowedModels,  setAllowedModels]  = useState<string[]>([]);
   const [note,           setNote]           = useState('');
+  const [group,          setGroup]          = useState('');
+  const [crossGroupRetry, setCrossGroupRetry] = useState(false);
+
+  /* 分组选项：拉取当前用户能用的分组 + 展示倍率 */
+  const [groupOptions, setGroupOptions] = useState<Record<string, { ratio: number | string; desc: string }>>({});
 
   /* 模型选择 */
   const [models,       setModels]       = useState<string[]>([]);
@@ -101,6 +108,15 @@ function TokenDrawer({ isOpen, onClose, editingToken, authToken, onSuccess }: Dr
       .catch(() => {});
   }, [isOpen, authToken]);
 
+  /* 拉取当前用户可用的分组，给令牌单独挑一个分组用～ */
+  useEffect(() => {
+    if (!isOpen || !authToken) return;
+    fetch('/api/user/self/groups', { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(r => r.json())
+      .then(d => { if (d.code === 0 && d.data) setGroupOptions(d.data); })
+      .catch(() => {});
+  }, [isOpen, authToken]);
+
   /* 重置 / 填充表单 */
   useEffect(() => {
     if (!isOpen) return;
@@ -117,12 +133,15 @@ function TokenDrawer({ isOpen, onClose, editingToken, authToken, onSuccess }: Dr
       setRemainQuota(editingToken.unlimited_quota ? '10' : (editingToken.remain_quota / getQuotaPerUnit()).toFixed(2));
       setAllowedIps(editingToken.allowed_ips || '');
       setAllowedModels(editingToken.allowed_models ? editingToken.allowed_models.split(',').filter(Boolean) : []);
+      setGroup(editingToken.group || '');
+      setCrossGroupRetry(editingToken.cross_group_retry || false);
       setNote('');
     } else {
       setName(''); setStatus(1); setBatchCount(1);
       setNeverExpire(true); setExpiredTime('');
       setUnlimitedQuota(true); setRemainQuota('10');
       setAllowedIps(''); setAllowedModels([]); setNote('');
+      setGroup(''); setCrossGroupRetry(false);
     }
     setNameErr(''); setAdvancedOpen(false); setModelSearch('');
   }, [isOpen, isEdit, editingToken]);
@@ -153,6 +172,8 @@ function TokenDrawer({ isOpen, onClose, editingToken, authToken, onSuccess }: Dr
       remain_quota: unlimitedQuota ? 0 : moneyToQuota(parseFloat(remainQuota || '0')),
       allowed_ips: allowedIps.trim(),
       allowed_models: allowedModels.join(','),
+      group: group,
+      cross_group_retry: group === 'auto' ? crossGroupRetry : false,
     };
 
     try {
@@ -377,6 +398,35 @@ function TokenDrawer({ isOpen, onClose, editingToken, authToken, onSuccess }: Dr
                 description={`该令牌可消耗的最大金额，${getQuotaDisplayHint()}`}
                 startContent={<span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>$</span>}
               />
+            )}
+          </div>
+
+          {/* ── 分组 ── */}
+          <div className="token-drawer-section">
+            <div className="token-drawer-section-title">
+              <Users size={14} style={{ color: 'var(--accent-primary)' }} />
+              分组
+            </div>
+            <Select
+              label="令牌分组"
+              placeholder="跟随账号默认分组"
+              selectedKeys={group ? [group] : []}
+              onSelectionChange={keys => setGroup([...keys][0] || '')}
+            >
+              {Object.entries(groupOptions).map(([name, info]) => (
+                <SelectItem key={name} value={name}>
+                  {name === 'auto' ? '自动（按顺序尝试候选分组）' : `${name}（倍率 ${info.ratio}）`}
+                </SelectItem>
+              ))}
+            </Select>
+            {group === 'auto' && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', marginTop: '10px', borderRadius: 'var(--radius-lg)', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
+                <div>
+                  <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)', margin: 0 }}>跨分组重试</p>
+                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>当前候选分组重试用尽后，是否自动换下一个分组接着试</p>
+                </div>
+                <Switch isSelected={crossGroupRetry} onValueChange={setCrossGroupRetry} size="sm" />
+              </div>
             )}
           </div>
 
@@ -625,6 +675,7 @@ export default function TokenManagement() {
             <tr>
               <th>名称</th>
               <th>状态</th>
+              <th>分组</th>
               <th>已用</th>
               <th>剩余</th>
               <th>模型限制</th>
@@ -635,9 +686,9 @@ export default function TokenManagement() {
           </thead>
           <tbody>
             {loading ? (
-              <LoadingRows cols={8} rows={5} />
+              <LoadingRows cols={9} rows={5} />
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={8}>
+              <tr><td colSpan={9}>
                 <EmptyState
                   icon={<KeyRound size={24} />}
                   title={search ? '未找到匹配的令牌' : '暂无令牌'}
@@ -660,6 +711,12 @@ export default function TokenManagement() {
                   >
                     {token.status === 1 ? '启用' : '禁用'}
                   </Chip>
+                </td>
+                <td>
+                  {token.group
+                    ? <Chip size="sm" variant="dot">{token.group}</Chip>
+                    : <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>默认</span>
+                  }
                 </td>
                 <td style={{ fontSize: '12px' }}>{formatQuota(token.used_quota)}</td>
                 <td>

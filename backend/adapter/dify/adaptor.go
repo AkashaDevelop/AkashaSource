@@ -134,6 +134,11 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 		},
 	}
 
+	// 悄悄把回答塞进 context 小背篓，方便玄鉴风控嗅一嗅有没有危险味道 (qy_completion_text)~
+	if difyResp.Answer != "" {
+		c.Set("qy_completion_text", difyResp.Answer)
+	}
+
 	c.JSON(http.StatusOK, openaiResp)
 	return &openaiResp.Usage, nil
 }
@@ -146,6 +151,8 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 
 	id := fmt.Sprintf("chatcmpl-%s", common.GetUUID())
 	usage := &dto.Usage{}
+	// 流式小碎片汇总桶，攒够了才好喂给风控君检查呀
+	var qyTextBuf strings.Builder
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -163,6 +170,7 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 		}
 
 		if event.Event == "message" && event.Answer != "" {
+			qyTextBuf.WriteString(event.Answer)
 			chunk := dto.ChatCompletionStreamResponse{
 				ID:      id,
 				Object:  "chat.completion.chunk",
@@ -195,6 +203,11 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 
 	c.Writer.WriteString("data: [DONE]\n\n")
 	c.Writer.Flush()
+
+	// 流跑完啦，把攒好的完整回答一次性放进 context 小背篓~ (qy_completion_text)
+	if qyTextBuf.Len() > 0 {
+		c.Set("qy_completion_text", qyTextBuf.String())
+	}
 
 	return usage, nil
 }

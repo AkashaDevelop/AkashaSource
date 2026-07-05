@@ -37,7 +37,9 @@ func (s *SessionStore) Create(priv *ecdh.PrivateKey, peerPub *ecdh.PublicKey, fp
 
 	hint := rand8()
 	sess := &Session{
-		ID:         hexEncode(randBytes(16)),
+		// ID 跟客户端 WASM 算的 sid 必须完全一样(hex(hint)+hex(epoch0前4字节))，
+		// 之前这里是纯随机数、从没发给客户端，两边白化密钥永远对不上，加密链路必然打不通～
+		ID:         hexEncode(hint[:]) + hexEncode(epoch0[:4]),
 		FpHash:     fpHash,
 		CreatedAt:  time.Now(),
 		TTL:        SessionTTL,
@@ -79,6 +81,22 @@ func (s *SessionStore) Delete(hint [8]byte) {
 	s.mu.Lock()
 	delete(s.sessions, key)
 	s.mu.Unlock()
+}
+
+// PurgeExpiredSessions 定期清理过期会话，跟 challenge_store.go 的 PurgeExpiredChallenges 是同一套模式～
+// 不然被遗忘的会话会一直占着内存，直到进程重启才被动放开～
+func PurgeExpiredSessions() {
+	for {
+		time.Sleep(2 * time.Minute)
+		now := time.Now()
+		DefaultStore.mu.Lock()
+		for k, sess := range DefaultStore.sessions {
+			if now.Sub(sess.CreatedAt) > sess.TTL {
+				delete(DefaultStore.sessions, k)
+			}
+		}
+		DefaultStore.mu.Unlock()
+	}
 }
 // 旧纪元密钥用完即焚：即便之后内存被拿到，也只能看见"现在"，看不见"过去"
 func (sess *Session) ratchetIfNeeded() {

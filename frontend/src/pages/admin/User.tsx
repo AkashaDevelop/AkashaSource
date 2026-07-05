@@ -47,6 +47,12 @@ interface UserSub {
   plan?: { name: string; type: string };
 }
 
+interface GroupOption {
+  id: number;
+  name: string;
+  description: string;
+}
+
 const ROLES = [
   { key: '1', label: '普通用户' },
   { key: '10', label: '管理员' },
@@ -94,6 +100,16 @@ export default function UserManagement() {
   const [formData, setFormData] = useState({
     username: '', display_name: '', password: '', role: '1', status: '1', quota: '0', group: 'default', email: '',
   });
+  const [groupOptions, setGroupOptions] = useState<GroupOption[]>([]);
+
+  const fetchGroupOptions = async () => {
+    try {
+      const res = await fetch('/api/group', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.code === 0) setGroupOptions(data.data || []);
+    } catch (error) { console.error('Failed to fetch groups:', error); }
+  };
+  useEffect(() => { fetchGroupOptions(); }, []);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -405,7 +421,14 @@ export default function UserManagement() {
                     {STATUS_OPTIONS.map((s) => <SelectItem key={s.key}>{s.label}</SelectItem>)}
                   </Select>
                   <Input label="额度 (Raw)" type="number" value={formData.quota} onValueChange={(v) => setFormData({ ...formData, quota: v })} description={formatQuota(parseInt(formData.quota || '0'), 2)} />
-                  <Input label="分组" value={formData.group} onValueChange={(v) => setFormData({ ...formData, group: v })} />
+                  <Select
+                    label="分组"
+                    placeholder="选择分组"
+                    selectedKeys={formData.group ? [formData.group] : []}
+                    onSelectionChange={(keys) => setFormData({ ...formData, group: [...keys][0] as string || 'default' })}
+                  >
+                    {groupOptions.map((g) => <SelectItem key={g.name} value={g.name}>{g.name}</SelectItem>)}
+                  </Select>
                 </Form>
               </ModalBody>
               <ModalFooter>

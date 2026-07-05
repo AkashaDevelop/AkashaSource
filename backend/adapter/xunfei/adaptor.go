@@ -126,6 +126,7 @@ func requestOpenAI2Xunfei(request *dto.OpenAIRequest) *XunfeiChatRequest {
 func xunfeiStreamResponse(c *gin.Context, conn *websocket.Conn, modelName string) (*dto.Usage, error) {
 	common.SetEventStreamHeaders(c)
 	usage := &dto.Usage{}
+	var qyTextBuf strings.Builder
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
@@ -141,6 +142,9 @@ func xunfeiStreamResponse(c *gin.Context, conn *websocket.Conn, modelName string
 		content := ""
 		if len(resp.Payload.Choices.Text) > 0 {
 			content = resp.Payload.Choices.Text[0].Content
+		}
+		if content != "" {
+			qyTextBuf.WriteString(content)
 		}
 		streamResp := dto.ChatCompletionStreamResponse{
 			Object:  "chat.completion.chunk",
@@ -169,6 +173,10 @@ func xunfeiStreamResponse(c *gin.Context, conn *websocket.Conn, modelName string
 			c.Writer.Flush()
 			break
 		}
+	}
+	// 流跑完啦，把讯飞星火攒好的完整回答塞进 context 小背篓~ (qy_completion_text)
+	if qyTextBuf.Len() > 0 {
+		c.Set("qy_completion_text", qyTextBuf.String())
 	}
 	return usage, nil
 }
@@ -220,6 +228,10 @@ func xunfeiNormalResponse(c *gin.Context, conn *websocket.Conn, modelName string
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(c.Writer).Encode(openaiResp)
+	// 把讯飞星火吐出的完整回答悄悄塞进 context 小背篓，给玄鉴风控嗅一嗅 (qy_completion_text)~
+	if fullText.Len() > 0 {
+		c.Set("qy_completion_text", fullText.String())
+	}
 	return usage, nil
 }
 

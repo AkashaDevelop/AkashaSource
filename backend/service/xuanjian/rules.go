@@ -1,7 +1,7 @@
 package xuanjian
 
 // ～宸汐玄鉴·规则引擎～ (｡•ᴗ•｡)
-// 28 条内置规则，按5个分组管理。
+// 内置关键词规则，按5个分组管理（另有一批统计/结构性检测阈值直接写在各 detect_xxx.go 里，不在这份列表内）。
 // 关键词匹配这种事交给这里，各个 detect_xxx.go 只负责"何时调用"和"如何组合"。
 //
 // 重要：规则里特意把误报率高的词排除了，
@@ -45,7 +45,7 @@ type KeywordRule struct {
 	Action             string   // warn/notify/throttle/disable_token/ban_user
 }
 
-// DefaultRules 返回内置的 28 条规则列表
+// DefaultRules 返回内置的关键词规则列表
 func DefaultRules() []KeywordRule {
 	return []KeywordRule{
 		// ── Group: llmjacking ──────────────────────────────────────────────────

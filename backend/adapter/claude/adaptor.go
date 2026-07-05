@@ -302,6 +302,11 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 		},
 	}
 
+	// 宸汐玄鉴: 把 Claude 拼好的完整回复塞进侧信道 方便后面风控扫描喵～
+	if content != "" {
+		c.Set("qy_completion_text", content)
+	}
+
 	c.JSON(http.StatusOK, openaiResp)
 	return &openaiResp.Usage, nil
 }
@@ -319,6 +324,7 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 	var currentToolName string
 	var toolArgsBuf strings.Builder
 	var inThinkingBlock bool
+	var qyTextBuf strings.Builder
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -362,6 +368,7 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 				switch event.Delta.Type {
 				case "text_delta":
 					sendStreamChunk(c, id, modelName, event.Delta.Text, "", "")
+					qyTextBuf.WriteString(event.Delta.Text)
 				case "thinking_delta":
 					if common.ThinkingToContent && event.Delta.Thinking != "" {
 						sendStreamChunk(c, id, modelName, event.Delta.Thinking, "", "")
@@ -398,6 +405,11 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 
 	c.Writer.WriteString("data: [DONE]\n\n")
 	c.Writer.Flush()
+
+	// 宸汐玄鉴: 流式拼好的完整回复也塞进侧信道喵～
+	if qyTextBuf.Len() > 0 {
+		c.Set("qy_completion_text", qyTextBuf.String())
+	}
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	return usage, nil

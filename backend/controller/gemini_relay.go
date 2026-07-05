@@ -2,8 +2,10 @@ package controller
 
 import (
 	"STfreApi/common"
+	"STfreApi/middleware"
 	"STfreApi/model"
 	"STfreApi/service"
+	"STfreApi/service/qingyuan"
 	"STfreApi/service/xuanjian"
 	"bytes"
 	"encoding/json"
@@ -15,6 +17,23 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// geminiNativeResponse 只取我们要检测/清理的那部分字段，其余原样透传，
+// 不引入 adapter/gemini 包的结构体，避免 controller 层跨包耦合～
+type geminiNativeResponse struct {
+	Candidates []struct {
+		Content struct {
+			Role  string `json:"role,omitempty"`
+			Parts []struct {
+				Text string `json:"text,omitempty"`
+			} `json:"parts"`
+		} `json:"content"`
+		FinishReason string `json:"finishReason,omitempty"`
+		Index        int    `json:"index,omitempty"`
+	} `json:"candidates"`
+	PromptFeedback json.RawMessage `json:"promptFeedback,omitempty"`
+	UsageMetadata  json.RawMessage `json:"usageMetadata,omitempty"`
+}
 
 // RelayGeminiNative proxies requests in Gemini's native REST format
 func RelayGeminiNative(c *gin.Context) {
@@ -61,7 +80,16 @@ func RelayGeminiNative(c *gin.Context) {
 	}
 
 	// 4. Select Gemini channel
-	channels, mappedModels, err := SelectChannelWithAffinity(modelName, user.Group, apiKey, defaultChannelAffinityRule)
+	usingGroup, err := service.ResolveUsingGroup(user.Group, token.Group)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+	if !middleware.GroupRateLimitMiddleware(service.ResolveBillingGroup(user.Group, token.Group)) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": fmt.Sprintf("分组 %s 请求过于频繁", usingGroup)})
+		return
+	}
+	channels, mappedModels, channelGroups, err := SelectChannelWithAffinity(modelName, user.Group, usingGroup, token.CrossGroupRetry, apiKey, defaultChannelAffinityRule)
 	if err != nil || len(channels) == 0 {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": fmt.Sprintf("no channel for model: %s", modelName),
@@ -81,6 +109,10 @@ func RelayGeminiNative(c *gin.Context) {
 	mappedModel := modelName
 	if selectedIndex < len(mappedModels) && strings.TrimSpace(mappedModels[selectedIndex]) != "" {
 		mappedModel = mappedModels[selectedIndex]
+	}
+	billingGroup := usingGroup
+	if selectedIndex < len(channelGroups) {
+		billingGroup = channelGroups[selectedIndex]
 	}
 	channel.Key = service.GetNextKey(channel.Key)
 
@@ -152,8 +184,56 @@ func RelayGeminiNative(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	// 8. Stream response back
+	// 8. 读取上游响应，命中成功状态码时先跑一遍宸汐清源检测/清理，再决定发给客户端的字节内容
 	respBody, _ := io.ReadAll(resp.Body)
+
+	policy := qingyuan.ResolvePolicy(channel.Id, modelName, mappedModel)
+	reqCtx := qingyuan.RequestContext{
+		RequestId:      c.GetString("request_id"),
+		UserId:         user.Id,
+		TokenId:        token.Id,
+		TokenName:      token.Name,
+		ChannelId:      channel.Id,
+		ChannelName:    channel.Name,
+		ChannelType:    channel.Type,
+		RequestedModel: modelName,
+		MappedModel:    mappedModel,
+		UserGroup:      user.Group,
+		ClientIP:       c.ClientIP(),
+	}
+	respCtx := qingyuan.ResponseContext{RequestContext: reqCtx}
+
+	completionText := ""
+	var respFindings []qingyuan.Finding
+	if resp.StatusCode == http.StatusOK && qingyuan.IsEnabled(policy) {
+		var geminiResp geminiNativeResponse
+		if json.Unmarshal(respBody, &geminiResp) == nil {
+			changed := false
+			for ci := range geminiResp.Candidates {
+				for pi := range geminiResp.Candidates[ci].Content.Parts {
+					text := geminiResp.Candidates[ci].Content.Parts[pi].Text
+					if text == "" {
+						continue
+					}
+					completionText += text
+					cleaned, _, _, findings := qingyuan.AnalyzeText(text, nil, respCtx, policy)
+					respFindings = append(respFindings, findings...)
+					if cleaned != text {
+						geminiResp.Candidates[ci].Content.Parts[pi].Text = cleaned
+						changed = true
+					}
+				}
+			}
+			if changed {
+				if newBody, err := json.Marshal(geminiResp); err == nil {
+					respBody = newBody
+				}
+			}
+			if len(respFindings) > 0 {
+				qingyuan.RecordResponseFindings(respCtx, policy, respFindings, changed)
+			}
+		}
+	}
 
 	for k, v := range resp.Header {
 		c.Writer.Header().Set(k, v[0])
@@ -166,6 +246,7 @@ func RelayGeminiNative(c *gin.Context) {
 		promptTokens := common.CountToken(string(bodyBytes))
 		completionTokens := common.CountToken(string(respBody))
 		c.Set("channel_id", channel.Id)
+		c.Set("billing_group", billingGroup)
 		c.Set("is_stream", false)
 		c.Set("use_time", int(time.Since(startTime).Milliseconds()))
 		go RecordConsumeLog(c, token, mappedModel,
@@ -176,18 +257,20 @@ func RelayGeminiNative(c *gin.Context) {
 		if xuanjian.IsEnabled() && len(reviewMessages) > 0 {
 			promptSnippet := xuanjian.CollectPromptSnippet(reviewMessages, "", 2000)
 			go xuanjian.RecordRequest(xuanjian.RequestRecord{
-				TokenID:          token.Id,
-				TokenName:        token.Name,
-				UserID:           user.Id,
-				TokenCreatedAt:   time.Unix(token.CreatedTime, 0),
-				IP:               c.ClientIP(),
-				UserAgent:        c.GetHeader("User-Agent"),
-				Model:            mappedModel,
-				PromptTokens:     promptTokens,
-				CompletionTokens: completionTokens,
-				PromptSnippet:    promptSnippet,
-				Messages:         reviewMessages,
-				StatusCode:       resp.StatusCode,
+				TokenID:           token.Id,
+				TokenName:         token.Name,
+				UserID:            user.Id,
+				TokenCreatedAt:    time.Unix(token.CreatedTime, 0),
+				IP:                c.ClientIP(),
+				UserAgent:         c.GetHeader("User-Agent"),
+				Model:             mappedModel,
+				PromptTokens:      promptTokens,
+				CompletionTokens:  completionTokens,
+				PromptSnippet:     promptSnippet,
+				CompletionSnippet: xuanjian.TruncateSnippet(completionText, 500),
+				Messages:          reviewMessages,
+				StatusCode:        resp.StatusCode,
+				QYFindings:        xuanjian.ExtractQYFindingTypes(respFindings),
 			})
 		}
 	}

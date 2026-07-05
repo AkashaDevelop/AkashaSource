@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import LoadingRows from '../../components/LoadingRows';
-import { Button, Input, Select, SelectItem, Switch, Chip, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure, Divider } from '../../components/ui';
+import { Button, Input, Select, SelectItem, Switch, Chip } from '../../components/ui';
 import { Plus, RefreshCw, Edit, Trash2, RotateCcw, Shield, ScrollText } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
@@ -46,23 +46,27 @@ interface Channel {
 
 const defaultConfig = {
   request: { inject_guard: true, guard_position: 'first_system', guard_language: 'auto', preserve_user_system_messages: true },
-  tools: { enabled: true, validate_tool_schema: true, validate_tool_choice: true, validate_assistant_tool_calls: true, tool_name_regex: '^[a-zA-Z0-9_-]{1,64}$', max_tools: 128, max_tool_schema_bytes: 65536 },
-  response: { detect_ads: true, ad_policy: 'monitor', ad_confidence_threshold: 75, known_ad_patterns: [], preserve_code_blocks: true },
+  detection: { remove_zero_width_for_detection: true, decode_json_escapes_for_detection: true, decode_url_encoding_for_detection: true, decode_html_entities_for_detection: true, detect_base64: true, max_decode_layers: 2, max_scan_chars: 65536 },
+  risk: { annotate_threshold: 40, block_threshold: 85, block_structural_tool_abuse: true },
+  tools: { enabled: true, validate_tool_schema: true, validate_tool_choice: true, validate_assistant_tool_calls: true, allowed_tool_names: [] as string[], blocked_tool_names: [] as string[], tool_name_regex: '^[a-zA-Z0-9_-]{1,64}$', max_tools: 128, max_tool_schema_bytes: 65536, max_tool_arguments_bytes: 262144 },
+  response: { detect_ads: true, ad_policy: 'monitor', ad_confidence_threshold: 75, known_ad_patterns: [] as string[], preserve_code_blocks: true, preserve_json_output: true, validate_output_tool_calls: true, block_invalid_output_tool_calls: false, stream_tail_buffer_size: 2048, detect_prompt_injection: true, detect_multimodal: true, detect_thinking_attacks: true },
   trust: { enable_provenance: true, retrieved_doc_risk_multiplier: 1.6, tool_output_risk_multiplier: 1.4, scan_tool_descriptions: true, scan_memory_poisoning: true, memory_scan_max_messages: 50 },
   logging: { log_events: true, log_raw_content: false, log_snippet_chars: 160, hash_content: true },
   circuit_breaker: { enabled: true, failure_threshold: 5, timeout_per_req_ms: 500, cooldown_seconds: 30 },
+  degradation: { monitor_timeout_action: 'skip', protect_timeout_action: 'fallback_to_guard' },
 };
+
+const sectionStyle = { background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' };
 
 export default function ContextSanitization() {
   const { token } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<'policies' | 'events' | 'stats'>('policies');
+  const [activeTab, setActiveTab] = useState<'policies' | 'events' | 'stats' | 'edit'>('policies');
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<Policy | null>(null);
-  const { isOpen, onOpen, onOpenChange } = useDisclosure();
   const [form, setForm] = useState({ name: '', enabled: true, scope: 'global', channel_id: '', model_name: '', mode: 'monitor' });
   const [configForm, setConfigForm] = useState(defaultConfig);
   const [eventFilter, setEventFilter] = useState({ direction: '', action: '', mode: '', model: '' });
@@ -114,19 +118,32 @@ export default function ContextSanitization() {
     setConfigForm(defaultConfig);
   };
 
-  const openCreate = () => { resetForm(); onOpen(); };
+  const openCreate = () => { resetForm(); setActiveTab('edit'); };
   const openEdit = (p: Policy) => {
     setEditing(p);
     setForm({ name: p.name, enabled: p.enabled, scope: p.scope, channel_id: p.channel_id ? String(p.channel_id) : '', model_name: p.model_name || '', mode: p.mode });
-    try { setConfigForm(p.config ? { ...defaultConfig, ...JSON.parse(p.config), trust: { ...defaultConfig.trust, ...(JSON.parse(p.config).trust || {}) } } : defaultConfig); } catch { setConfigForm(defaultConfig); }
-    onOpen();
+    try {
+      const parsed = p.config ? JSON.parse(p.config) : {};
+      setConfigForm({
+        request: { ...defaultConfig.request, ...(parsed.request || {}) },
+        detection: { ...defaultConfig.detection, ...(parsed.detection || {}) },
+        risk: { ...defaultConfig.risk, ...(parsed.risk || {}) },
+        tools: { ...defaultConfig.tools, ...(parsed.tools || {}) },
+        response: { ...defaultConfig.response, ...(parsed.response || {}) },
+        trust: { ...defaultConfig.trust, ...(parsed.trust || {}) },
+        logging: { ...defaultConfig.logging, ...(parsed.logging || {}) },
+        circuit_breaker: { ...defaultConfig.circuit_breaker, ...(parsed.circuit_breaker || {}) },
+        degradation: { ...defaultConfig.degradation, ...(parsed.degradation || {}) },
+      });
+    } catch { setConfigForm(defaultConfig); }
+    setActiveTab('edit');
   };
 
-  const savePolicy = async (onClose: () => void) => {
+  const savePolicy = async () => {
     const body: any = { ...form, id: editing?.id, channel_id: form.channel_id ? parseInt(form.channel_id) : null, config: JSON.stringify(configForm) };
     const res = await fetch('/api/admin/sanitization/policies', { method: editing ? 'PUT' : 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();
-    if (data.code === 0) { toast.success('保存成功'); fetchPolicies(); fetchStats(); onClose(); }
+    if (data.code === 0) { toast.success('保存成功'); fetchPolicies(); fetchStats(); setActiveTab('policies'); }
     else toast.error(data.msg || '保存失败');
   };
 
@@ -203,59 +220,143 @@ export default function ContextSanitization() {
         <div className="p-4 rounded-xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}><div className="text-sm text-gray-500">熔断开路</div><div className="text-2xl font-bold">{stats?.circuit?.states?.open || 0}</div></div>
       </div>}
 
-      <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="4xl" scrollBehavior="inside">
-        <ModalContent>{onClose => <><ModalHeader>{editing ? '编辑策略' : '新增策略'}</ModalHeader><ModalBody className="gap-4">
-          <Input label="名称" value={form.name} onValueChange={v => setForm({ ...form, name: v })} isRequired />
-          <div className="grid grid-cols-2 gap-4">
-            <Select label="范围" selectedKeys={[form.scope]} onSelectionChange={keys => setForm({ ...form, scope: [...keys][0] as string || 'global' })}><SelectItem key="global">全局</SelectItem><SelectItem key="model">模型</SelectItem><SelectItem key="channel">渠道</SelectItem><SelectItem key="channel_model">渠道模型</SelectItem></Select>
-            <Select label="模式" selectedKeys={[form.mode]} onSelectionChange={keys => setForm({ ...form, mode: [...keys][0] as string || 'monitor' })}><SelectItem key="off">off</SelectItem><SelectItem key="monitor">monitor</SelectItem><SelectItem key="protect">protect</SelectItem><SelectItem key="balanced">balanced</SelectItem><SelectItem key="strict">strict</SelectItem></Select>
+      {activeTab === 'edit' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="text-lg font-semibold">{editing ? '编辑策略' : '新增策略'}</div>
+            <div className="flex gap-2">
+              <Button variant="light" onPress={() => setActiveTab('policies')}>取消</Button>
+              <Button color="primary" onPress={savePolicy}>保存</Button>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Select label="渠道" placeholder="选择渠道" selectedKeys={form.channel_id ? [form.channel_id] : []} onSelectionChange={keys => setForm({ ...form, channel_id: [...keys][0] as string || '' })}>{channels.map(c => <SelectItem key={String(c.id)}>{c.name}</SelectItem>)}</Select>
-            <Input label="模型名" value={form.model_name} onValueChange={v => setForm({ ...form, model_name: v })} />
+
+          <div className="p-4 rounded-xl space-y-4" style={sectionStyle}>
+            <div className="text-sm font-semibold">基本信息</div>
+            <Input label="名称" value={form.name} onValueChange={v => setForm({ ...form, name: v })} isRequired />
+            <div className="grid grid-cols-2 gap-4">
+              <Select label="范围" selectedKeys={[form.scope]} onSelectionChange={keys => setForm({ ...form, scope: [...keys][0] as string || 'global' })}><SelectItem key="global">全局</SelectItem><SelectItem key="model">模型</SelectItem><SelectItem key="channel">渠道</SelectItem><SelectItem key="channel_model">渠道模型</SelectItem></Select>
+              <Select label="模式" selectedKeys={[form.mode]} onSelectionChange={keys => setForm({ ...form, mode: [...keys][0] as string || 'monitor' })}><SelectItem key="off">off</SelectItem><SelectItem key="monitor">monitor</SelectItem><SelectItem key="protect">protect</SelectItem><SelectItem key="balanced">balanced</SelectItem><SelectItem key="strict">strict</SelectItem></Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Select label="渠道" placeholder="选择渠道" selectedKeys={form.channel_id ? [form.channel_id] : []} onSelectionChange={keys => setForm({ ...form, channel_id: [...keys][0] as string || '' })}>{channels.map(c => <SelectItem key={String(c.id)}>{c.name}</SelectItem>)}</Select>
+              <Input label="模型名" value={form.model_name} onValueChange={v => setForm({ ...form, model_name: v })} />
+            </div>
+            <Switch isSelected={form.enabled} onValueChange={v => setForm({ ...form, enabled: v })}>启用策略</Switch>
           </div>
-          <Switch isSelected={form.enabled} onValueChange={v => setForm({ ...form, enabled: v })}>启用策略</Switch>
-          <Divider className="my-2" />
-          <div className="text-sm font-semibold">请求侧配置</div>
-          <div className="grid grid-cols-2 gap-4">
-            <Switch isSelected={configForm.request.inject_guard} onValueChange={v => setConfigForm({ ...configForm, request: { ...configForm.request, inject_guard: v } })}>注入 Guard</Switch>
-            <Select label="Guard 语言" selectedKeys={[configForm.request.guard_language]} onSelectionChange={keys => setConfigForm({ ...configForm, request: { ...configForm.request, guard_language: [...keys][0] as string || 'auto' } })}><SelectItem key="auto">自动</SelectItem><SelectItem key="en">英文</SelectItem><SelectItem key="zh">中文</SelectItem></Select>
+
+          <div className="p-4 rounded-xl space-y-4" style={sectionStyle}>
+            <div className="text-sm font-semibold">请求侧配置</div>
+            <div className="grid grid-cols-2 gap-4">
+              <Switch isSelected={configForm.request.inject_guard} onValueChange={v => setConfigForm({ ...configForm, request: { ...configForm.request, inject_guard: v } })}>注入 Guard</Switch>
+              <Switch isSelected={configForm.request.preserve_user_system_messages} onValueChange={v => setConfigForm({ ...configForm, request: { ...configForm.request, preserve_user_system_messages: v } })}>保留用户原有 system 消息</Switch>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Select label="Guard 语言" selectedKeys={[configForm.request.guard_language]} onSelectionChange={keys => setConfigForm({ ...configForm, request: { ...configForm.request, guard_language: [...keys][0] as string || 'auto' } })}><SelectItem key="auto">自动</SelectItem><SelectItem key="en">英文</SelectItem><SelectItem key="zh">中文</SelectItem></Select>
+              <Input label="Guard 插入位置" value={configForm.request.guard_position} onValueChange={v => setConfigForm({ ...configForm, request: { ...configForm.request, guard_position: v || 'first_system' } })} />
+            </div>
           </div>
-          <Divider className="my-2" />
-          <div className="text-sm font-semibold">工具校验配置</div>
-          <div className="grid grid-cols-2 gap-4">
-            <Switch isSelected={configForm.tools.enabled} onValueChange={v => setConfigForm({ ...configForm, tools: { ...configForm.tools, enabled: v } })}>启用工具校验</Switch>
-            <Input type="number" label="最大工具数" value={String(configForm.tools.max_tools)} onValueChange={v => setConfigForm({ ...configForm, tools: { ...configForm.tools, max_tools: parseInt(v) || 128 } })} />
+
+          <div className="p-4 rounded-xl space-y-4" style={sectionStyle}>
+            <div className="text-sm font-semibold">检测预处理（去混淆）</div>
+            <div className="grid grid-cols-2 gap-4">
+              <Switch isSelected={configForm.detection.remove_zero_width_for_detection} onValueChange={v => setConfigForm({ ...configForm, detection: { ...configForm.detection, remove_zero_width_for_detection: v } })}>移除零宽字符</Switch>
+              <Switch isSelected={configForm.detection.decode_json_escapes_for_detection} onValueChange={v => setConfigForm({ ...configForm, detection: { ...configForm.detection, decode_json_escapes_for_detection: v } })}>解码 JSON 转义</Switch>
+              <Switch isSelected={configForm.detection.decode_url_encoding_for_detection} onValueChange={v => setConfigForm({ ...configForm, detection: { ...configForm.detection, decode_url_encoding_for_detection: v } })}>解码 URL 编码</Switch>
+              <Switch isSelected={configForm.detection.decode_html_entities_for_detection} onValueChange={v => setConfigForm({ ...configForm, detection: { ...configForm.detection, decode_html_entities_for_detection: v } })}>解码 HTML 实体</Switch>
+              <Switch isSelected={configForm.detection.detect_base64} onValueChange={v => setConfigForm({ ...configForm, detection: { ...configForm.detection, detect_base64: v } })}>检测 Base64 编码</Switch>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input type="number" label="最大解码层数" value={String(configForm.detection.max_decode_layers)} onValueChange={v => setConfigForm({ ...configForm, detection: { ...configForm.detection, max_decode_layers: parseInt(v) || 2 } })} />
+              <Input type="number" label="最大扫描字符数" value={String(configForm.detection.max_scan_chars)} onValueChange={v => setConfigForm({ ...configForm, detection: { ...configForm.detection, max_scan_chars: parseInt(v) || 65536 } })} />
+            </div>
           </div>
-          <Divider className="my-2" />
-          <div className="text-sm font-semibold">响应广告检测</div>
-          <div className="grid grid-cols-2 gap-4">
-            <Switch isSelected={configForm.response.detect_ads} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, detect_ads: v } })}>检测广告</Switch>
-            <Select label="广告策略" selectedKeys={[configForm.response.ad_policy]} onSelectionChange={keys => setConfigForm({ ...configForm, response: { ...configForm.response, ad_policy: [...keys][0] as string || 'monitor' } })}><SelectItem key="off">关闭</SelectItem><SelectItem key="monitor">监控</SelectItem><SelectItem key="mark">标记</SelectItem><SelectItem key="strip_known_suffix">清理已知尾部</SelectItem></Select>
+
+          <div className="p-4 rounded-xl space-y-4" style={sectionStyle}>
+            <div className="text-sm font-semibold">风险阈值</div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input type="number" label="标注阈值" value={String(configForm.risk.annotate_threshold)} onValueChange={v => setConfigForm({ ...configForm, risk: { ...configForm.risk, annotate_threshold: parseInt(v) || 40 } })} />
+              <Input type="number" label="阻断阈值" value={String(configForm.risk.block_threshold)} onValueChange={v => setConfigForm({ ...configForm, risk: { ...configForm.risk, block_threshold: parseInt(v) || 85 } })} />
+            </div>
+            <Switch isSelected={configForm.risk.block_structural_tool_abuse} onValueChange={v => setConfigForm({ ...configForm, risk: { ...configForm.risk, block_structural_tool_abuse: v } })}>阻断结构性工具滥用</Switch>
           </div>
-          <Divider className="my-2" />
-          <div className="text-sm font-semibold">信任边界配置（宸汐清源 2026）</div>
-          <div className="grid grid-cols-2 gap-4">
-            <Switch isSelected={configForm.trust.enable_provenance} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, enable_provenance: v } })}>启用内容来源可信度分级</Switch>
-            <Switch isSelected={configForm.trust.scan_tool_descriptions} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, scan_tool_descriptions: v } })}>扫描工具描述投毒</Switch>
+
+          <div className="p-4 rounded-xl space-y-4" style={sectionStyle}>
+            <div className="text-sm font-semibold">工具校验配置</div>
+            <div className="grid grid-cols-2 gap-4">
+              <Switch isSelected={configForm.tools.enabled} onValueChange={v => setConfigForm({ ...configForm, tools: { ...configForm.tools, enabled: v } })}>启用工具校验</Switch>
+              <Input type="number" label="最大工具数" value={String(configForm.tools.max_tools)} onValueChange={v => setConfigForm({ ...configForm, tools: { ...configForm.tools, max_tools: parseInt(v) || 128 } })} />
+              <Switch isSelected={configForm.tools.validate_tool_schema} onValueChange={v => setConfigForm({ ...configForm, tools: { ...configForm.tools, validate_tool_schema: v } })}>校验工具 Schema</Switch>
+              <Switch isSelected={configForm.tools.validate_tool_choice} onValueChange={v => setConfigForm({ ...configForm, tools: { ...configForm.tools, validate_tool_choice: v } })}>校验 tool_choice</Switch>
+              <Switch isSelected={configForm.tools.validate_assistant_tool_calls} onValueChange={v => setConfigForm({ ...configForm, tools: { ...configForm.tools, validate_assistant_tool_calls: v } })}>校验 assistant 工具调用</Switch>
+              <Input label="工具名正则" value={configForm.tools.tool_name_regex} onValueChange={v => setConfigForm({ ...configForm, tools: { ...configForm.tools, tool_name_regex: v } })} />
+              <Input type="number" label="最大工具 Schema 字节数" value={String(configForm.tools.max_tool_schema_bytes)} onValueChange={v => setConfigForm({ ...configForm, tools: { ...configForm.tools, max_tool_schema_bytes: parseInt(v) || 65536 } })} />
+              <Input type="number" label="最大工具参数字节数" value={String(configForm.tools.max_tool_arguments_bytes)} onValueChange={v => setConfigForm({ ...configForm, tools: { ...configForm.tools, max_tool_arguments_bytes: parseInt(v) || 262144 } })} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="允许的工具名（逗号分隔）" value={configForm.tools.allowed_tool_names.join(',')} onValueChange={v => setConfigForm({ ...configForm, tools: { ...configForm.tools, allowed_tool_names: v.split(',').map(s => s.trim()).filter(Boolean) } })} />
+              <Input label="禁止的工具名（逗号分隔）" value={configForm.tools.blocked_tool_names.join(',')} onValueChange={v => setConfigForm({ ...configForm, tools: { ...configForm.tools, blocked_tool_names: v.split(',').map(s => s.trim()).filter(Boolean) } })} />
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Switch isSelected={configForm.trust.scan_memory_poisoning} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, scan_memory_poisoning: v } })}>扫描历史记忆投毒</Switch>
-            <Input type="number" label="记忆扫描最大消息数" value={String(configForm.trust.memory_scan_max_messages)} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, memory_scan_max_messages: parseInt(v) || 50 } })} />
+
+          <div className="p-4 rounded-xl space-y-4" style={sectionStyle}>
+            <div className="text-sm font-semibold">响应侧检测</div>
+            <div className="grid grid-cols-2 gap-4">
+              <Switch isSelected={configForm.response.detect_ads} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, detect_ads: v } })}>检测广告</Switch>
+              <Select label="广告策略" selectedKeys={[configForm.response.ad_policy]} onSelectionChange={keys => setConfigForm({ ...configForm, response: { ...configForm.response, ad_policy: [...keys][0] as string || 'monitor' } })}><SelectItem key="off">关闭</SelectItem><SelectItem key="monitor">监控</SelectItem><SelectItem key="mark">标记</SelectItem><SelectItem key="strip_known_suffix">清理已知尾部</SelectItem></Select>
+              <Input type="number" label="广告置信度阈值" value={String(configForm.response.ad_confidence_threshold)} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, ad_confidence_threshold: parseInt(v) || 75 } })} />
+              <Input type="number" label="流式尾部缓冲大小" value={String(configForm.response.stream_tail_buffer_size)} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, stream_tail_buffer_size: parseInt(v) || 2048 } })} />
+              <Switch isSelected={configForm.response.preserve_code_blocks} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, preserve_code_blocks: v } })}>保留代码块</Switch>
+              <Switch isSelected={configForm.response.preserve_json_output} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, preserve_json_output: v } })}>保留 JSON 输出</Switch>
+              <Switch isSelected={configForm.response.validate_output_tool_calls} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, validate_output_tool_calls: v } })}>校验响应工具调用</Switch>
+              <Switch isSelected={configForm.response.block_invalid_output_tool_calls} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, block_invalid_output_tool_calls: v } })}>阻断非法响应工具调用</Switch>
+              <Switch isSelected={configForm.response.detect_prompt_injection} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, detect_prompt_injection: v } })}>检测响应注入</Switch>
+              <Switch isSelected={configForm.response.detect_multimodal} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, detect_multimodal: v } })}>检测多模态风险</Switch>
+              <Switch isSelected={configForm.response.detect_thinking_attacks} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, detect_thinking_attacks: v } })}>检测 Thinking 攻击</Switch>
+            </div>
+            <Input label="已知广告特征词（逗号分隔）" value={configForm.response.known_ad_patterns.join(',')} onValueChange={v => setConfigForm({ ...configForm, response: { ...configForm.response, known_ad_patterns: v.split(',').map(s => s.trim()).filter(Boolean) } })} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input type="number" label="检索文档风险倍率" value={String(configForm.trust.retrieved_doc_risk_multiplier)} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, retrieved_doc_risk_multiplier: parseFloat(v) || 1.6 } })} />
-            <Input type="number" label="工具输出风险倍率" value={String(configForm.trust.tool_output_risk_multiplier)} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, tool_output_risk_multiplier: parseFloat(v) || 1.4 } })} />
+
+          <div className="p-4 rounded-xl space-y-4" style={sectionStyle}>
+            <div className="text-sm font-semibold">信任边界配置（宸汐清源 2026）</div>
+            <div className="grid grid-cols-2 gap-4">
+              <Switch isSelected={configForm.trust.enable_provenance} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, enable_provenance: v } })}>启用内容来源可信度分级</Switch>
+              <Switch isSelected={configForm.trust.scan_tool_descriptions} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, scan_tool_descriptions: v } })}>扫描工具描述投毒</Switch>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Switch isSelected={configForm.trust.scan_memory_poisoning} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, scan_memory_poisoning: v } })}>扫描历史记忆投毒</Switch>
+              <Input type="number" label="记忆扫描最大消息数" value={String(configForm.trust.memory_scan_max_messages)} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, memory_scan_max_messages: parseInt(v) || 50 } })} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input type="number" label="检索文档风险倍率" value={String(configForm.trust.retrieved_doc_risk_multiplier)} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, retrieved_doc_risk_multiplier: parseFloat(v) || 1.6 } })} />
+              <Input type="number" label="工具输出风险倍率" value={String(configForm.trust.tool_output_risk_multiplier)} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, tool_output_risk_multiplier: parseFloat(v) || 1.4 } })} />
+            </div>
           </div>
-          <Divider className="my-2" />
-          <div className="text-sm font-semibold">熔断与降级</div>
-          <div className="grid grid-cols-3 gap-4">
-            <Switch isSelected={configForm.circuit_breaker.enabled} onValueChange={v => setConfigForm({ ...configForm, circuit_breaker: { ...configForm.circuit_breaker, enabled: v } })}>启用熔断</Switch>
-            <Input type="number" label="失败阈值" value={String(configForm.circuit_breaker.failure_threshold)} onValueChange={v => setConfigForm({ ...configForm, circuit_breaker: { ...configForm.circuit_breaker, failure_threshold: parseInt(v) || 5 } })} />
-            <Input type="number" label="超时(ms)" value={String(configForm.circuit_breaker.timeout_per_req_ms)} onValueChange={v => setConfigForm({ ...configForm, circuit_breaker: { ...configForm.circuit_breaker, timeout_per_req_ms: parseInt(v) || 500 } })} />
+
+          <div className="p-4 rounded-xl space-y-4" style={sectionStyle}>
+            <div className="text-sm font-semibold">日志记录</div>
+            <div className="grid grid-cols-2 gap-4">
+              <Switch isSelected={configForm.logging.log_events} onValueChange={v => setConfigForm({ ...configForm, logging: { ...configForm.logging, log_events: v } })}>记录事件</Switch>
+              <Switch isSelected={configForm.logging.log_raw_content} onValueChange={v => setConfigForm({ ...configForm, logging: { ...configForm.logging, log_raw_content: v } })}>记录原文内容</Switch>
+              <Switch isSelected={configForm.logging.hash_content} onValueChange={v => setConfigForm({ ...configForm, logging: { ...configForm.logging, hash_content: v } })}>内容哈希留存</Switch>
+              <Input type="number" label="日志片段长度" value={String(configForm.logging.log_snippet_chars)} onValueChange={v => setConfigForm({ ...configForm, logging: { ...configForm.logging, log_snippet_chars: parseInt(v) || 160 } })} />
+            </div>
           </div>
-        </ModalBody><ModalFooter><Button variant="light" onPress={onClose}>取消</Button><Button color="primary" onPress={() => savePolicy(onClose)}>保存</Button></ModalFooter></>}</ModalContent>
-      </Modal>
+
+          <div className="p-4 rounded-xl space-y-4" style={sectionStyle}>
+            <div className="text-sm font-semibold">熔断与降级</div>
+            <div className="grid grid-cols-3 gap-4">
+              <Switch isSelected={configForm.circuit_breaker.enabled} onValueChange={v => setConfigForm({ ...configForm, circuit_breaker: { ...configForm.circuit_breaker, enabled: v } })}>启用熔断</Switch>
+              <Input type="number" label="失败阈值" value={String(configForm.circuit_breaker.failure_threshold)} onValueChange={v => setConfigForm({ ...configForm, circuit_breaker: { ...configForm.circuit_breaker, failure_threshold: parseInt(v) || 5 } })} />
+              <Input type="number" label="超时(ms)" value={String(configForm.circuit_breaker.timeout_per_req_ms)} onValueChange={v => setConfigForm({ ...configForm, circuit_breaker: { ...configForm.circuit_breaker, timeout_per_req_ms: parseInt(v) || 500 } })} />
+            </div>
+            <Input type="number" label="熔断冷却时间(秒)" value={String(configForm.circuit_breaker.cooldown_seconds)} onValueChange={v => setConfigForm({ ...configForm, circuit_breaker: { ...configForm.circuit_breaker, cooldown_seconds: parseInt(v) || 30 } })} />
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="monitor 模式超时动作" value={configForm.degradation.monitor_timeout_action} onValueChange={v => setConfigForm({ ...configForm, degradation: { ...configForm.degradation, monitor_timeout_action: v || 'skip' } })} />
+              <Input label="protect 模式超时动作" value={configForm.degradation.protect_timeout_action} onValueChange={v => setConfigForm({ ...configForm, degradation: { ...configForm.degradation, protect_timeout_action: v || 'fallback_to_guard' } })} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

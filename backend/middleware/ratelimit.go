@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"STfreApi/common"
+	"STfreApi/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -172,6 +173,18 @@ func ModelRateLimitMiddleware(modelName string) bool {
 	}
 
 	return checkLimit("model:"+modelName, limit)
+}
+
+// GroupRateLimitMiddleware 按 model.Group.QPM 给分组单独限流，QPM<=0 表示这个分组不限～
+func GroupRateLimitMiddleware(groupName string) bool {
+	if GlobalRateLimiter == nil || groupName == "" {
+		return true
+	}
+	qpm := service.GetGroupQPM(groupName)
+	if qpm <= 0 {
+		return true
+	}
+	return checkLimit("group:"+groupName, qpm)
 }
 
 // CriticalRateLimitMiddleware limits critical operations (login, register, password reset) to 5/min per IP

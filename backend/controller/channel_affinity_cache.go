@@ -115,9 +115,11 @@ func upsertChannelAffinity(ruleName, usingGroup, keyFP string, channelID int, mo
 	common.SetCache(key, entry, defaultChannelAffinityTTL)
 }
 
-func prioritizeAffinityChannel(channels []*model.Channel, mappedModels []string, channelID int) ([]*model.Channel, []string) {
-	if channelID <= 0 || len(channels) <= 1 || len(channels) != len(mappedModels) {
-		return channels, mappedModels
+// prioritizeAffinityChannel 把亲和缓存命中的渠道挪到队首，groups 跟着 channels 一起同步挪动，
+// 保证"渠道 i 属于哪个分组"这份对应关系不会因为重排而错位～
+func prioritizeAffinityChannel(channels []*model.Channel, mappedModels []string, groups []string, channelID int) ([]*model.Channel, []string, []string) {
+	if channelID <= 0 || len(channels) <= 1 || len(channels) != len(mappedModels) || len(channels) != len(groups) {
+		return channels, mappedModels, groups
 	}
 	idx := -1
 	for i, ch := range channels {
@@ -127,22 +129,25 @@ func prioritizeAffinityChannel(channels []*model.Channel, mappedModels []string,
 		}
 	}
 	if idx <= 0 {
-		return channels, mappedModels
+		return channels, mappedModels, groups
 	}
 
 	newChannels := make([]*model.Channel, 0, len(channels))
 	newModels := make([]string, 0, len(mappedModels))
+	newGroups := make([]string, 0, len(groups))
 
 	newChannels = append(newChannels, channels[idx])
 	newModels = append(newModels, mappedModels[idx])
+	newGroups = append(newGroups, groups[idx])
 	for i := range channels {
 		if i == idx {
 			continue
 		}
 		newChannels = append(newChannels, channels[i])
 		newModels = append(newModels, mappedModels[i])
+		newGroups = append(newGroups, groups[i])
 	}
-	return newChannels, newModels
+	return newChannels, newModels, newGroups
 }
 
 func clearChannelAffinityCacheAll() (int, error) {

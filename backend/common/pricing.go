@@ -6,14 +6,22 @@ import (
 )
 
 var (
-	ModelRatio            = make(map[string]float64)
-	CompletionRatio       = make(map[string]float64)
-	GroupRatio            = make(map[string]float64)
-	ImageRatio            = make(map[string]float64)      // 图像 token 倍率
-	AudioRatio            = make(map[string]float64)      // 音频输入 token 倍率
-	AudioCompletionRatio  = make(map[string]float64)      // 音频输出 token 倍率
-	ModelPrice            = make(map[string]float64)      // 按次计费价格，单位美元/次
-	PricingLock           sync.RWMutex
+	ModelRatio           = make(map[string]float64)
+	CompletionRatio      = make(map[string]float64)
+	GroupRatio           = make(map[string]float64)
+	ImageRatio           = make(map[string]float64) // 图像 token 倍率
+	AudioRatio           = make(map[string]float64) // 音频输入 token 倍率
+	AudioCompletionRatio = make(map[string]float64) // 音频输出 token 倍率
+	ModelPrice           = make(map[string]float64) // 按次计费价格，单位美元/次
+	PricingLock          sync.RWMutex
+
+	// GroupGroupRatio 用户分组 × 实际使用分组 的特殊倍率，比给该用户分组开小灶用～
+	// 例如 {"vip": {"svip_channel": 0.9}} 表示 vip 用户跑去用 svip_channel 分组时打 9 折
+	GroupGroupRatio = make(map[string]map[string]float64)
+	// GroupSpecialUsableGroup 某用户分组能额外用/不能用哪些分组，key 支持 "+:xxx" 追加、"-:xxx" 移除前缀～
+	GroupSpecialUsableGroup = make(map[string]map[string]string)
+	// AutoGroups "auto" 分组自动轮询时，按顺序尝试的候选分组列表～
+	AutoGroups = []string{"default"}
 )
 
 var defaultGroupRatio = map[string]float64{
@@ -236,6 +244,14 @@ func GetGroupRatio(group string) float64 {
 	return 1.0
 }
 
+// ContainsGroupRatio 判断某分组是否在计费倍率表里挂了号(用来分辨"没配置"和"配置成1")～
+func ContainsGroupRatio(group string) bool {
+	PricingLock.RLock()
+	defer PricingLock.RUnlock()
+	_, ok := GroupRatio[group]
+	return ok
+}
+
 func GetImageRatio(modelName string) float64 {
 	PricingLock.RLock()
 	defer PricingLock.RUnlock()
@@ -385,6 +401,89 @@ func UpdateGroupRatio(groupRatioStr string) {
 	} else {
 		GroupRatio = defaultGroupRatio
 	}
+}
+
+// GetGroupGroupRatio 查"用户分组用某分组"的特殊倍率，没配置就老实说没有(-1, false)～
+func GetGroupGroupRatio(userGroup, usingGroup string) (float64, bool) {
+	PricingLock.RLock()
+	defer PricingLock.RUnlock()
+	gp, ok := GroupGroupRatio[userGroup]
+	if !ok {
+		return -1, false
+	}
+	ratio, ok := gp[usingGroup]
+	return ratio, ok
+}
+
+func GroupGroupRatio2JSONString() string {
+	PricingLock.RLock()
+	defer PricingLock.RUnlock()
+	jsonBytes, _ := json.Marshal(GroupGroupRatio)
+	return string(jsonBytes)
+}
+
+func UpdateGroupGroupRatio(jsonStr string) {
+	PricingLock.Lock()
+	defer PricingLock.Unlock()
+	newRatio := make(map[string]map[string]float64)
+	if jsonStr != "" {
+		_ = json.Unmarshal([]byte(jsonStr), &newRatio)
+	}
+	GroupGroupRatio = newRatio
+}
+
+// GetGroupSpecialUsableGroup 查某用户分组的"额外可用分组"增删规则表～
+func GetGroupSpecialUsableGroup(userGroup string) (map[string]string, bool) {
+	PricingLock.RLock()
+	defer PricingLock.RUnlock()
+	rules, ok := GroupSpecialUsableGroup[userGroup]
+	return rules, ok
+}
+
+func GroupSpecialUsableGroup2JSONString() string {
+	PricingLock.RLock()
+	defer PricingLock.RUnlock()
+	jsonBytes, _ := json.Marshal(GroupSpecialUsableGroup)
+	return string(jsonBytes)
+}
+
+func UpdateGroupSpecialUsableGroup(jsonStr string) {
+	PricingLock.Lock()
+	defer PricingLock.Unlock()
+	newRules := make(map[string]map[string]string)
+	if jsonStr != "" {
+		_ = json.Unmarshal([]byte(jsonStr), &newRules)
+	}
+	GroupSpecialUsableGroup = newRules
+}
+
+// GetAutoGroups 拿一份"auto"分组的候选分组列表拷贝，外面改了也影响不到原数据～
+func GetAutoGroups() []string {
+	PricingLock.RLock()
+	defer PricingLock.RUnlock()
+	out := make([]string, len(AutoGroups))
+	copy(out, AutoGroups)
+	return out
+}
+
+func AutoGroups2JSONString() string {
+	PricingLock.RLock()
+	defer PricingLock.RUnlock()
+	jsonBytes, _ := json.Marshal(AutoGroups)
+	return string(jsonBytes)
+}
+
+func UpdateAutoGroups(jsonStr string) {
+	PricingLock.Lock()
+	defer PricingLock.Unlock()
+	var newGroups []string
+	if jsonStr != "" {
+		if err := json.Unmarshal([]byte(jsonStr), &newGroups); err == nil {
+			AutoGroups = newGroups
+			return
+		}
+	}
+	AutoGroups = []string{"default"}
 }
 
 func UpdateImageRatio(imageRatioStr string) {

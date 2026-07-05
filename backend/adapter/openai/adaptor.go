@@ -171,6 +171,13 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 		if response.Usage.PromptTokensDetails != nil && response.Usage.PromptTokensDetails.CachedTokens > 0 {
 			response.Usage.CachedTokens = response.Usage.PromptTokensDetails.CachedTokens
 		}
+
+		// 悄悄把 AI 酱说的话塞进 context 小背篓，给玄鉴风控闻一闻有没有危险味道~ (qy_completion_text)
+		// 这里覆盖了 moonshot/ollama/perplexity/siliconflow 等一大票直接委托给本 Adaptor 的小伙伴，
+		// 因为大家共用同一个 gin.Context，一处塞好，处处都能取到啦
+		if content := response.Choices[0].Message.Content; content != "" {
+			c.Set("qy_completion_text", content)
+		}
 		return &response.Usage, nil
 	}
 
@@ -253,11 +260,25 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 	})
 
 	usage := &dto.Usage{}
+	// 悄悄准备一个小背篓，把流式吐出来的字一点点攒起来给玄鉴风控闻一闻~ (qy_completion_text)
+	var qyTextBuf strings.Builder
 
 	for scanner.Scan() {
 		data := scanner.Text()
 		if len(data) < 6 {
 			continue
+		}
+
+		// 从原始数据块里摸一点点文字攒进小背篓，摸不到就算啦，不耽误正常转发
+		if payload := strings.TrimPrefix(data, "data: "); payload != "[DONE]" {
+			var qyChunk dto.ChatCompletionStreamResponse
+			if err := json.Unmarshal([]byte(payload), &qyChunk); err == nil {
+				for _, qyChoice := range qyChunk.Choices {
+					if qyChoice.Delta.Content != "" {
+						qyTextBuf.WriteString(qyChoice.Delta.Content)
+					}
+				}
+			}
 		}
 
 		// 宸汐清源: 尾部广告策略开启时，processor 会把最后一小截"扣在手里"暂不放行
@@ -315,6 +336,11 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 				})
 			}()
 		}
+	}
+
+	// 流跑完啦，把攒好的完整回答一次性放进 context 小背篓，给玄鉴风控闻一闻~ (qy_completion_text)
+	if qyTextBuf.Len() > 0 {
+		c.Set("qy_completion_text", qyTextBuf.String())
 	}
 
 	return usage, nil

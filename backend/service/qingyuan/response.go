@@ -41,23 +41,10 @@ func ApplyOpenAIResponse(ctx context.Context, body []byte, rc ResponseContext, p
 
 	for i := range chat.Choices {
 		content := chat.Choices[i].Message.Content
-		if content == "" || shouldPreserveAsCode(content) || rc.UserRequestedAds {
-			continue
-		}
 
-		// 广告检测与清理
-		cleaned, adFindings := detectAndStripSuffixAd(content, policy)
-		if len(adFindings) > 0 {
-			allFindings = append(allFindings, adFindings...)
-			if maxScore(adFindings) > result.RiskScore {
-				result.RiskScore = maxScore(adFindings)
-			}
-		}
-
-		// 响应工具调用校验
-		if policy.Config.Response.ValidateOutputToolCalls && len(chat.Choices[i].Message.ToolCalls) > 0 {
-			// 转换为内部 ToolCall 结构
-			toolCalls := make([]ToolCall, len(chat.Choices[i].Message.ToolCalls))
+		var toolCalls []ToolCall
+		if len(chat.Choices[i].Message.ToolCalls) > 0 {
+			toolCalls = make([]ToolCall, len(chat.Choices[i].Message.ToolCalls))
 			for j, tc := range chat.Choices[i].Message.ToolCalls {
 				toolCalls[j] = ToolCall{
 					ID:   tc.ID,
@@ -68,49 +55,18 @@ func ApplyOpenAIResponse(ctx context.Context, body []byte, rc ResponseContext, p
 					},
 				}
 			}
-
-			toolFindings := validateResponseToolCalls(
-				toolCalls,
-				rc.RequestTools,
-				policy,
-			)
-			allFindings = append(allFindings, toolFindings...)
-			if maxScore(toolFindings) > result.RiskScore {
-				result.RiskScore = maxScore(toolFindings)
-			}
-
-			// 严格模式下阻断非法工具调用
-			if policy.Config.Response.BlockInvalidToolCalls && len(toolFindings) > 0 {
-				for _, f := range toolFindings {
-					if f.Score >= 85 {
-						result.Blocked = true
-						result.Message = "响应包含非法工具调用"
-						break
-					}
-				}
-			}
 		}
 
-		// 检测文本中的工具调用注入
-		textToolFindings := detectToolCallsInText(content, policy)
-		allFindings = append(allFindings, textToolFindings...)
-
-		// 响应注入检测
-		if policy.Config.Response.DetectPromptInjection {
-			injectionFindings := detectResponseInjection(content, policy)
-			allFindings = append(allFindings, injectionFindings...)
+		cleaned, blocked, blockMsg, findings := analyzeResponseText(content, toolCalls, rc, policy)
+		allFindings = append(allFindings, findings...)
+		if maxScore(findings) > result.RiskScore {
+			result.RiskScore = maxScore(findings)
 		}
-
-		// Thinking 内容校验 (如果有)
-		if policy.Config.Response.DetectThinkingAttacks {
-			// 这里需要根据实际响应格式提取 thinking 内容
-			// 简化处理: 假设在 message.content 或特定字段中
-			thinkingFindings := validateThinkingResponse(content, policy)
-			allFindings = append(allFindings, thinkingFindings...)
+		if blocked {
+			result.Blocked = true
+			result.Message = blockMsg
 		}
-
-		// 应用清理
-		if cleaned != content && policy.Config.Response.AdPolicy == "strip_known_suffix" {
+		if cleaned != content {
 			chat.Choices[i].Message.Content = cleaned
 			changed = true
 		}

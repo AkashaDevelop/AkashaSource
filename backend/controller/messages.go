@@ -99,7 +99,16 @@ func RelayMessages(c *gin.Context) {
 	claudeReq.Model = reasoningParams.CleanModel
 
 	// 6. Select channels
-	channels, mappedModels, err := SelectChannelWithAffinity(claudeReq.Model, user.Group, tokenKey, defaultChannelAffinityRule)
+	usingGroup, err := service.ResolveUsingGroup(user.Group, token.Group)
+	if err != nil {
+		sendClaudeError(c, http.StatusForbidden, "invalid_request_error", err.Error())
+		return
+	}
+	if !middleware.GroupRateLimitMiddleware(service.ResolveBillingGroup(user.Group, token.Group)) {
+		sendClaudeError(c, http.StatusTooManyRequests, "rate_limit_error", fmt.Sprintf("分组 %s 请求过于频繁", usingGroup))
+		return
+	}
+	channels, mappedModels, channelGroups, err := SelectChannelWithAffinity(claudeReq.Model, user.Group, usingGroup, token.CrossGroupRetry, tokenKey, defaultChannelAffinityRule)
 	if err != nil {
 		sendClaudeError(c, http.StatusServiceUnavailable, "api_error",
 			fmt.Sprintf("no available channel for model: %s", claudeReq.Model))
@@ -129,8 +138,10 @@ func RelayMessages(c *gin.Context) {
 	// 6.6 清源净化：转换为 OpenAI 格式后执行净化检查
 	sanitizedOpenAIReq := claudeToOpenAIRequest(&claudeReq)
 	var sanitizeResult = &qingyuan.RequestResult{}
+	var qyPolicy qingyuan.ResolvedPolicy
+	var qyRespCtx qingyuan.ResponseContext
 	if len(channels) > 0 {
-		policy := qingyuan.ResolvePolicy(channels[0].Id, claudeReq.Model, mappedModels[0])
+		qyPolicy = qingyuan.ResolvePolicy(channels[0].Id, claudeReq.Model, mappedModels[0])
 		reqCtx := qingyuan.RequestContext{
 			RequestId:      c.GetString("request_id"),
 			UserId:         user.Id,
@@ -144,7 +155,7 @@ func RelayMessages(c *gin.Context) {
 			UserGroup:      user.Group,
 			ClientIP:       c.ClientIP(),
 		}
-		sanitizeResult, _ = qingyuan.ApplyRequest(c.Request.Context(), sanitizedOpenAIReq, reqCtx, policy)
+		sanitizeResult, _ = qingyuan.ApplyRequest(c.Request.Context(), sanitizedOpenAIReq, reqCtx, qyPolicy)
 		if sanitizeResult.Blocked {
 			msg := sanitizeResult.Message
 			if msg == "" {
@@ -154,19 +165,33 @@ func RelayMessages(c *gin.Context) {
 			sendClaudeError(c, http.StatusBadRequest, "invalid_request_error", msg)
 			return
 		}
+		// 净化阶段如果给 sanitizedOpenAIReq 注入了安全 guard(前置 system 消息)，
+		// 走 Claude 原生直连分支根本不会碰 sanitizedOpenAIReq，guard 得原样搬到 claudeReq.System 上，
+		// 不然 protect 模式配置的安全边界对原生 Claude 渠道形同虚设～
+		if guardText := extractLeadingSystemText(sanitizedOpenAIReq.Messages); guardText != "" {
+			if sysJSON, err := json.Marshal(guardText); err == nil {
+				claudeReq.System = sysJSON
+			}
+		}
+		qyRespCtx = qingyuan.ResponseContext{
+			RequestContext:   reqCtx,
+			UserRequestedAds: qingyuan.IsUserRequestingAds(sanitizedOpenAIReq),
+			RequestTools:     sanitizedOpenAIReq.Tools,
+		}
 	}
 
 	// 7. Try channels
 	var lastError error
 	for i, channel := range channels {
 		mappedModel := mappedModels[i]
+		c.Set("billing_group", channelGroups[i])
 		claudeReq.Model = mappedModel
 		sanitizedOpenAIReq.Model = mappedModel
 		channel.Key = service.GetNextKey(channel.Key)
 
 		if channel.Type == model.ChannelTypeAnthropic {
 			// Direct passthrough to Claude upstream
-			usage, err := relayClaudeDirect(c, channel, &claudeReq, bodyBytes, mappedModel)
+			usage, completionText, err := relayClaudeDirect(c, channel, &claudeReq, bodyBytes, mappedModel, qyPolicy, qyRespCtx)
 			if err != nil {
 				lastError = err
 				continue
@@ -180,25 +205,22 @@ func RelayMessages(c *gin.Context) {
 				// 宸汐玄鉴：异步行为分析
 				if xuanjian.IsEnabled() {
 					promptSnippet := xuanjian.CollectPromptSnippet(reviewMessages, "", 2000)
-					qyTypes := make([]string, 0, len(sanitizeResult.Findings))
-					for _, f := range sanitizeResult.Findings {
-						qyTypes = append(qyTypes, f.Type)
-					}
 					go xuanjian.RecordRequest(xuanjian.RequestRecord{
-						TokenID:          token.Id,
-						TokenName:        token.Name,
-						UserID:           user.Id,
-						TokenCreatedAt:   time.Unix(token.CreatedTime, 0),
-						IP:               c.ClientIP(),
-						UserAgent:        c.GetHeader("User-Agent"),
-						Model:            mappedModel,
-						PromptTokens:     usage.PromptTokens,
-						CompletionTokens: usage.CompletionTokens,
-						PromptSnippet:    promptSnippet,
-						Messages:         reviewMessages,
-						StatusCode:       200,
-						QYFindings:       qyTypes,
-						QYRiskScore:      sanitizeResult.RiskScore,
+						TokenID:           token.Id,
+						TokenName:         token.Name,
+						UserID:            user.Id,
+						TokenCreatedAt:    time.Unix(token.CreatedTime, 0),
+						IP:                c.ClientIP(),
+						UserAgent:         c.GetHeader("User-Agent"),
+						Model:             mappedModel,
+						PromptTokens:      usage.PromptTokens,
+						CompletionTokens:  usage.CompletionTokens,
+						PromptSnippet:     promptSnippet,
+						CompletionSnippet: xuanjian.TruncateSnippet(completionText, 500),
+						Messages:          reviewMessages,
+						StatusCode:        200,
+						QYFindings:        xuanjian.ExtractQYFindingTypes(sanitizeResult.Findings),
+						QYRiskScore:       sanitizeResult.RiskScore,
 					})
 				}
 			}
@@ -206,7 +228,7 @@ func RelayMessages(c *gin.Context) {
 		}
 
 		// Non-Claude channel: convert to OpenAI format, relay, convert response back
-		usage, err := relayClaudeViaOpenAI(c, channel, sanitizedOpenAIReq, token)
+		usage, completionText, err := relayClaudeViaOpenAI(c, channel, sanitizedOpenAIReq, token, qyPolicy, qyRespCtx)
 		if err != nil {
 			lastError = err
 			continue
@@ -220,25 +242,22 @@ func RelayMessages(c *gin.Context) {
 			// 宸汐玄鉴：异步行为分析
 			if xuanjian.IsEnabled() {
 				promptSnippet := xuanjian.CollectPromptSnippet(sanitizedOpenAIReq.Messages, sanitizedOpenAIReq.Prompt, 2000)
-				qyTypes := make([]string, 0, len(sanitizeResult.Findings))
-				for _, f := range sanitizeResult.Findings {
-					qyTypes = append(qyTypes, f.Type)
-				}
 				go xuanjian.RecordRequest(xuanjian.RequestRecord{
-					TokenID:          token.Id,
-					TokenName:        token.Name,
-					UserID:           user.Id,
-					TokenCreatedAt:   time.Unix(token.CreatedTime, 0),
-					IP:               c.ClientIP(),
-					UserAgent:        c.GetHeader("User-Agent"),
-					Model:            mappedModel,
-					PromptTokens:     usage.PromptTokens,
-					CompletionTokens: usage.CompletionTokens,
-					PromptSnippet:    promptSnippet,
-					Messages:         sanitizedOpenAIReq.Messages,
-					StatusCode:       200,
-					QYFindings:       qyTypes,
-					QYRiskScore:      sanitizeResult.RiskScore,
+					TokenID:           token.Id,
+					TokenName:         token.Name,
+					UserID:            user.Id,
+					TokenCreatedAt:    time.Unix(token.CreatedTime, 0),
+					IP:                c.ClientIP(),
+					UserAgent:         c.GetHeader("User-Agent"),
+					Model:             mappedModel,
+					PromptTokens:      usage.PromptTokens,
+					CompletionTokens:  usage.CompletionTokens,
+					PromptSnippet:     promptSnippet,
+					CompletionSnippet: xuanjian.TruncateSnippet(completionText, 500),
+					Messages:          sanitizedOpenAIReq.Messages,
+					StatusCode:        200,
+					QYFindings:        xuanjian.ExtractQYFindingTypes(sanitizeResult.Findings),
+					QYRiskScore:       sanitizeResult.RiskScore,
 				})
 			}
 		}
@@ -258,12 +277,12 @@ func sendClaudeError(c *gin.Context, status int, errType, message string) {
 }
 
 // relayClaudeDirect forwards the request directly to a Claude upstream channel
-func relayClaudeDirect(c *gin.Context, channel *model.Channel, req *claude.ClaudeRequest, rawBody []byte, mappedModel string) (*dto.Usage, error) {
+func relayClaudeDirect(c *gin.Context, channel *model.Channel, req *claude.ClaudeRequest, rawBody []byte, mappedModel string, policy qingyuan.ResolvedPolicy, rc qingyuan.ResponseContext) (*dto.Usage, string, error) {
 	// Re-marshal with mapped model
 	req.Model = mappedModel
 	reqBody, err := json.Marshal(req)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	baseURL := channel.BaseURL
@@ -274,7 +293,7 @@ func relayClaudeDirect(c *gin.Context, channel *model.Channel, req *claude.Claud
 
 	httpReq, err := http.NewRequest("POST", baseURL+"/v1/messages", bytes.NewBuffer(reqBody))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	httpReq.Header.Set("x-api-key", channel.Key)
@@ -289,56 +308,88 @@ func relayClaudeDirect(c *gin.Context, channel *model.Channel, req *claude.Claud
 	client := common.NewHTTPClient(channel.Proxy)
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("upstream error %d: %s", resp.StatusCode, string(body))
+		return nil, "", fmt.Errorf("upstream error %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Stream passthrough or normal passthrough
 	isStream := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 	if isStream {
-		return streamPassthroughClaude(c, resp)
+		return streamPassthroughClaude(c, resp, policy, rc)
 	}
-	return normalPassthroughClaude(c, resp)
+	return normalPassthroughClaude(c, resp, policy, rc)
 }
 
-// normalPassthroughClaude passes a non-streaming Claude response directly to the client
-func normalPassthroughClaude(c *gin.Context, resp *http.Response) (*dto.Usage, error) {
+// normalPassthroughClaude passes a non-streaming Claude response directly to the client，
+// 顺手对 content 文本 block 跑一遍宸汐清源检测，命中广告/注入就地清理后再转发～
+func normalPassthroughClaude(c *gin.Context, resp *http.Response, policy qingyuan.ResolvedPolicy, rc qingyuan.ResponseContext) (*dto.Usage, string, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Extract usage before forwarding
 	var claudeResp claude.ClaudeResponse
 	usage := &dto.Usage{}
+	completionText := ""
 	if json.Unmarshal(body, &claudeResp) == nil {
 		usage.PromptTokens = claudeResp.Usage.InputTokens
 		usage.CompletionTokens = claudeResp.Usage.OutputTokens
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+
+		changed := false
+		for i := range claudeResp.Content {
+			if claudeResp.Content[i].Type != "text" || claudeResp.Content[i].Text == "" {
+				continue
+			}
+			completionText += claudeResp.Content[i].Text
+			if qingyuan.IsEnabled(policy) {
+				cleaned, _, _, findings := qingyuan.AnalyzeText(claudeResp.Content[i].Text, nil, rc, policy)
+				if len(findings) > 0 {
+					qingyuan.RecordResponseFindings(rc, policy, findings, cleaned != claudeResp.Content[i].Text)
+				}
+				if cleaned != claudeResp.Content[i].Text {
+					claudeResp.Content[i].Text = cleaned
+					changed = true
+				}
+			}
+		}
+		if changed {
+			if newBody, err := json.Marshal(claudeResp); err == nil {
+				body = newBody
+			}
+		}
 	}
 
 	// Forward response as-is
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
-	return usage, nil
+	return usage, completionText, nil
 }
 
-// streamPassthroughClaude passes a streaming Claude response directly to the client
-func streamPassthroughClaude(c *gin.Context, resp *http.Response) (*dto.Usage, error) {
+// streamPassthroughClaude passes a streaming Claude response directly to the client，
+// 有清源策略时把 content_block_delta 的文本增量喂给 TailBufferCore，尾部广告能被真正拦下来，
+// 不像以前那样"边收边发、检测结果只能拿来记日志"～
+func streamPassthroughClaude(c *gin.Context, resp *http.Response, policy qingyuan.ResolvedPolicy, rc qingyuan.ResponseContext) (*dto.Usage, string, error) {
 	common.SetEventStreamHeaders(c)
 	scanner := bufio.NewScanner(resp.Body)
 	usage := &dto.Usage{}
 
+	var core *qingyuan.TailBufferCore
+	if qingyuan.IsEnabled(policy) {
+		core = qingyuan.NewTailBufferCore(policy)
+	}
+
 	for scanner.Scan() {
 		line := scanner.Text()
-		c.Writer.WriteString(line + "\n")
-		c.Writer.Flush()
+		raw := line + "\n"
+		deltaText := ""
 
-		// Extract usage from stream events
+		// Extract usage / text delta from stream events
 		if strings.HasPrefix(line, "data: ") {
 			data := strings.TrimPrefix(line, "data: ")
 			var event claude.ClaudeStreamEvent
@@ -349,41 +400,86 @@ func streamPassthroughClaude(c *gin.Context, resp *http.Response) (*dto.Usage, e
 				if event.Type == "message_delta" && event.Usage != nil {
 					usage.CompletionTokens = event.Usage.OutputTokens
 				}
+				if event.Type == "content_block_delta" && event.Delta != nil {
+					deltaText = event.Delta.Text
+				}
 			}
 		}
+
+		if core == nil {
+			c.Writer.WriteString(raw)
+			c.Writer.Flush()
+			continue
+		}
+		for _, released := range core.Feed(deltaText, raw) {
+			c.Writer.WriteString(released.(string))
+		}
+		c.Writer.Flush()
+	}
+
+	completionText := ""
+	if core != nil {
+		released, fullText, findings := core.Finalize(rc.RequestTools)
+		for _, r := range released {
+			c.Writer.WriteString(r.(string))
+		}
+		c.Writer.Flush()
+		completionText = fullText
+		qingyuan.RecordResponseFindings(rc, policy, findings, false)
 	}
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	return usage, nil
+	return usage, completionText, nil
 }
 
 // relayClaudeViaOpenAI sends an OpenAI-format request to a non-Claude channel,
 // then converts the response back to Anthropic format.
-func relayClaudeViaOpenAI(c *gin.Context, channel *model.Channel, openAIReq *dto.OpenAIRequest, token *model.Token) (*dto.Usage, error) {
+func relayClaudeViaOpenAI(c *gin.Context, channel *model.Channel, openAIReq *dto.OpenAIRequest, token *model.Token, policy qingyuan.ResolvedPolicy, rc qingyuan.ResponseContext) (*dto.Usage, string, error) {
 	// Use the adapter system
 	adaptor := adapter.GetAdaptor(channel.Type, channel)
 	converted, err := adaptor.ConvertRequest(c, openAIReq)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	resp, err := adaptor.DoRequest(c, channel, converted)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("upstream error %d: %s", resp.StatusCode, string(body))
+		return nil, "", fmt.Errorf("upstream error %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Read the OpenAI response and convert back to Claude format
 	isStream := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 	if isStream {
-		return streamOpenAI2Claude(c, resp, openAIReq.Model)
+		return streamOpenAI2Claude(c, resp, openAIReq.Model, policy, rc)
 	}
-	return normalOpenAI2Claude(c, resp, openAIReq.Model)
+	return normalOpenAI2Claude(c, resp, openAIReq.Model, policy, rc)
+}
+
+// extractLeadingSystemText 把 messages 开头连续的 system 消息内容拼起来～
+// injectGuard 是往 Messages 最前面插入 guard，原 Claude 系统提示（转换时也在最前面）会跟着排第二，
+// 拼接顺序天然是"guard 在前、原系统提示在后"，符合安全边界优先的语义～
+func extractLeadingSystemText(messages []interface{}) string {
+	var parts []string
+	for _, m := range messages {
+		mm, ok := m.(map[string]interface{})
+		if !ok {
+			break
+		}
+		role, _ := mm["role"].(string)
+		if role != "system" {
+			break
+		}
+		if content, ok := mm["content"].(string); ok && content != "" {
+			parts = append(parts, content)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // claudeToOpenAIRequest converts an Anthropic Messages request to OpenAI format
@@ -521,23 +617,35 @@ func claudeToOpenAIRequest(req *claude.ClaudeRequest) *dto.OpenAIRequest {
 }
 
 // normalOpenAI2Claude converts a non-streaming OpenAI response to Claude format
-func normalOpenAI2Claude(c *gin.Context, resp *http.Response, modelName string) (*dto.Usage, error) {
+func normalOpenAI2Claude(c *gin.Context, resp *http.Response, modelName string, policy qingyuan.ResolvedPolicy, rc qingyuan.ResponseContext) (*dto.Usage, string, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, "", err
+	}
+
+	// 这一步天然就是标准 OpenAI ChatCompletion 形状，直接复用 ApplyOpenAIResponse 的检测/清理逻辑～
+	if qingyuan.IsEnabled(policy) {
+		if result, err := qingyuan.ApplyOpenAIResponse(c.Request.Context(), body, rc, policy); err == nil && result != nil {
+			if result.Blocked {
+				return nil, "", fmt.Errorf("response blocked by qingyuan: %s", result.Message)
+			}
+			body = result.Body
+		}
 	}
 
 	var openAIResp dto.ChatCompletionResponse
 	if err := json.Unmarshal(body, &openAIResp); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Build Claude content blocks
 	var content []claude.ContentBlock
+	completionText := ""
 	if len(openAIResp.Choices) > 0 {
 		msg := openAIResp.Choices[0].Message
 		if msg.Content != "" {
 			content = append(content, claude.ContentBlock{Type: "text", Text: msg.Content})
+			completionText = msg.Content
 		}
 		for _, tc := range msg.ToolCalls {
 			content = append(content, claude.ContentBlock{
@@ -568,11 +676,13 @@ func normalOpenAI2Claude(c *gin.Context, resp *http.Response, modelName string) 
 	}
 
 	c.JSON(http.StatusOK, claudeResp)
-	return &openAIResp.Usage, nil
+	return &openAIResp.Usage, completionText, nil
 }
 
-// streamOpenAI2Claude converts streaming OpenAI SSE to Claude SSE format
-func streamOpenAI2Claude(c *gin.Context, resp *http.Response, modelName string) (*dto.Usage, error) {
+// streamOpenAI2Claude converts streaming OpenAI SSE to Claude SSE format，
+// 有清源策略时把 delta.Content 喂给 TailBufferCore，收尾事件(content_block_stop/message_stop)
+// 永远等 core.Finalize() 把所有待放行内容清干净了才发，保证协议帧顺序不会因为尾部拦截被打乱～
+func streamOpenAI2Claude(c *gin.Context, resp *http.Response, modelName string, policy qingyuan.ResolvedPolicy, rc qingyuan.ResponseContext) (*dto.Usage, string, error) {
 	common.SetEventStreamHeaders(c)
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Split(splitSSE)
@@ -580,6 +690,12 @@ func streamOpenAI2Claude(c *gin.Context, resp *http.Response, modelName string) 
 	usage := &dto.Usage{}
 	msgID := fmt.Sprintf("msg_%s", common.GetUUID())
 	started := false
+	finishReason := ""
+
+	var core *qingyuan.TailBufferCore
+	if qingyuan.IsEnabled(policy) {
+		core = qingyuan.NewTailBufferCore(policy)
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -626,38 +742,69 @@ func streamOpenAI2Claude(c *gin.Context, resp *http.Response, modelName string) 
 		delta := chunk.Choices[0].Delta
 
 		if delta.Content != "" {
-			blockDelta := map[string]interface{}{
-				"type":  "content_block_delta",
-				"index": 0,
-				"delta": map[string]string{"type": "text_delta", "text": delta.Content},
+			if core == nil {
+				blockDelta := map[string]interface{}{
+					"type":  "content_block_delta",
+					"index": 0,
+					"delta": map[string]string{"type": "text_delta", "text": delta.Content},
+				}
+				writeClaudeSSE(c, "content_block_delta", blockDelta)
+			} else {
+				rendered := renderClaudeSSE("content_block_delta", map[string]interface{}{
+					"type":  "content_block_delta",
+					"index": 0,
+					"delta": map[string]string{"type": "text_delta", "text": delta.Content},
+				})
+				for _, released := range core.Feed(delta.Content, rendered) {
+					c.Writer.Write(released.([]byte))
+					c.Writer.Flush()
+				}
 			}
-			writeClaudeSSE(c, "content_block_delta", blockDelta)
 		}
 
 		if chunk.Choices[0].FinishReason != "" {
-			// content_block_stop
-			writeClaudeSSE(c, "content_block_stop", map[string]interface{}{
-				"type": "content_block_stop", "index": 0,
-			})
-			// message_delta
-			writeClaudeSSE(c, "message_delta", map[string]interface{}{
-				"type":  "message_delta",
-				"delta": map[string]string{"stop_reason": openAIStopToClaude(chunk.Choices[0].FinishReason)},
-				"usage": map[string]int{"output_tokens": usage.CompletionTokens},
-			})
-			// message_stop
-			writeClaudeSSE(c, "message_stop", map[string]interface{}{"type": "message_stop"})
+			finishReason = chunk.Choices[0].FinishReason
 		}
 	}
 
-	return usage, nil
+	completionText := ""
+	if core != nil {
+		released, fullText, findings := core.Finalize(rc.RequestTools)
+		for _, r := range released {
+			c.Writer.Write(r.([]byte))
+		}
+		c.Writer.Flush()
+		completionText = fullText
+		qingyuan.RecordResponseFindings(rc, policy, findings, false)
+	}
+
+	if finishReason != "" {
+		writeClaudeSSE(c, "content_block_stop", map[string]interface{}{
+			"type": "content_block_stop", "index": 0,
+		})
+		writeClaudeSSE(c, "message_delta", map[string]interface{}{
+			"type":  "message_delta",
+			"delta": map[string]string{"stop_reason": openAIStopToClaude(finishReason)},
+			"usage": map[string]int{"output_tokens": usage.CompletionTokens},
+		})
+		writeClaudeSSE(c, "message_stop", map[string]interface{}{"type": "message_stop"})
+	}
+
+	return usage, completionText, nil
 }
 
 func writeClaudeSSE(c *gin.Context, eventType string, data interface{}) {
-	jsonBytes, _ := json.Marshal(data)
-	c.Writer.WriteString("event: " + eventType + "\n")
-	c.Writer.WriteString("data: " + string(jsonBytes) + "\n\n")
+	c.Writer.Write(renderClaudeSSE(eventType, data))
 	c.Writer.Flush()
+}
+
+// renderClaudeSSE 只负责把事件渲染成字节，不负责写出去——供需要"先攒住再决定发不发"的场景使用～
+func renderClaudeSSE(eventType string, data interface{}) []byte {
+	jsonBytes, _ := json.Marshal(data)
+	var buf bytes.Buffer
+	buf.WriteString("event: " + eventType + "\n")
+	buf.WriteString("data: " + string(jsonBytes) + "\n\n")
+	return buf.Bytes()
 }
 
 func openAIStopToClaude(reason string) string {

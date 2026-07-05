@@ -35,6 +35,11 @@ const (
 	OptionKeyModelPrice      = "model_price"
 	OptionKeyBillingPriority  = "billing_priority" // 余额+订阅双资金池优先级：subscription_first | wallet_first
 
+	// ～分组架构对齐 new-api 的三件套：用户分组特殊倍率、特殊可用分组规则、auto 分组候选列表～
+	OptionKeyGroupGroupRatio         = "group_group_ratio"
+	OptionKeyGroupSpecialUsableGroup = "group_special_usable_group"
+	OptionKeyAutoGroups              = "auto_groups"
+
 	OptionKeyContentModerationEnabled  = "content_moderation_enabled"
 	OptionKeyContentModerationKeywords = "content_moderation_keywords"
 
@@ -189,5 +194,12 @@ func InitOptions() {
 	if _, ok := common.OptionMap[OptionKeyBillingPriority]; !ok {
 		common.DB.FirstOrCreate(&Option{Key: OptionKeyBillingPriority, Value: "subscription_first"}, Option{Key: OptionKeyBillingPriority})
 		common.UpdateOptionMap(OptionKeyBillingPriority, "subscription_first")
+	}
+
+	// auto_groups 默认值：["default"]，管理员可以在设置里改成自己的候选分组顺序～
+	if _, ok := common.OptionMap[OptionKeyAutoGroups]; !ok {
+		agJSON := common.AutoGroups2JSONString()
+		common.DB.FirstOrCreate(&Option{Key: OptionKeyAutoGroups, Value: agJSON}, Option{Key: OptionKeyAutoGroups})
+		common.UpdateOptionMap(OptionKeyAutoGroups, agJSON)
 	}
 }

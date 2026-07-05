@@ -20,6 +20,7 @@ interface XJConfig {
   max_ip_cidrs_per_win: number;
   max_tokens_per_user: number;
   short_prompt_max_tokens: number;
+  short_prompt_ratio: number;
   enable_abuse_detection: boolean;
   enable_jailbreak_detection: boolean;
   enable_llm_abuse: boolean;
@@ -30,6 +31,8 @@ interface XJConfig {
   auto_ban_score: number;
   exempt_token_ids: number[];
   exempt_user_ids: number[];
+  llmjacking_new_token_hours: number;
+  llmjacking_quota_multiple: number;
   // AI 审核
   ai_review_mode: string;
   ai_review_channel_id: number;
@@ -91,6 +94,7 @@ const defaultConfig: XJConfig = {
   max_ip_cidrs_per_win: 15,
   max_tokens_per_user: 8,
   short_prompt_max_tokens: 20,
+  short_prompt_ratio: 0.7,
   enable_abuse_detection: true,
   enable_jailbreak_detection: true,
   enable_llm_abuse: true,
@@ -101,6 +105,8 @@ const defaultConfig: XJConfig = {
   auto_ban_score: 95,
   exempt_token_ids: [],
   exempt_user_ids: [],
+  llmjacking_new_token_hours: 24,
+  llmjacking_quota_multiple: 10,
   ai_review_mode: 'off',
   ai_review_channel_id: 0,
   ai_review_model: '',
@@ -356,6 +362,31 @@ export default function XuanJian() {
               <Input type="number" label="最大模型种数/窗口" value={String(config.max_models_per_win)} onValueChange={v => setConfig({ ...config, max_models_per_win: parseInt(v) || 8 })} />
               <Input type="number" label="最大 IP 段(/24)/窗口" value={String(config.max_ip_cidrs_per_win)} onValueChange={v => setConfig({ ...config, max_ip_cidrs_per_win: parseInt(v) || 15 })} />
               <Input type="number" label="同用户最多 Token 数/窗口" value={String(config.max_tokens_per_user)} onValueChange={v => setConfig({ ...config, max_tokens_per_user: parseInt(v) || 8 })} />
+              <Input type="number" label="短 prompt 占比阈值" value={String(config.short_prompt_ratio)} onValueChange={v => setConfig({ ...config, short_prompt_ratio: parseFloat(v) || 0.7 })} />
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl space-y-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
+            <div className="text-sm font-semibold">LLMjacking 专属阈值</div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input type="number" label="新 Token 时间窗（小时）" value={String(config.llmjacking_new_token_hours)} onValueChange={v => setConfig({ ...config, llmjacking_new_token_hours: parseInt(v) || 24 })} />
+              <Input type="number" label="配额倍数阈值" value={String(config.llmjacking_quota_multiple)} onValueChange={v => setConfig({ ...config, llmjacking_quota_multiple: parseFloat(v) || 10 })} />
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl space-y-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
+            <div className="text-sm font-semibold">豁免名单</div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="豁免 Token ID（逗号分隔）"
+                value={config.exempt_token_ids.join(',')}
+                onValueChange={v => setConfig({ ...config, exempt_token_ids: v.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)) })}
+              />
+              <Input
+                label="豁免 User ID（逗号分隔）"
+                value={config.exempt_user_ids.join(',')}
+                onValueChange={v => setConfig({ ...config, exempt_user_ids: v.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)) })}
+              />
             </div>
           </div>
 

@@ -42,6 +42,7 @@ func RunPostDBInit() {
 
 		// 启动宸汐御安全挑战清理 goroutine
 		go cxsec.PurgeExpiredChallenges()
+		go cxsec.PurgeExpiredSessions()
 
 		// 唤醒「宸汐清源」上下文净化结界～守护每一次对话不被杂念侵扰哦 (｡•ᴗ•｡)
 		log.Printf("初始化宸汐清源模块...")

@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"strings"
 
 	"STfreApi/common"
 )
@@ -72,6 +73,22 @@ const (
 	ChannelStatusDisabled     = 2
 	ChannelStatusAutoDisabled = 3
 )
+
+// GetGroups 把渠道的分组字符串按逗号拆开，两边多余的空格都给它撸干净～
+func (channel *Channel) GetGroups() []string {
+	if strings.TrimSpace(channel.Group) == "" {
+		return []string{}
+	}
+	parts := strings.Split(channel.Group, ",")
+	groups := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			groups = append(groups, p)
+		}
+	}
+	return groups
+}
 
 func GetRandomChannel(typeStr string) (*Channel, error) {
 	var typeInt int

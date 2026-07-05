@@ -113,6 +113,10 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
 	_ = json.NewEncoder(c.Writer).Encode(openaiResp)
+	// 宸汐玄鉴: 把百度回复原文塞进侧信道 方便后面风控扫描喵～
+	if baiduResp.Result != "" {
+		c.Set("qy_completion_text", baiduResp.Result)
+	}
 	return &openaiResp.Usage, nil
 }
 
@@ -121,6 +125,7 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 	defer resp.Body.Close()
 
 	usage := &dto.Usage{}
+	var qyTextBuf strings.Builder
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -144,10 +149,17 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 			usage.PromptTokens = chunk.Usage.PromptTokens
 			usage.CompletionTokens = chunk.Usage.TotalTokens - chunk.Usage.PromptTokens
 		}
+		if chunk.Result != "" {
+			qyTextBuf.WriteString(chunk.Result)
+		}
 		streamResp := streamResponseBaidu2OpenAI(&chunk, a.model)
 		data, _ := json.Marshal(streamResp)
 		c.Writer.Write([]byte("data: " + string(data) + "\n\n"))
 		c.Writer.Flush()
+	}
+	// 宸汐玄鉴: 流式拼好的完整回复也塞进侧信道喵～
+	if qyTextBuf.Len() > 0 {
+		c.Set("qy_completion_text", qyTextBuf.String())
 	}
 	return usage, nil
 }

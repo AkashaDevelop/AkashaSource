@@ -35,7 +35,9 @@ const DEFAULT_PATHS = [
   '/api/user/checkin',
 ];
 
-let _cxConfig: CxSecConfig = { enabled: true, paths: DEFAULT_PATHS };
+// 拉取失败时的兜底默认值：宁可"少加密"也不能"多加密"——
+// 后端默认 CxSecEnabled 就是 false，网络抖动时两端判断不一致会导致请求体变成后端读不懂的二进制垢圾～
+let _cxConfig: CxSecConfig = { enabled: false, paths: DEFAULT_PATHS };
 
 /**
  * fetchCxSecConfig - 从 /api/cx/config 拉取服务端配置

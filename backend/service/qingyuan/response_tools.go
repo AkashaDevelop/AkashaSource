@@ -2,6 +2,7 @@ package qingyuan
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -245,7 +246,7 @@ func buildPathStr(parts ...interface{}) string {
 		case string:
 			strs = append(strs, v)
 		case int:
-			strs = append(strs, "["+string(rune(v+'0'))+"]")
+			strs = append(strs, "["+strconv.Itoa(v)+"]")
 		}
 	}
 	return strings.Join(strs, ".")

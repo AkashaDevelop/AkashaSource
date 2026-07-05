@@ -8,6 +8,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"STfreApi/service/qingyuan"
 )
 
 // RequestRecord relay 链路传入的请求上下文快照
@@ -26,7 +28,7 @@ type RequestRecord struct {
 	Messages         []interface{} // 原始 messages 数组，用于结构检测
 	StatusCode       int
 	LatencyMs        int64
-	PromptHash       uint64    // MinHash 值，由 RecordRequest 计算后写入 profile
+	PromptHash       MinHashSignature // MinHash 完整签名，由 RecordRequest 计算后写入 profile
 	QYFindings       []string  // qingyuan 命中的 finding types
 	QYRiskScore      int
 }
@@ -42,10 +44,9 @@ func RecordRequest(rec RequestRecord) {
 		return
 	}
 
-	// 计算 MinHash
+	// 计算 MinHash（存完整签名，不再压缩成单值，才能真正估算近似相似度）
 	if rec.PromptSnippet != "" {
-		h := computeMinHash(rec.PromptSnippet)
-		rec.PromptHash = PackMinHash(h)
+		rec.PromptHash = computeMinHash(rec.PromptSnippet)
 	}
 
 	// 更新画像
@@ -128,18 +129,25 @@ func CollectPromptSnippet(messages []interface{}, prompt string, maxChars int) s
 	return result
 }
 
-// ExtractQYFindingTypes 从 qingyuan Finding 列表提取类型字符串（供 relay.go 调用）
-func ExtractQYFindingTypes(findings interface{}) []string {
-	type findingItem interface {
-		GetType() string
-	}
-	// 使用类型断言处理 qingyuan.Finding 列表
-	if findings == nil {
+// ExtractQYFindingTypes 从 qingyuan Finding 列表提取类型字符串（供各 relay 入口调用）
+func ExtractQYFindingTypes(findings []qingyuan.Finding) []string {
+	if len(findings) == 0 {
 		return nil
 	}
-	// relay.go 会直接传 []qingyuan.Finding，这里用反射-free 方式：
-	// relay.go 自行提取 types 再传入，见 relay.go 的调用示例注释
-	return nil
+	types := make([]string, 0, len(findings))
+	for _, f := range findings {
+		types = append(types, f.Type)
+	}
+	return types
+}
+
+// TruncateSnippet 按字符数截断文本，用于 CompletionSnippet 等场景，避免事件/日志里塞进过长内容～
+func TruncateSnippet(text string, maxChars int) string {
+	runes := []rune(text)
+	if len(runes) > maxChars {
+		return string(runes[:maxChars])
+	}
+	return text
 }
 
 // AIReviewCheck 在请求转发前执行 AI 审核

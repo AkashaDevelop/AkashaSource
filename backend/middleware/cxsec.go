@@ -18,12 +18,12 @@ import (
 const allowedSkewMS = 45_000 // ±45s 时间窗
 
 // CxSecMiddleware 对路由启用宸汐御安全保护
-// ～管理员关掉或客户端传的不是 octet-stream，就当普通接口放行，不用慌～
+// ～管理员关掉、路径不在受保护名单里、或客户端传的不是 octet-stream，就当普通接口放行，不用慌～
 func CxSecMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 优雅降级：全局禁用 或 请求不是加密二进制格式时直接放行
+		// 优雅降级：全局禁用 或 路径不在管理后台配置的受保护名单里 或 请求不是加密二进制格式时直接放行
 		ct := c.GetHeader("Content-Type")
-		if !common.CxSecEnabled || !strings.Contains(ct, "application/octet-stream") {
+		if !common.CxSecEnabled || !isProtectedPath(c.Request.URL.Path) || !strings.Contains(ct, "application/octet-stream") {
 			c.Next()
 			return
 		}
@@ -110,7 +110,7 @@ func CxSecMiddleware() gin.HandlerFunc {
 		c.Set("cxsec_session", sess)
 
 		// ── 8. 加密响应 ──────────────────────────────────────
-		cxWriter := &cxSecWriter{ResponseWriter: c.Writer, sess: sess}
+		cxWriter := &cxSecWriter{ResponseWriter: c.Writer, sess: sess, respCounter: counter}
 		c.Writer = cxWriter
 
 		c.Next()
@@ -119,12 +119,27 @@ func CxSecMiddleware() gin.HandlerFunc {
 	}
 }
 
+// isProtectedPath 检查请求路径是否在管理后台配置的 CxSecProtectedPaths 里～
+// 让"受保护路径"这项配置真正管住后端行为，而不是只喂给前端看看样子～
+func isProtectedPath(path string) bool {
+	for _, p := range strings.Split(common.CxSecProtectedPaths, ",") {
+		if p = strings.TrimSpace(p); p != "" && path == p {
+			return true
+		}
+	}
+	return false
+}
+
 // cxSecWriter 拦截响应体，在 flush 时加密发出
 type cxSecWriter struct {
 	gin.ResponseWriter
 	sess   *cxsec.Session
-	buf    bytes.Buffer
-	sealed bool
+	// respCounter 是这一轮请求解密时用的计数器（AdvanceCounter 之前的值），
+	// 客户端 jsDecrypt 解密响应时读的也是递增前的本地计数器，两边必须用同一个值，
+	// 不然响应密钥对不上，解密百分百失败～
+	respCounter uint32
+	buf         bytes.Buffer
+	sealed      bool
 }
 
 // Write ～sealed 之后再写就是白写，宁可报错也不能让数据悄悄消失哦～
@@ -146,7 +161,7 @@ func (w *cxSecWriter) flush() {
 	pre, post := cxsec.DeriveWhiteningKey(curEpoch, w.sess.ID)
 	timeBlock := cxsec.CurrentTimeBlock()
 	respNonce := cxsec.RandNonce()
-	respCounter := w.sess.Counter()
+	respCounter := w.respCounter
 	reqKey := cxsec.DeriveRequestKey(curEpoch, timeBlock, respCounter, respNonce)
 
 	ciphertext, tag, err := cxsec.Encrypt(reqKey, pre, post, respNonce, respCounter, cxsec.UnixNowMS(), plain)

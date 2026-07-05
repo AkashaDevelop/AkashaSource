@@ -125,6 +125,10 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
 	_ = json.NewEncoder(c.Writer).Encode(openaiResp)
+	// 悄悄把混元酱吐出的话塞进 context 小背篓，给玄鉴风控嗅一嗅有没有危险味道 (qy_completion_text)~
+	if len(openaiResp.Choices) > 0 && openaiResp.Choices[0].Message.Content != "" {
+		c.Set("qy_completion_text", openaiResp.Choices[0].Message.Content)
+	}
 	return &openaiResp.Usage, nil
 }
 
@@ -133,6 +137,7 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 	defer resp.Body.Close()
 
 	usage := &dto.Usage{}
+	var qyTextBuf strings.Builder
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -155,9 +160,16 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 			usage = &tencentResp.Usage
 		}
 		streamResp := streamResponseTencent2OpenAI(&tencentResp, a.Model)
+		if len(tencentResp.Choices) > 0 && tencentResp.Choices[0].Delta.Content != "" {
+			qyTextBuf.WriteString(tencentResp.Choices[0].Delta.Content)
+		}
 		data, _ := json.Marshal(streamResp)
 		c.Writer.Write([]byte("data: " + string(data) + "\n\n"))
 		c.Writer.Flush()
+	}
+	// 流跑完啦，把攒好的完整回答一次性放进 context 小背篓~ (qy_completion_text)
+	if qyTextBuf.Len() > 0 {
+		c.Set("qy_completion_text", qyTextBuf.String())
 	}
 	return usage, nil
 }

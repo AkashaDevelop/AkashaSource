@@ -28,7 +28,7 @@ func TestMultimodalDetection(t *testing.T) {
 		Config: DefaultConfig(),
 	}
 
-	findings := detectMultimodalRisks(messages, policy)
+	findings := detectMultimodalRisks(messages, policy, false)
 	if len(findings) == 0 {
 		t.Error("Expected multimodal risk findings, got none")
 	}

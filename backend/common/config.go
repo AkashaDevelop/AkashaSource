@@ -174,6 +174,16 @@ func UpdateOptionMap(key string, value string) {
 		UpdatePricing(OptionMap["model_ratio"], OptionMap["completion_ratio"], OptionMap["group_ratio"], "", "", OptionMap["model_price"])
 	}
 
+	if key == "group_group_ratio" {
+		UpdateGroupGroupRatio(value)
+	}
+	if key == "group_special_usable_group" {
+		UpdateGroupSpecialUsableGroup(value)
+	}
+	if key == "auto_groups" {
+		UpdateAutoGroups(value)
+	}
+
 	if key == "cxsec_enabled" {
 		CxSecEnabled = (value == "true")
 	}

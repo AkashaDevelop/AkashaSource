@@ -14,7 +14,11 @@ const ALWAYS_EXEMPT = ['/api/cx/challenge', '/api/cx/ks', '/api/cx/config'];
 // 受保护路径列表，由 installCxSecInterceptor 传入（或从 /api/cx/config 拉取后设置）
 let _protectedPaths: string[] = [];
 
-function needsEncryption(url: string): boolean {
+// 只有这几个方法才可能带 body，GET/HEAD 天生不该被加密（浏览器 fetch 规范禁止 GET/HEAD 带 body）
+const BODY_METHODS = ['POST', 'PUT', 'PATCH'];
+
+function needsEncryption(url: string, method: string): boolean {
+  if (!BODY_METHODS.includes(method.toUpperCase())) return false;
   if (ALWAYS_EXEMPT.some(e => url.includes(e))) return false;
   return _protectedPaths.some(p => {
     // 精确前缀匹配（避免 /api/user/login 误匹配 /api/user/login-sso 之类）
@@ -31,8 +35,9 @@ async function cxFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Re
   const url = typeof input === 'string' ? input
     : input instanceof URL ? input.href
     : (input as Request).url;
+  const method = (init?.method) ?? (input instanceof Request ? (input as Request).method : 'GET');
 
-  if (!needsEncryption(url)) {
+  if (!needsEncryption(url, method)) {
     return _originalFetch(input, init);
   }
 

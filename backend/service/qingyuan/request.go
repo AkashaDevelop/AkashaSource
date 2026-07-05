@@ -191,7 +191,7 @@ func detectRequest(req *dto.OpenAIRequest, policy ResolvedPolicy) []Finding {
 
 	// 多模态风险检测
 	if policy.Config.Response.DetectMultimodal {
-		multimodalFindings := detectMultimodalRisks(req.Messages, policy)
+		multimodalFindings := detectMultimodalRisks(req.Messages, policy, len(req.Tools) > 0)
 		findings = append(findings, multimodalFindings...)
 	}
 

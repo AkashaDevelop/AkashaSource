@@ -310,6 +310,11 @@ func (a *Adaptor) normalHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 		Usage: usage,
 	}
 
+	// 把 Gemini 酱说的话悄悄塞进 context 小背篓，给玄鉴风控闻一闻~ (qy_completion_text)
+	if content != "" {
+		c.Set("qy_completion_text", content)
+	}
+
 	c.JSON(http.StatusOK, openaiResp)
 	return &usage, nil
 }
@@ -335,6 +340,8 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 
 	usage := &dto.Usage{}
 	var id = fmt.Sprintf("chatcmpl-%s", common.GetUUID())
+	// 流式小碎片汇总桶，一片一片攒起来给风控君检查呀
+	var qyTextBuf strings.Builder
 
 	for dec.More() {
 		var chunk GeminiChatResponse
@@ -345,6 +352,9 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 		content := ""
 		if len(chunk.Candidates) > 0 && len(chunk.Candidates[0].Content.Parts) > 0 {
 			content = chunk.Candidates[0].Content.Parts[0].Text
+		}
+		if content != "" {
+			qyTextBuf.WriteString(content)
 		}
 
 		if chunk.UsageMetadata != nil {
@@ -361,6 +371,11 @@ func (a *Adaptor) streamHandler(c *gin.Context, resp *http.Response) (*dto.Usage
 
 	c.Writer.WriteString("data: [DONE]\n\n")
 	c.Writer.Flush()
+
+	// 流跑完啦，把攒好的完整回答一次性放进 context 小背篓~ (qy_completion_text)
+	if qyTextBuf.Len() > 0 {
+		c.Set("qy_completion_text", qyTextBuf.String())
+	}
 
 	return usage, nil
 }

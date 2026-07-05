@@ -21,10 +21,14 @@ func PreConsumeQuota(token *model.Token, promptTokens int, maxTokens int, modelN
 	imageRatio := common.GetImageRatio(modelName)
 	audioRatio := common.GetAudioRatio(modelName)
 
-	// 查询用户分组
+	// 查询用户分组，令牌自己有独立分组的话优先用令牌的～
 	var userGroup string
 	common.DB.Model(&model.User{}).Where("id = ?", token.UserId).Select("group").Scan(&userGroup)
-	groupRatio := common.GetGroupRatio(userGroup)
+	billingGroup := ResolveBillingGroup(userGroup, token.Group)
+	groupRatio := GetUserGroupRatio(userGroup, billingGroup)
+	if override, ok := GetGroupModelRatioOverride(billingGroup, modelName); ok {
+		ratio = override
+	}
 
 	// 预估预扣额度
 	// 预扣额度 = (max(promptTokens, 预估最小值) + imageTokens × imageRatio + audioTokens × audioRatio + maxTokens × completionRatio) × ratio × groupRatio
@@ -170,13 +174,21 @@ func RefundQuota(token *model.Token, preConsumedQuota int64) error {
 // CalculateQuota 计算实际消耗额度（不扣款）
 // 返回 (quota, otherInfo JSON)
 // 使用 shopspring/decimal 进行高精度计算，避免 float64 累加误差
-func CalculateQuota(modelName string, promptTokens, completionTokens, cachedTokens, imageTokens, audioTokens, audioCompletionTokens, webSearchCount, fileSearchCount int, userGroup string) (int64, string) {
+// ownerGroup 是用户自己的分组（用来查"用户分组×使用分组"的专属折扣），
+// billingGroup 是这次请求实际按哪个分组算账（令牌分组覆盖后的结果，auto 已经在调用方折算回用户分组）～
+func CalculateQuota(modelName string, promptTokens, completionTokens, cachedTokens, imageTokens, audioTokens, audioCompletionTokens, webSearchCount, fileSearchCount int, ownerGroup string, billingGroup string) (int64, string) {
+	groupRatio := GetUserGroupRatio(ownerGroup, billingGroup)
+	modelRatioBase := common.GetModelRatio(modelName)
+	if override, ok := GetGroupModelRatioOverride(billingGroup, modelName); ok {
+		modelRatioBase = override
+	}
+
 	// 检查是否按次计费
 	if price, ok := common.GetModelPrice(modelName); ok {
 		// 按次计费：quota = price × QuotaPerUnit × groupRatio + 工具附加费
 		dPrice := decimal.NewFromFloat(price)
 		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-		dGroupRatio := decimal.NewFromFloat(common.GetGroupRatio(userGroup))
+		dGroupRatio := decimal.NewFromFloat(groupRatio)
 		dQuota := dPrice.Mul(dQuotaPerUnit).Mul(dGroupRatio)
 
 		// 工具附加费
@@ -191,17 +203,16 @@ func CalculateQuota(modelName string, promptTokens, completionTokens, cachedToke
 		finalQuota := dQuota.IntPart() + toolSurcharge
 		otherInfo, _ := json.Marshal(map[string]interface{}{
 			"model_price": price,
-			"group_ratio": common.GetGroupRatio(userGroup),
+			"group_ratio": groupRatio,
 			"use_price":   true,
 		})
 		return finalQuota, string(otherInfo)
 	}
 
 	// 否则走按量计费逻辑
-	ratio := common.GetModelRatio(modelName)
+	ratio := modelRatioBase
 	completionRatio := common.GetCompletionRatio(modelName)
 	cacheRatio := common.GetCacheRatio()
-	groupRatio := common.GetGroupRatio(userGroup)
 	imageRatio := common.GetImageRatio(modelName)
 	audioRatio := common.GetAudioRatio(modelName)
 	audioCompletionRatio := common.GetAudioCompletionRatio(modelName)

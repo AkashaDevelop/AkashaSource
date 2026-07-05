@@ -185,6 +185,11 @@ func (a *Adaptor) handleNormalResponse(c *gin.Context, resp *http.Response, meta
 		openaiResp["usage"] = usage
 	}
 
+	// 宸汐玄鉴: 把自定义渠道回复原文塞进侧信道 方便后面风控扫描喵～
+	if content != "" {
+		c.Set("qy_completion_text", content)
+	}
+
 	c.JSON(http.StatusOK, openaiResp)
 	return usage, nil
 }
@@ -311,6 +316,11 @@ func (a *Adaptor) handleStreamResponse(c *gin.Context, resp *http.Response, meta
 	promptTokens = a.promptTokenCount
 	if promptTokens == 0 {
 		promptTokens = completionTokens / 2 // 兜底估算
+	}
+
+	// 宸汐玄鉴: 流式拼好的完整回复也塞进侧信道喵～
+	if totalContent.Len() > 0 {
+		c.Set("qy_completion_text", totalContent.String())
 	}
 
 	return &dto.Usage{

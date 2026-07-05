@@ -217,7 +217,22 @@ func Relay(c *gin.Context) {
 	}
 
 	// 4. 选择渠道
-	channels, mappedModels, err := SelectChannelWithAffinity(openAIReq.Model, user.Group, tokenKey, defaultChannelAffinityRule)
+	usingGroup, err := service.ResolveUsingGroup(user.Group, token.Group)
+	if err != nil {
+		c.JSON(http.StatusForbidden, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
+			Message: err.Error(),
+			Type:    "invalid_request_error",
+		}})
+		return
+	}
+	if !middleware.GroupRateLimitMiddleware(service.ResolveBillingGroup(user.Group, token.Group)) {
+		c.JSON(http.StatusTooManyRequests, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
+			Message: fmt.Sprintf("分组 %s 请求过于频繁", usingGroup),
+			Type:    "rate_limit_error",
+		}})
+		return
+	}
+	channels, mappedModels, channelGroups, err := SelectChannelWithAffinity(openAIReq.Model, user.Group, usingGroup, token.CrossGroupRetry, tokenKey, defaultChannelAffinityRule)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
 			Message: fmt.Sprintf("没有可用渠道，模型: %s", openAIReq.Model),
@@ -270,6 +285,7 @@ func Relay(c *gin.Context) {
 	var lastError error
 	for i, channel := range channels {
 		mappedModel := mappedModels[i]
+		c.Set("billing_group", channelGroups[i])
 		attemptReq, copyErr := qingyuan.DeepCopyOpenAIRequest(&baseReq)
 		if copyErr != nil {
 			lastError = copyErr
@@ -379,6 +395,7 @@ func Relay(c *gin.Context) {
 		if err != nil {
 			// 响应解析失败时不再重试
 		}
+		completionText := c.GetString("qy_completion_text")
 
 		// 记录日志
 		promptTokens := 0
@@ -412,26 +429,23 @@ func Relay(c *gin.Context) {
 
 		// 宸汐玄鉴：异步行为分析，不阻塞主链路
 		if xuanjian.IsEnabled() {
-			qyTypes := make([]string, 0, len(sanitizeResult.Findings))
-			for _, f := range sanitizeResult.Findings {
-				qyTypes = append(qyTypes, f.Type)
-			}
 			promptSnippet := xuanjian.CollectPromptSnippet(attemptReq.Messages, attemptReq.Prompt, 2000)
 			go xuanjian.RecordRequest(xuanjian.RequestRecord{
-				TokenID:          token.Id,
-				TokenName:        token.Name,
-				UserID:           user.Id,
-				TokenCreatedAt:   time.Unix(token.CreatedTime, 0),
-				IP:               c.ClientIP(),
-				UserAgent:        c.GetHeader("User-Agent"),
-				Model:            mappedModel,
-				PromptTokens:     promptTokens,
-				CompletionTokens: completionTokens,
-				PromptSnippet:    promptSnippet,
-				Messages:         attemptReq.Messages,
-				StatusCode:       resp.StatusCode,
-				QYFindings:       qyTypes,
-				QYRiskScore:      sanitizeResult.RiskScore,
+				TokenID:           token.Id,
+				TokenName:         token.Name,
+				UserID:            user.Id,
+				TokenCreatedAt:    time.Unix(token.CreatedTime, 0),
+				IP:                c.ClientIP(),
+				UserAgent:         c.GetHeader("User-Agent"),
+				Model:             mappedModel,
+				PromptTokens:      promptTokens,
+				CompletionTokens:  completionTokens,
+				PromptSnippet:     promptSnippet,
+				CompletionSnippet: xuanjian.TruncateSnippet(completionText, 500),
+				Messages:          attemptReq.Messages,
+				StatusCode:        resp.StatusCode,
+				QYFindings:        xuanjian.ExtractQYFindingTypes(sanitizeResult.Findings),
+				QYRiskScore:       sanitizeResult.RiskScore,
 			})
 		}
 		go upsertChannelAffinity(

@@ -166,8 +166,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.POST("/user/passkey/login/finish", middleware.CriticalRateLimitMiddleware(), controller.PasskeyLoginFinish)
 		apiRouter.POST("/user/epay/notify", controller.PaymentNotify)
 		apiRouter.GET("/user/epay/notify", controller.PaymentNotify)
-		apiRouter.POST("/user/password/reset-request", middleware.CriticalRateLimitMiddleware(), controller.PasswordResetRequest)
-		apiRouter.POST("/user/password/reset-confirm", middleware.CriticalRateLimitMiddleware(), controller.PasswordResetConfirm)
+		apiRouter.POST("/user/password/reset-request", middleware.CriticalRateLimitMiddleware(), middleware.CxSecMiddleware(), controller.PasswordResetRequest)
+		apiRouter.POST("/user/password/reset-confirm", middleware.CriticalRateLimitMiddleware(), middleware.CxSecMiddleware(), controller.PasswordResetConfirm)
 		apiRouter.GET("/system/status", controller.IsSystemInitialized)
 		apiRouter.GET("/pricing", controller.GetPublicPricing)
 

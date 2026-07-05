@@ -81,6 +81,8 @@ func UpdateToken(c *gin.Context) {
 	existing.UnlimitedQuota = token.UnlimitedQuota
 	existing.AllowedIPs = token.AllowedIPs
 	existing.AllowedModels = token.AllowedModels
+	existing.Group = token.Group
+	existing.CrossGroupRetry = token.CrossGroupRetry
 	if err := common.DB.Save(&existing).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "更新令牌失败")
 		return
