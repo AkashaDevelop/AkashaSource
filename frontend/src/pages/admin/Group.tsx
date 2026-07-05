@@ -211,8 +211,32 @@ export default function GroupManagement() {
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
   const [editing, setEditing] = useState<Group | null>(null);
   const [formData, setFormData] = useState({
-    name: '', description: '', model_ratios: '{}', allowed_channels: '', qpm: '0',
+    name: '', description: '', model_ratios: '{}', allowed_channels: '', qpm: '0', ratio: '1',
   });
+
+  // 分组倍率 JSON（存储在 options 表）
+  const [groupRatio, setGroupRatio] = useState<Record<string, number>>({});
+
+  const fetchGroupRatio = async () => {
+    try {
+      const res = await fetch('/api/option', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.code === 0) {
+        const opt = data.data?.find((o: { key: string; value: string }) => o.key === 'group_ratio');
+        if (opt?.value) setGroupRatio(JSON.parse(opt.value));
+      }
+    } catch { /* ignore */ }
+  };
+
+  const saveGroupRatio = async (updated: Record<string, number>) => {
+    try {
+      await fetch('/api/option', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify([{ key: 'group_ratio', value: JSON.stringify(updated) }]),
+      });
+    } catch { /* ignore */ }
+  };
 
   const fetchGroups = async () => {
     setLoading(true);
@@ -224,11 +248,11 @@ export default function GroupManagement() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchGroups(); }, []);
+  useEffect(() => { fetchGroups(); fetchGroupRatio(); }, []);
 
   const handleAdd = () => {
     setEditing(null);
-    setFormData({ name: '', description: '', model_ratios: '{}', allowed_channels: '', qpm: '0' });
+    setFormData({ name: '', description: '', model_ratios: '{}', allowed_channels: '', qpm: '0', ratio: '1' });
     onOpen();
   };
 
@@ -239,6 +263,7 @@ export default function GroupManagement() {
       model_ratios: g.model_ratios || '{}',
       allowed_channels: g.allowed_channels,
       qpm: g.qpm.toString(),
+      ratio: String(groupRatio[g.name] ?? 1),
     });
     onOpen();
   };
@@ -252,7 +277,17 @@ export default function GroupManagement() {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (data.code === 0) { fetchGroups(); onClose(); }
+      if (data.code === 0) {
+        // 同时更新 group_ratio JSON
+        const updated = { ...groupRatio };
+        if (editing && editing.name !== formData.name) {
+          delete updated[editing.name]; // 改名：删除旧条目
+        }
+        updated[formData.name] = parseFloat(formData.ratio) || 1;
+        setGroupRatio(updated);
+        saveGroupRatio(updated);
+        fetchGroups(); onClose();
+      }
       else toast.error('操作失败');
     } catch (e) { console.error(e); }
   };
@@ -285,19 +320,20 @@ export default function GroupManagement() {
         <table className="data-table">
           <thead>
             <tr>
-              <th>ID</th><th>名称</th><th>描述</th><th>QPM</th><th>操作</th>
+              <th>ID</th><th>名称</th><th>描述</th><th>倍率</th><th>QPM</th><th>操作</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <LoadingRows cols={5} rows={5} />
+              <LoadingRows cols={6} rows={5} />
             ) : groups.length === 0 ? (
-              <tr><td colSpan={5}><EmptyState icon="🏷️" title="暂无分组" /></td></tr>
+              <tr><td colSpan={6}><EmptyState icon="🏷️" title="暂无分组" /></td></tr>
             ) : groups.map((g) => (
               <tr key={g.id}>
                 <td>{g.id}</td>
                 <td><Chip size="sm" variant="flat" color="primary">{g.name}</Chip></td>
                 <td>{g.description || '-'}</td>
+                <td><Chip size="sm" variant="flat">{groupRatio[g.name] ?? 1}x</Chip></td>
                 <td>{g.qpm || '无限制'}</td>
                 <td>
                   <div className="flex gap-2">
@@ -324,6 +360,9 @@ export default function GroupManagement() {
                 <Input label="QPM (每分钟请求数)" type="number" value={formData.qpm}
                   onValueChange={(v) => setFormData({ ...formData, qpm: v })}
                   description="0 表示不限制" />
+                <Input label="计费倍率" type="number" step="0.1" value={formData.ratio}
+                  onValueChange={(v) => setFormData({ ...formData, ratio: v })}
+                  description="1 = 原价，0.8 = 八折，影响该分组下所有用户的消费金额" />
                 <RatioEditor
                   value={formData.model_ratios}
                   onChange={(v) => setFormData({ ...formData, model_ratios: v })}

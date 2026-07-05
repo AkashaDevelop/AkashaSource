@@ -8,6 +8,7 @@ import {
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import PageHeader from '../../components/PageHeader';
+import { formatQuota, getQuotaDisplayHint } from '../../lib/quota';
 
 /* ───── 类型 ───── */
 interface Plan {
@@ -182,8 +183,8 @@ export default function BillingPage() {
   const usedQuota = (user as any)?.used_quota ?? 0;
   const totalEver = quota + usedQuota;
   const usedPct   = totalEver > 0 ? Math.min((usedQuota / totalEver) * 100, 100) : 0;
-  const usd       = (quota / 500000).toFixed(4);
-  const usedUsd   = (usedQuota / 500000).toFixed(4);
+  const usd       = formatQuota(quota, 4);
+  const usedUsd   = formatQuota(usedQuota, 4);
   const activeSubs = mySubs.filter(s => s.status === 1);
 
   useEffect(() => {
@@ -234,7 +235,7 @@ export default function BillingPage() {
       const res  = await fetch('/api/user/redemption', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ code: code.trim() }) });
       const data = await res.json();
       if (data.code === 0) {
-        toast.success(`兑换成功！增加额度 $${(data.data.quota / 500000).toFixed(4)}`);
+        toast.success(`兑换成功！增加额度 ${formatQuota(data.data.quota, 4)}`);
         setCode('');
         fetch('/api/user/self', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()).then(d => { if (d.code === 0) updateUser(d.data); });
       } else toast.error(data.msg || '兑换失败');
@@ -284,7 +285,7 @@ export default function BillingPage() {
               </div>
               <div>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>账户余额</p>
-                <p style={{ fontSize: '10px', color: 'var(--text-faint)', margin: 0 }}>1 USD = 500,000 额度</p>
+                <p style={{ fontSize: '10px', color: 'var(--text-faint)', margin: 0 }}>{getQuotaDisplayHint()}</p>
               </div>
               {activeSubs.length > 0 && (
                 <div style={{ marginLeft: '8px', display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: 'var(--radius-full)', background: 'var(--color-success-bg)', border: '1px solid var(--color-success-bg)' }}>
@@ -421,7 +422,7 @@ export default function BillingPage() {
               {[
                 { icon: '⚡', text: '充值即时到账，无需等待审核' },
                 { icon: '🔒', text: '支持支付宝、微信支付，安全可靠' },
-                { icon: '💰', text: '1 USD = 500,000 额度单位' },
+                { icon: '💰', text: getQuotaDisplayHint() },
                 { icon: '📋', text: '如遇问题请联系客服，保留支付凭证' },
               ].map((item, i) => (
                 <div key={i} style={{ display: 'flex', gap: '10px', marginBottom: i < 3 ? '12px' : 0 }}>
@@ -558,7 +559,7 @@ export default function BillingPage() {
                             <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: cfg.light, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                               <Package size={10} style={{ color: cfg.accent }} />
                             </div>
-                            <span>赠送 <strong style={{ color: 'var(--text-primary)' }}>${(plan.quota / 500000).toFixed(2)}</strong> 额度</span>
+                            <span>赠送 <strong style={{ color: 'var(--text-primary)' }}>{formatQuota(plan.quota, 2)}</strong> 额度</span>
                           </div>
                         )}
                         {(plan.type === 'rpm' || plan.type === 'combo') && plan.rpm > 0 && (
@@ -685,7 +686,7 @@ export default function BillingPage() {
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0, textTransform: 'capitalize' }}>{o.provider}</p>
                   <p style={{ fontSize: '13px', fontWeight: 600, margin: 0 }}>${o.amount.toFixed(2)}</p>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
-                    {o.quota_added > 0 ? `$${(o.quota_added / 500000).toFixed(4)}` : '-'}
+                    {o.quota_added > 0 ? formatQuota(o.quota_added, 4) : '-'}
                   </p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                     <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: 'var(--radius-full)', background: st.bg, color: st.color, width: 'fit-content' }}>{st.text}</span>

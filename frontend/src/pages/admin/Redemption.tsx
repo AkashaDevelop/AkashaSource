@@ -10,6 +10,7 @@ import { Plus, RefreshCw, Copy, Power, PowerOff, Trash2, Download } from 'lucide
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
+import { formatQuota, moneyToQuota, getQuotaDisplayHint } from '../../lib/quota';
 
 interface Redemption {
   id: number;
@@ -74,7 +75,7 @@ export default function RedemptionManagement() {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         name: formData.name,
-        quota: parseInt(formData.quota) * 500000,
+        quota: moneyToQuota(parseInt(formData.quota)),
         count: parseInt(formData.count),
         max_uses: parseInt(formData.max_uses) || 1,
       }),
@@ -217,7 +218,7 @@ export default function RedemptionManagement() {
                       onClick={() => copyToClipboard(item.code)} />
                   </div>
                 </td>
-                <td>${(item.quota / 500000).toFixed(2)}</td>
+                <td>{formatQuota(item.quota, 2)}</td>
                 <td>{item.max_uses === 0 ? '∞' : item.max_uses}</td>
                 <td>{item.used_count}</td>
                 <td>
@@ -255,7 +256,7 @@ export default function RedemptionManagement() {
                   onValueChange={(v) => setFormData({ ...formData, name: v })} />
                 <Input label="额度 ($)" type="number" placeholder="1" value={formData.quota}
                   onValueChange={(v) => setFormData({ ...formData, quota: v })}
-                  description="1 美元 = 500000 额度" />
+                  description={getQuotaDisplayHint()} />
                 <Input label="可用次数" type="number" placeholder="1" value={formData.max_uses}
                   onValueChange={(v) => setFormData({ ...formData, max_uses: v })}
                   description="0 = 不限次数；每次使用均发放一次额度" />

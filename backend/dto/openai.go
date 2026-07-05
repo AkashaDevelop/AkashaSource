@@ -57,6 +57,13 @@ type Usage struct {
 	// Detailed token breakdown
 	PromptTokensDetails *PromptTokensDetails `json:"prompt_tokens_details,omitempty"`
 	InputTokensDetails  *InputTokensDetails  `json:"input_tokens_details,omitempty"`
+
+	// Image / Audio tokens & tool call counts
+	ImageTokens           int `json:"image_tokens,omitempty"`             // 图像 token 数
+	AudioTokens           int `json:"audio_tokens,omitempty"`             // 音频输入 token 数
+	AudioCompletionTokens int `json:"audio_completion_tokens,omitempty"` // 音频输出 token 数
+	WebSearchCount        int `json:"web_search_count,omitempty"`         // Web Search 调用次数
+	FileSearchCount       int `json:"file_search_count,omitempty"`        // File Search 调用次数
 }
 
 type PromptTokensDetails struct {

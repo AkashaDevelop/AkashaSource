@@ -132,6 +132,7 @@ func IsSystemInitialized(c *gin.Context) {
 		"captcha_provider", "geetest_enabled", "geetest_id", "checkin_captcha",
 		"enable_topup", "payment_provider", "min_topup", "price",
 		"email_verification_enabled",
+		"quota_display_type", "quota_display_symbol", "quota_display_rate",
 	} {
 		options[k] = common.OptionMap[k]
 	}

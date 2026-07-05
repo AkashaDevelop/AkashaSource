@@ -10,7 +10,7 @@ import {
 } from '../../components/ui';
 import {
   Save, Plus, Edit, Trash2,
-  Globe, CreditCard, Shield, Link2, Mail, Gift, CalendarCheck, Bell, Settings, BarChart3,
+  Globe, CreditCard, Shield, Link2, Mail, Gift, CalendarCheck, Bell, Settings, Settings2, BarChart3,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
@@ -140,6 +140,9 @@ export default function SystemSettings() {
       'thinking_to_content','model_rpm',
       'email_domain_restriction_enabled','email_domain_whitelist',
       'log_retention_days',
+      'quota_display_type', 'quota_display_symbol', 'quota_display_rate',
+      'billing_priority',
+      'model_price',
     ];
     const options = [
       ...keys.map(k => ({ key: k, value: get(k) })),
@@ -231,6 +234,60 @@ export default function SystemSettings() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Input label="最低充值金额" type="number" value={get('min_topup')} onValueChange={v => set('min_topup', v)} description="单位：元" />
                   <Input label="默认价格" type="number" value={get('price')} onValueChange={v => set('price', v)} description="每 500000 Quota 对应的金额" />
+                </div>
+                <Divider />
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>货币展示方式</span>
+                  <div className="flex gap-2 flex-wrap">
+                    {([
+                      { key: 'usd', label: '美元 ($)' },
+                      { key: 'cny', label: '人民币 (¥)' },
+                      { key: 'tokens', label: '额度点数' },
+                      { key: 'custom', label: '自定义' },
+                    ] as const).map(item => {
+                      const active = (get('quota_display_type') || 'usd') === item.key;
+                      return (
+                        <button key={item.key} type="button"
+                          onClick={() => set('quota_display_type', item.key)}
+                          className={`px-3 py-1.5 rounded-lg border text-sm transition-all ${active
+                            ? 'border-[var(--accent-primary)] bg-[var(--nav-active-bg)] text-[var(--accent-primary)] font-semibold'
+                            : 'border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] cursor-pointer'}`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>控制前端所有额度余额的展示格式</p>
+                </div>
+                {(get('quota_display_type') || 'usd') === 'custom' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input label="货币符号" value={get('quota_display_symbol', '¤')} onValueChange={v => set('quota_display_symbol', v)} placeholder="如 ¥、$、€" />
+                    <Input label="汇率（相对美元）" type="number" value={get('quota_display_rate', '1')} onValueChange={v => set('quota_display_rate', v)} description="1 美元 = 此汇率 货币" />
+                  </div>
+                )}
+                <Divider />
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>资金来源优先级</span>
+                  <div className="flex gap-2 flex-wrap">
+                    {([
+                      { key: 'subscription_first', label: '订阅优先' },
+                      { key: 'wallet_first', label: '余额优先' },
+                    ] as const).map(item => {
+                      const active = (get('billing_priority') || 'subscription_first') === item.key;
+                      return (
+                        <button key={item.key} type="button"
+                          onClick={() => set('billing_priority', item.key)}
+                          className={`px-3 py-1.5 rounded-lg border text-sm transition-all ${active
+                            ? 'border-[var(--accent-primary)] bg-[var(--nav-active-bg)] text-[var(--accent-primary)] font-semibold'
+                            : 'border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] cursor-pointer'}`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>订阅优先：先扣订阅额度，不足再扣余额；余额优先：先扣余额，不足再扣订阅</p>
                 </div>
               </CardBody>
             </Card>
@@ -737,6 +794,25 @@ export default function SystemSettings() {
                   </tbody>
                 </table>
               </div>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <BarChart3 size={16} style={{ color: 'var(--accent-cosmic)' }} />
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>按次计费价格</span>
+              </div>
+            </CardHeader>
+            <CardBody className="gap-3">
+              <Textarea
+                label="按次计费价格 JSON"
+                value={get('model_price', '{}')}
+                onValueChange={v => set('model_price', v)}
+                minRows={6}
+                placeholder='{"dall-e-2":0.02,"dall-e-3":0.04,"mj_imagine":0.1}'
+                description='每个模型每次调用的价格（美元/次）。配置后优先于按量计费，quota = price × QuotaPerUnit × groupRatio + 工具附加费。'
+              />
             </CardBody>
           </Card>
         </Tab>

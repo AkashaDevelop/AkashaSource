@@ -38,6 +38,7 @@ type ResponsesRequest struct {
 // RelayResponses handles OpenAI Responses API format (POST /v1/responses)
 // This enables Codex CLI and other Responses API clients.
 func RelayResponses(c *gin.Context) {
+	startTime := time.Now()
 	// 1. Auth
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
@@ -201,6 +202,9 @@ func RelayResponses(c *gin.Context) {
 		}
 
 		if usage != nil {
+			c.Set("channel_id", channel.Id)
+			c.Set("is_stream", req.Stream)
+			c.Set("use_time", int(time.Since(startTime).Milliseconds()))
 			go RecordConsumeLog(c, token, mappedModels[i], usage.PromptTokens, usage.CompletionTokens)
 			go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(tokenKey), channel.Id, mappedModels[i], usage.PromptTokens, usage.CompletionTokens, usage.CachedTokens)
 

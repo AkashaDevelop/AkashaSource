@@ -304,10 +304,8 @@ func ActivateSubscription(tx *gorm.DB, subId int) error {
 
 	if plan.Type == model.PlanTypeQuota || plan.Type == model.PlanTypeCombo {
 		if plan.Quota > 0 {
-			if err := tx.Model(&model.User{}).Where("id = ?", sub.UserId).
-				Update("quota", gorm.Expr("quota + ?", plan.Quota)).Error; err != nil {
-				return err
-			}
+			// 订阅额度作为独立资金池记录在订阅上，不直接充值到用户钱包
+			updates["quota"] = plan.Quota
 		}
 	}
 

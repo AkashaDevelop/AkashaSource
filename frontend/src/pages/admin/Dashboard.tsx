@@ -10,6 +10,7 @@ import {
 import { useAuthStore } from '../../store/auth';
 import StatCard from '../../components/StatCard';
 import { SkeletonCard } from '../../components/SkeletonCard';
+import { formatQuota } from '../../lib/quota';
 
 /* ───── 类型 ───── */
 interface DashboardStats {
@@ -236,7 +237,7 @@ export default function AdminDashboard() {
             { label: '总 Token',     value: statLoading ? '—' : (periodStats?.tokens ?? 0).toLocaleString(),            icon: <Hash size={14} />,            color: 'var(--accent-primary)' },
             { label: '输入 Token',   value: statLoading ? '—' : (periodStats?.promptTokens ?? 0).toLocaleString(),      icon: <ArrowDownToLine size={14} />, color: 'var(--accent-cosmic)' },
             { label: '输出 Token',   value: statLoading ? '—' : (periodStats?.completionTokens ?? 0).toLocaleString(),  icon: <ArrowUpFromLine size={14} />, color: 'var(--accent-star)' },
-            { label: '平均单次消耗', value: statLoading ? '—' : `$${(avgCostPerReq / 500000).toFixed(5)}`,               icon: <Gauge size={14} />,           color: 'var(--color-success-fg)' },
+            { label: '平均单次消耗', value: statLoading ? '—' : formatQuota(avgCostPerReq, 5),               icon: <Gauge size={14} />,           color: 'var(--color-success-fg)' },
           ].map(m => (
             <div key={m.label} className="flex items-center gap-2.5">
               <span style={{ color: m.color, opacity: 0.85 }}>{m.icon}</span>
@@ -398,7 +399,7 @@ export default function AdminDashboard() {
                     </Pie>
                     <Tooltip
                       contentStyle={{ background: 'var(--bg-elevated)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', fontSize: 11 }}
-                      formatter={(v: number) => [`$${(v / 500000).toFixed(4)}`, '消耗']}
+                      formatter={(v?: number) => [formatQuota(v ?? 0, 4), '消耗']}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -428,7 +429,7 @@ export default function AdminDashboard() {
             <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>暂无数据</div>
           ) : (
             <div className="space-y-3">
-              {(statLoading && !modelStats.length ? Array.from({ length: 4 }) : modelStats).map((m, i) => {
+              {(statLoading && !modelStats.length ? Array.from({ length: 4 }) : modelStats).map((m: any, i) => {
                 if (!m) return <div key={i} className="skeleton-shimmer h-7 rounded" />;
                 const pct = totalModelQ > 0 ? (m.total_quota / totalModelQ) * 100 : 0;
                 const color = BAR_COLORS[i] || 'var(--text-muted)';
@@ -439,7 +440,7 @@ export default function AdminDashboard() {
                         <span style={{ width: '16px', height: '16px', borderRadius: '50%', background: color, color: 'white', fontSize: '9px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
                         <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.model_name}</span>
                       </div>
-                      <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', flexShrink: 0, marginLeft: '6px' }}>${(m.total_quota / 500000).toFixed(2)}</span>
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', flexShrink: 0, marginLeft: '6px' }}>{formatQuota(m.total_quota, 2)}</span>
                     </div>
                     <div style={{ height: '3px', borderRadius: 'var(--radius-full)', background: 'var(--bg-elevated)' }}>
                       <div style={{ height: '100%', width: `${pct}%`, borderRadius: 'var(--radius-full)', background: color, transition: 'width 0.6s ease' }} />
@@ -458,7 +459,7 @@ export default function AdminDashboard() {
             <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>暂无记录</div>
           ) : (
             <div className="space-y-2">
-              {(statLoading && !recentLogs.length ? Array.from({ length: 5 }) : recentLogs).map((log, i) => {
+              {(statLoading && !recentLogs.length ? Array.from({ length: 5 }) : recentLogs).map((log: any, i) => {
                 if (!log) return <div key={i} className="skeleton-shimmer rounded-lg" style={{ height: '46px' }} />;
                 return (
                   <div key={log.id} style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '7px 10px', borderRadius: 'var(--radius-lg)', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
@@ -472,7 +473,7 @@ export default function AdminDashboard() {
                       </p>
                     </div>
                     <span style={{ fontSize: '11px', fontWeight: 600, color: log.type === 4 ? 'var(--color-danger-fg)' : 'var(--text-primary)', flexShrink: 0 }}>
-                      ${(log.quota / 500000).toFixed(4)}
+                      {formatQuota(log.quota, 4)}
                     </span>
                   </div>
                 );

@@ -4,6 +4,7 @@ import { Input, Button } from '../../components/ui';
 import { Gift, Wallet, TrendingUp, Zap, CreditCard } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
+import { formatQuota, getQuotaDisplayHint } from '../../lib/quota';
 
 export default function TopupPage() {
   const [code, setCode] = useState('');
@@ -46,7 +47,7 @@ export default function TopupPage() {
       });
       const data = await res.json();
       if (data.code === 0) {
-        toast.success(`兑换成功！增加额度 $${(data.data.quota / 500000).toFixed(4)}`);
+        toast.success(`兑换成功！增加额度 ${formatQuota(data.data.quota, 4)}`);
         setCode('');
         fetchUser();
       } else {
@@ -87,8 +88,8 @@ export default function TopupPage() {
   const usedQuota = (user as any)?.used_quota ?? 0;
   const totalEver = quota + usedQuota;
   const usedPct = totalEver > 0 ? Math.min((usedQuota / totalEver) * 100, 100) : 0;
-  const usd = (quota / 500000).toFixed(4);
-  const usedUsd = (usedQuota / 500000).toFixed(4);
+  const usd = formatQuota(quota, 4);
+  const usedUsd = formatQuota(usedQuota, 4);
 
   return (
     <div className="space-y-5 max-w-2xl mx-auto">
@@ -113,7 +114,7 @@ export default function TopupPage() {
             </div>
             <div>
               <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>账户余额</p>
-              <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0 }}>1 USD = 500,000 额度</p>
+              <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: 0 }}>{getQuotaDisplayHint()}</p>
             </div>
           </div>
           <div style={{ padding: '4px 10px', borderRadius: 'var(--radius-full)', background: 'var(--color-success-bg)', border: '1px solid var(--color-success-fg)', display: 'flex', alignItems: 'center', gap: '5px' }}>

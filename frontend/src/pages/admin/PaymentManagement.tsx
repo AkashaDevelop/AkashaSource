@@ -7,6 +7,7 @@ import { RefreshCw, Filter, CheckCircle, BarChart2 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
+import { formatQuota } from '../../lib/quota';
 
 interface PayOrder {
   id: number; user_id: number; amount: number; quota_added: number;
@@ -121,7 +122,7 @@ export default function PaymentManagement() {
                   <td><Chip size="sm" variant="dot">{o.provider}</Chip></td>
                   <td style={{ fontWeight: 600 }}>${o.amount.toFixed(2)}</td>
                   <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    {o.quota_added > 0 ? `$${(o.quota_added/500000).toFixed(4)}` : '-'}
+                    {o.quota_added > 0 ? formatQuota(o.quota_added, 4) : '-'}
                   </td>
                   <td style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--text-muted)', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.trade_no || '-'}</td>
                   <td><Chip size="sm" variant="flat" color={st.color}>{st.label}</Chip></td>

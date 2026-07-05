@@ -14,6 +14,7 @@ import {
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
+import { formatQuota, moneyToQuota } from '../../lib/quota';
 
 interface User {
   id: number;
@@ -160,7 +161,7 @@ export default function UserManagement() {
   const handleOpenQuota = (u: User) => { setQuotaUser(u); setQuotaDelta(''); onQuotaOpen(); };
   const handleAdjustQuota = async (onClose: () => void) => {
     if (!quotaUser || !quotaDelta) return;
-    const delta = Math.round(parseFloat(quotaDelta) * 500000);
+    const delta = moneyToQuota(parseFloat(quotaDelta));
     try {
       const res = await fetch(`/api/user/${quotaUser.id}/quota`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -271,8 +272,6 @@ export default function UserManagement() {
     } catch { toast.error('请求失败'); }
   };
 
-  const renderQuota = (q: number) => `$${(q / 500000).toFixed(2)}`;
-
   /* 是否可对该用户操作（不能操作比自己角色高/相同的，root 除外） */
   const canManage = (u: User) => {
     const myRole = currentUser?.role ?? 0;
@@ -318,8 +317,8 @@ export default function UserManagement() {
                 </td>
                 <td><Chip size="sm" variant="flat" color={u.role >= 100 ? 'secondary' : u.role >= 10 ? 'primary' : 'default'}>{ROLES.find(r => r.key === u.role.toString())?.label || '未知'}</Chip></td>
                 <td><Chip size="sm" color={u.status === 1 ? 'success' : 'danger'} startContent={<Power size={12} />} className="cursor-pointer" onClick={() => canManage(u) && handleToggleStatus(u)}>{u.status === 1 ? '正常' : '封禁'}</Chip></td>
-                <td>{renderQuota(u.quota)}</td>
-                <td>{renderQuota(u.used_quota)}</td>
+                <td>{formatQuota(u.quota, 2)}</td>
+                <td>{formatQuota(u.used_quota, 2)}</td>
                 <td><Chip size="sm" variant="dot">{u.group}</Chip></td>
                 <td>
                   {u.totp_enabled
@@ -405,7 +404,7 @@ export default function UserManagement() {
                   <Select label="状态" selectedKeys={[formData.status]} onSelectionChange={(keys) => setFormData({ ...formData, status: [...keys][0] as string || '1' })}>
                     {STATUS_OPTIONS.map((s) => <SelectItem key={s.key}>{s.label}</SelectItem>)}
                   </Select>
-                  <Input label="额度 (Raw)" type="number" value={formData.quota} onValueChange={(v) => setFormData({ ...formData, quota: v })} description={`$${(parseInt(formData.quota || '0') / 500000).toFixed(2)}`} />
+                  <Input label="额度 (Raw)" type="number" value={formData.quota} onValueChange={(v) => setFormData({ ...formData, quota: v })} description={formatQuota(parseInt(formData.quota || '0'), 2)} />
                   <Input label="分组" value={formData.group} onValueChange={(v) => setFormData({ ...formData, group: v })} />
                 </Form>
               </ModalBody>
@@ -425,9 +424,9 @@ export default function UserManagement() {
             <>
               <ModalHeader>调整额度 — {quotaUser?.username}</ModalHeader>
               <ModalBody>
-                <p className="text-sm text-default-500">当前余额: {renderQuota(quotaUser?.quota ?? 0)}</p>
+                <p className="text-sm text-default-500">当前余额: {formatQuota(quotaUser?.quota ?? 0, 2)}</p>
                 <Input label="调整金额 ($)" type="number" placeholder="正数增加，负数扣减" value={quotaDelta} onValueChange={setQuotaDelta}
-                  description={quotaDelta ? `= ${Math.round(parseFloat(quotaDelta) * 500000)} quota 单位` : ''} />
+                  description={quotaDelta ? `= ${moneyToQuota(parseFloat(quotaDelta))} quota 单位` : ''} />
               </ModalBody>
               <ModalFooter>
                 <Button color="danger" variant="light" onPress={onClose}>取消</Button>

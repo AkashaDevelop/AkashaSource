@@ -25,6 +25,7 @@ import (
 // RelayMessages handles Anthropic Messages API format requests (POST /v1/messages)
 // This enables Claude Code CLI, and other Anthropic-native clients to use the gateway.
 func RelayMessages(c *gin.Context) {
+	startTime := time.Now()
 	// 1. Auth: support both x-api-key and Authorization: Bearer
 	tokenKey := c.GetHeader("x-api-key")
 	if tokenKey == "" {
@@ -171,6 +172,9 @@ func RelayMessages(c *gin.Context) {
 				continue
 			}
 			if usage != nil {
+				c.Set("channel_id", channel.Id)
+				c.Set("is_stream", claudeReq.Stream)
+				c.Set("use_time", int(time.Since(startTime).Milliseconds()))
 				go RecordConsumeLog(c, token, mappedModel, usage.PromptTokens, usage.CompletionTokens)
 				go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(tokenKey), channel.Id, mappedModel, usage.PromptTokens, usage.CompletionTokens, usage.CachedTokens)
 				// 宸汐玄鉴：异步行为分析
@@ -208,6 +212,9 @@ func RelayMessages(c *gin.Context) {
 			continue
 		}
 		if usage != nil {
+			c.Set("channel_id", channel.Id)
+			c.Set("is_stream", claudeReq.Stream)
+			c.Set("use_time", int(time.Since(startTime).Milliseconds()))
 			go RecordConsumeLog(c, token, mappedModel, usage.PromptTokens, usage.CompletionTokens)
 			go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(tokenKey), channel.Id, mappedModel, usage.PromptTokens, usage.CompletionTokens, usage.CachedTokens)
 			// 宸汐玄鉴：异步行为分析

@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from '../store/toast';
 import StatCard from '../components/StatCard';
 import { SkeletonCard } from '../components/SkeletonCard';
+import { formatQuota } from '../lib/quota';
 
 /* ───── 类型 ───── */
 interface UserStats  { token_count: number; request_count: number; }
@@ -141,7 +142,7 @@ export default function Dashboard() {
       const d = await res.json();
       if (d.code === 0) {
         setCheckedIn(true);
-        toast.success(`签到成功！获得 $${(d.data.reward / 500000).toFixed(4)} 额度`);
+        toast.success(`签到成功！获得 ${formatQuota(d.data.reward, 4)} 额度`);
         fetchDashboard();
       } else {
         toast.error(d.msg || '签到失败');
@@ -212,8 +213,8 @@ export default function Dashboard() {
 
   /* 衍生值 */
   const remainingRaw  = userInfo ? (userInfo.quota - (userInfo.used_quota || 0)) : 0;
-  const remainingUsd  = (remainingRaw / 500000).toFixed(4);
-  const usedUsd       = ((userInfo?.used_quota || 0) / 500000).toFixed(4);
+  const remainingDisplay = formatQuota(remainingRaw, 4);
+  const usedDisplay      = formatQuota((userInfo?.used_quota || 0), 4);
   const remainingPct  = userInfo?.quota ? Math.min((remainingRaw / userInfo.quota) * 100, 100) : 0;
   const totalModelQ   = modelStats.reduce((s, m) => s + m.total_quota, 0);
   const rangeLabel    = { today: '今日', '7d': '近7天', '30d': '近30天' }[timeRange];
@@ -277,7 +278,7 @@ export default function Dashboard() {
         {loading && !stats ? Array.from({length:4}).map((_,i) => <SkeletonCard key={i} lines={1} />) : (<>
           <StatCard
             title="账户余额"
-            value={<span style={{ color:'var(--accent-cosmic)' }}>${remainingUsd}</span>}
+            value={<span style={{ color:'var(--accent-cosmic)' }}>{remainingDisplay}</span>}
             icon={<CreditCard size={20} style={{ color:'var(--accent-cosmic)' }} />}
             iconBg="var(--color-info-bg)"
             footer={<Progress size="sm" value={remainingPct} color="success" aria-label="余额" />}
@@ -291,10 +292,10 @@ export default function Dashboard() {
           />
           <StatCard
             title={`${rangeLabel}消耗`}
-            value={statLoading ? <span style={{color:'var(--text-muted)'}}>—</span> : <span style={{color:'var(--color-danger-fg)'}}>${((periodStats?.quota||0)/500000).toFixed(4)}</span>}
+            value={statLoading ? <span style={{color:'var(--text-muted)'}}>—</span> : <span style={{color:'var(--color-danger-fg)'}}>{formatQuota(periodStats?.quota||0, 4)}</span>}
             icon={<Zap size={20} style={{ color:'var(--color-danger-fg)' }} />}
             iconBg="var(--color-danger-bg)"
-            footer={`累计 $${usedUsd}`}
+            footer={`累计 ${usedDisplay}`}
           />
           <StatCard
             title={`${rangeLabel} Token`}
@@ -361,11 +362,11 @@ export default function Dashboard() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
                 <XAxis dataKey="date" tick={{ fill:'var(--text-muted)', fontSize:11 }} />
-                <YAxis tick={{ fill:'var(--text-muted)', fontSize:11 }} tickFormatter={(v:number) => `$${(v/500000).toFixed(3)}`} />
+                <YAxis tick={{ fill:'var(--text-muted)', fontSize:11 }} tickFormatter={(v:number) => formatQuota(v, 3)} />
                 <Tooltip
                   cursor={{ fill:'var(--bg-elevated)' }}
                   contentStyle={{ background:'var(--bg-elevated)', borderRadius:'var(--radius-lg)', border:'1px solid var(--border-color)', fontSize:'12px' }}
-                  formatter={(v:number|undefined) => [`$${((v??0)/500000).toFixed(6)}`, '消耗']}
+                  formatter={(v:number|undefined) => [formatQuota(v??0, 6), '消耗']}
                 />
                 <Area type="monotone" dataKey="usage" stroke="var(--accent-primary)" strokeWidth={2} fillOpacity={1} fill="url(#colorUsage)" />
               </AreaChart>
@@ -413,8 +414,8 @@ export default function Dashboard() {
                 color={(100 - remainingPct) > 80 ? 'danger' : (100 - remainingPct) > 60 ? 'warning' : 'primary'}
                 aria-label="配额使用率" />
               <div className="flex justify-between">
-                <span style={{ fontSize:'11px', color:'var(--text-muted)' }}>已消耗 ${usedUsd}</span>
-                <span style={{ fontSize:'11px', color:'var(--accent-cosmic)', fontWeight:600 }}>余 ${remainingUsd}</span>
+                <span style={{ fontSize:'11px', color:'var(--text-muted)' }}>已消耗 {usedDisplay}</span>
+                <span style={{ fontSize:'11px', color:'var(--accent-cosmic)', fontWeight:600 }}>余 {remainingDisplay}</span>
               </div>
             </div>
 
@@ -505,7 +506,7 @@ export default function Dashboard() {
                     </Pie>
                     <Tooltip
                       contentStyle={{ background:'var(--bg-elevated)', borderRadius:'var(--radius-lg)', border:'1px solid var(--border-color)', fontSize:'11px' }}
-                      formatter={(v: number) => [`$${(v/500000).toFixed(4)}`, '消耗']}
+                      formatter={(v: number) => [formatQuota(v, 4), '消耗']}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -586,7 +587,7 @@ export default function Dashboard() {
                     </div>
                     <div style={{ textAlign:'right', flexShrink:0 }}>
                       <p style={{ fontSize:'11px', fontWeight:600, color: log.type === 4 ? 'var(--color-danger-fg)' : 'var(--text-primary)', margin:0 }}>
-                        ${(log.quota/500000).toFixed(5)}
+                        {formatQuota(log.quota, 5)}
                       </p>
                       {log.type === 1 && (log.prompt_tokens + log.completion_tokens) > 0 && (
                         <p style={{ fontSize:'10px', color:'var(--text-muted)', margin:0 }}>

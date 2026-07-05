@@ -10,6 +10,7 @@ import { RefreshCw, Trash2, Download, Filter } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 import { toast } from '../store/toast';
 import { confirm } from '../store/confirm';
+import { formatQuota } from '../lib/quota';
 
 interface StatItem {
   model_name: string;
@@ -275,7 +276,7 @@ export default function LogPage() {
         <div>
           {stat && (
             <div style={{ marginBottom: '12px', padding: '12px 16px', borderRadius: '12px', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', display: 'flex', gap: '24px' }}>
-              <div><span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>总消耗</span><p style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', margin: '2px 0 0' }}>${(stat.total_quota / 500000).toFixed(4)}</p></div>
+              <div><span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>总消耗</span><p style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', margin: '2px 0 0' }}>{formatQuota(stat.total_quota, 4)}</p></div>
               <div><span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>模型数</span><p style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', margin: '2px 0 0' }}>{stat.items.length}</p></div>
             </div>
           )}
@@ -309,7 +310,7 @@ export default function LogPage() {
                       <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{item.request_count.toLocaleString()}</td>
                       <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{item.prompt_tokens.toLocaleString()}</td>
                       <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{item.completion_tokens.toLocaleString()}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>${(item.total_quota / 500000).toFixed(4)}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>{formatQuota(item.total_quota, 4)}</td>
                     </tr>
                   );
                 })}
@@ -352,7 +353,7 @@ export default function LogPage() {
                   <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{log.token_name || '-'}</td>
                   <td style={{ fontSize: '12px' }}>{log.type === 1 ? `${log.prompt_tokens} / ${log.completion_tokens}` : '-'}</td>
                   <td style={{ fontWeight: 600, color: log.type === 4 ? '#f87171' : 'var(--text-primary)' }}>
-                    ${(log.quota / 500000).toFixed(6)}
+                    {formatQuota(log.quota, 6)}
                   </td>
                   {isGlobalLog && <td style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{log.ip || '-'}</td>}
                   <td style={{ maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px', color: 'var(--text-muted)' }}>

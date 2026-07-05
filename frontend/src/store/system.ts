@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { initQuotaConfig } from '../lib/quota';
 
 interface SystemState {
   systemName: string;
@@ -25,6 +26,8 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       const res = await fetch('/api/system/status');
       const data = await res.json();
       const opts = (data.code === 0 ? data.data : data)?.options ?? {};
+      // 初始化货币展示配置
+      initQuotaConfig(opts);
       set({
         systemName: opts.system_name || 'Akasha',
         logoUrl: opts.logo_url || '',

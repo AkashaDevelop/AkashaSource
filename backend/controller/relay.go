@@ -26,6 +26,7 @@ import (
 
 // Relay 处理核心转发逻辑
 func Relay(c *gin.Context) {
+	startTime := time.Now()
 	// 1. 获取 Authorization Token
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
@@ -243,6 +244,28 @@ func Relay(c *gin.Context) {
 	requestedModel := openAIReq.Model
 	baseReq := openAIReq
 
+	// 预扣额度
+	preConsumedQuota, preConsumeErr := service.PreConsumeQuota(token,
+		openAIReq.MaxTokens, // 预估 prompt tokens（简化处理）
+		openAIReq.MaxTokens,
+		openAIReq.Model, 0, 0)
+	if preConsumeErr != nil {
+		c.JSON(http.StatusPaymentRequired, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
+			Message: "额度不足: " + preConsumeErr.Error(),
+			Type:    "insufficient_quota",
+			Code:    "insufficient_quota",
+		}})
+		return
+	}
+
+	// 预扣退款标志位：成功结算后置 true，函数返回时未结算则退还预扣
+	billingSettled := false
+	defer func() {
+		if !billingSettled {
+			service.RefundQuota(token, preConsumedQuota)
+		}
+	}()
+
 	// 重试循环
 	var lastError error
 	for i, channel := range channels {
@@ -362,16 +385,9 @@ func Relay(c *gin.Context) {
 		completionTokens := 0
 		cachedTokens := 0
 
-		// 处理图像模型配额
-		if strings.HasPrefix(attemptReq.Model, "dall-e") {
-			// 图像模型使用固定配额
-			if strings.HasPrefix(attemptReq.Model, "dall-e-3") {
-				promptTokens = common.QuotaDalle3
-			} else {
-				promptTokens = common.QuotaDalle2
-			}
-			completionTokens = 0
-		} else if usage != nil {
+		// 按次计费的模型，CalculateQuota 会自动处理
+		// 不再需要手动设置 promptTokens
+		if usage != nil {
 			promptTokens = usage.PromptTokens
 			completionTokens = usage.CompletionTokens
 			cachedTokens = usage.CachedTokens
@@ -385,7 +401,14 @@ func Relay(c *gin.Context) {
 			// 流式返回无法准确统计输出用量
 		}
 
-		go RecordConsumeLog(c, token, attemptReq.Model, promptTokens, completionTokens, cachedTokens)
+		c.Set("channel_id", channel.Id)
+		c.Set("is_stream", openAIReq.Stream)
+		c.Set("use_time", int(time.Since(startTime).Milliseconds()))
+
+		if usage != nil {
+			RecordConsumeWithBilling(c, token, mappedModel, preConsumedQuota, usage)
+			billingSettled = true
+		}
 
 		// 宸汐玄鉴：异步行为分析，不阻塞主链路
 		if xuanjian.IsEnabled() {

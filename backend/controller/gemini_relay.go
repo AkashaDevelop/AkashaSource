@@ -18,6 +18,7 @@ import (
 
 // RelayGeminiNative proxies requests in Gemini's native REST format
 func RelayGeminiNative(c *gin.Context) {
+	startTime := time.Now()
 	// 1. Auth via query param or header
 	apiKey := c.Query("key")
 	if apiKey == "" {
@@ -164,6 +165,9 @@ func RelayGeminiNative(c *gin.Context) {
 	if resp.StatusCode == http.StatusOK {
 		promptTokens := common.CountToken(string(bodyBytes))
 		completionTokens := common.CountToken(string(respBody))
+		c.Set("channel_id", channel.Id)
+		c.Set("is_stream", false)
+		c.Set("use_time", int(time.Since(startTime).Milliseconds()))
 		go RecordConsumeLog(c, token, mappedModel,
 			promptTokens, completionTokens)
 		go upsertChannelAffinity(defaultChannelAffinityRule, user.Group, getChannelAffinityKeyFP(apiKey), channel.Id, mappedModel, promptTokens, completionTokens, 0)

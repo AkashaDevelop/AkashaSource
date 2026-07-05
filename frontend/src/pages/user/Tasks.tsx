@@ -4,6 +4,7 @@ import { RefreshCw, Image as ImageIcon, Music } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import PageHeader from '../../components/PageHeader';
+import { formatQuota } from '../../lib/quota';
 
 interface MJTask {
   id: number;
@@ -43,10 +44,6 @@ const SUNO_STATUS_COLORS: Record<string, React.CSSProperties> = {
 function formatDate(ts: number) {
   if (!ts) return '-';
   return new Date(ts * 1000).toLocaleString('zh-CN');
-}
-
-function formatQuota(q: number) {
-  return `$${(q / 500000).toFixed(4)}`;
 }
 
 function MJTasksTab({ token }: { token: string }) {
@@ -140,7 +137,7 @@ function MJTasksTab({ token }: { token: string }) {
               </div>
               <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{task.progress || '-'}</span>
               <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{formatDate(task.submit_time)}</span>
-              <span className="text-sm text-right" style={{ color: 'var(--accent-cosmic)' }}>{formatQuota(task.quota)}</span>
+              <span className="text-sm text-right" style={{ color: 'var(--accent-cosmic)' }}>{formatQuota(task.quota, 4)}</span>
             </div>
           ))
         )}
@@ -236,7 +233,7 @@ function SunoTasksTab({ token }: { token: string }) {
                 {task.status}
               </Chip>
               <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{formatDate(task.created_at)}</span>
-              <span className="text-sm text-right" style={{ color: 'var(--accent-cosmic)' }}>{formatQuota(task.quota)}</span>
+              <span className="text-sm text-right" style={{ color: 'var(--accent-cosmic)' }}>{formatQuota(task.quota, 4)}</span>
             </div>
           ))
         )}

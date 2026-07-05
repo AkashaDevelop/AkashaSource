@@ -31,6 +31,9 @@ const (
 	// Pricing Options
 	OptionKeyModelRatio      = "model_ratio"
 	OptionKeyCompletionRatio = "completion_ratio"
+	OptionKeyGroupRatio      = "group_ratio"
+	OptionKeyModelPrice      = "model_price"
+	OptionKeyBillingPriority  = "billing_priority" // 余额+订阅双资金池优先级：subscription_first | wallet_first
 
 	OptionKeyContentModerationEnabled  = "content_moderation_enabled"
 	OptionKeyContentModerationKeywords = "content_moderation_keywords"
@@ -165,7 +168,7 @@ func InitOptions() {
 
 	// Initialize pricing if not present in DB
 	if _, ok := common.OptionMap[OptionKeyModelRatio]; !ok {
-		common.UpdatePricing("", "") // Load defaults
+		common.UpdatePricing("", "", "", "", "", "") // Load defaults
 		// Save defaults to DB
 		// Note: We should check if they exist before creating to avoid duplicates if Find failed but DB has them
 		// But since we did Find above, if map is empty, DB is likely empty or key missing.
@@ -173,8 +176,18 @@ func InitOptions() {
 
 		mrJSON := common.ModelRatio2JSONString()
 		crJSON := common.CompletionRatio2JSONString()
+		grJSON := common.GroupRatio2JSONString()
+		mpJSON := common.ModelPrice2JSONString()
 
 		common.DB.FirstOrCreate(&Option{Key: OptionKeyModelRatio, Value: mrJSON}, Option{Key: OptionKeyModelRatio})
 		common.DB.FirstOrCreate(&Option{Key: OptionKeyCompletionRatio, Value: crJSON}, Option{Key: OptionKeyCompletionRatio})
+		common.DB.FirstOrCreate(&Option{Key: OptionKeyGroupRatio, Value: grJSON}, Option{Key: OptionKeyGroupRatio})
+		common.DB.FirstOrCreate(&Option{Key: OptionKeyModelPrice, Value: mpJSON}, Option{Key: OptionKeyModelPrice})
+	}
+
+	// billing_priority 默认值：订阅优先
+	if _, ok := common.OptionMap[OptionKeyBillingPriority]; !ok {
+		common.DB.FirstOrCreate(&Option{Key: OptionKeyBillingPriority, Value: "subscription_first"}, Option{Key: OptionKeyBillingPriority})
+		common.UpdateOptionMap(OptionKeyBillingPriority, "subscription_first")
 	}
 }

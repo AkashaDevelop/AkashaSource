@@ -11,6 +11,7 @@ import {
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
+import { formatQuota, moneyToQuota, getQuotaPerUnit, getQuotaDisplayHint } from '../../lib/quota';
 
 /* ───── 类型 ───── */
 interface Token {
@@ -113,7 +114,7 @@ function TokenDrawer({ isOpen, onClose, editingToken, authToken, onSuccess }: Dr
           : new Date(editingToken.expired_time * 1000).toISOString().slice(0, 16)
       );
       setUnlimitedQuota(editingToken.unlimited_quota);
-      setRemainQuota(editingToken.unlimited_quota ? '10' : (editingToken.remain_quota / 500000).toFixed(2));
+      setRemainQuota(editingToken.unlimited_quota ? '10' : (editingToken.remain_quota / getQuotaPerUnit()).toFixed(2));
       setAllowedIps(editingToken.allowed_ips || '');
       setAllowedModels(editingToken.allowed_models ? editingToken.allowed_models.split(',').filter(Boolean) : []);
       setNote('');
@@ -149,7 +150,7 @@ function TokenDrawer({ isOpen, onClose, editingToken, authToken, onSuccess }: Dr
       status,
       expired_time: expTime,
       unlimited_quota: unlimitedQuota,
-      remain_quota: unlimitedQuota ? 0 : Math.round(parseFloat(remainQuota || '0') * 500000),
+      remain_quota: unlimitedQuota ? 0 : moneyToQuota(parseFloat(remainQuota || '0')),
       allowed_ips: allowedIps.trim(),
       allowed_models: allowedModels.join(','),
     };
@@ -373,7 +374,7 @@ function TokenDrawer({ isOpen, onClose, editingToken, authToken, onSuccess }: Dr
                 placeholder="例如：10"
                 value={remainQuota}
                 onValueChange={setRemainQuota}
-                description="该令牌可消耗的最大金额，1 USD = 500,000 额度单位"
+                description={`该令牌可消耗的最大金额，${getQuotaDisplayHint()}`}
                 startContent={<span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>$</span>}
               />
             )}
@@ -586,8 +587,6 @@ export default function TokenManagement() {
   };
 
   const filtered = tokens.filter(t => !search || t.name.toLowerCase().includes(search.toLowerCase()));
-
-  const formatQuota = (q: number) => `$${(q / 500000).toFixed(2)}`;
 
   return (
     <div className="space-y-5">

@@ -7,6 +7,7 @@ import {
 import { useAuthStore } from '../store/auth';
 import { useSystemStore } from '../store/system';
 import SidebarLayout, { type NavGroup, type HeaderMenuProps } from './SidebarLayout';
+import { formatQuota } from '../lib/quota';
 
 export default function UserLayout() {
   const navigate = useNavigate();
@@ -90,7 +91,7 @@ export default function UserLayout() {
       >
         <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>余额</span>
         <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--accent-cosmic)' }}>
-          ${((user?.quota ?? 0) / 500000).toFixed(4)}
+          ${formatQuota(user?.quota ?? 0, 4)}
         </span>
       </div>
     </div>

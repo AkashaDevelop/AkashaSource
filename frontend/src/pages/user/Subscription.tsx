@@ -3,6 +3,7 @@ import { Button } from '../../components/ui';
 import { Crown, Zap, Users, Package, CheckCircle, Clock, Sparkles, X } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
+import { formatQuota } from '../../lib/quota';
 
 interface Plan {
   id: number; name: string; description: string; price: number;
@@ -133,7 +134,7 @@ export default function SubscriptionPage() {
                     )}
                     {(p.type === 'quota' || p.type === 'combo') && p.quota > 0 && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        <Package size={12} color={cfg.accent} /><span>赠送 <strong style={{ color: 'var(--text-primary)' }}>${(p.quota / 500000).toFixed(2)}</strong> 额度</span>
+                        <Package size={12} color={cfg.accent} /><span>赠送 <strong style={{ color: 'var(--text-primary)' }}>{formatQuota(p.quota, 2)}</strong> 额度</span>
                       </div>
                     )}
                     {(p.type === 'rpm' || p.type === 'combo') && p.rpm > 0 && (

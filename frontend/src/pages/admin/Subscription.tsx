@@ -26,6 +26,7 @@ import {
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
+import { formatQuota, getQuotaDisplayHint } from '../../lib/quota';
 
 interface Plan {
   id: number;
@@ -99,8 +100,6 @@ const normalizePlan = (item: PlanResponseItem): Plan => {
     sort_order: Number(p.sort_order || 0),
   };
 };
-
-const formatQuotaUsd = (quota: number) => `$${(quota / 500000).toFixed(2)}`;
 
 export default function SubscriptionManagement() {
   const { token } = useAuthStore();
@@ -374,7 +373,7 @@ export default function SubscriptionManagement() {
                         <span>分组: {plan.group_name}</span>
                       ) : null}
                       {(plan.type === 'quota' || plan.type === 'combo') && plan.quota > 0 ? (
-                        <span>额度: {formatQuotaUsd(plan.quota)}</span>
+                        <span>额度: {formatQuota(plan.quota, 2)}</span>
                       ) : null}
                       {(plan.type === 'rpm' || plan.type === 'combo') && plan.rpm > 0 ? (
                         <span>RPM: {plan.rpm}</span>
@@ -479,7 +478,7 @@ export default function SubscriptionManagement() {
                       type="number"
                       value={String(editing?.quota ?? 0)}
                       onValueChange={(v) => updateField('quota', Number(v || 0))}
-                      description="500000 额度 = 1 美元"
+                      description={getQuotaDisplayHint()}
                     />
                   )}
 

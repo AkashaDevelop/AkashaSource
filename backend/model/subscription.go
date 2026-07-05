@@ -27,6 +27,8 @@ type UserSubscription struct {
 	Plan          *SubscriptionPlan `json:"plan,omitempty" gorm:"foreignKey:PlanId"`
 	Status        int               `json:"status" gorm:"default:0"`
 	OriginalGroup string            `json:"original_group" gorm:"type:varchar(100)"`
+	Quota         int64             `json:"quota" gorm:"default:0"`     // 订阅额度总量（拷贝自 Plan.Quota）
+	UsedQuota     int64             `json:"used_quota" gorm:"default:0"` // 订阅已用额度
 	StartedAt     int64             `json:"started_at"`
 	ExpiredAt     int64             `json:"expired_at"` // 0 = never
 	CreatedAt     int64             `json:"created_at"`

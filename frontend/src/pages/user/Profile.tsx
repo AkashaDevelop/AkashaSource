@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import PageHeader from '../../components/PageHeader';
 import {
-  Card, CardBody, Input, Button, Divider, Chip, Select, SelectItem, Switch,
+  Card, CardBody, Input, Button, Divider, Chip, Select, SelectItem,
 } from '../../components/ui';
 import { User as UserIcon, Mail, Lock, Save, Shield, ShieldCheck, ShieldOff, Bell } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
+import { formatQuota } from '../../lib/quota';
 
 export default function Profile() {
   const { token, updateUser } = useAuthStore();
@@ -188,7 +189,7 @@ export default function Profile() {
               }}>
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>剩余额度</span>
                 <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--accent-cosmic)' }}>
-                  ${(formData.quota / 500000).toFixed(4)}
+                  ${formatQuota(formData.quota, 4)}
                 </span>
               </div>
               <div style={{
@@ -198,7 +199,7 @@ export default function Profile() {
               }}>
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>已用额度</span>
                 <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-danger-fg)' }}>
-                  ${(formData.used_quota / 500000).toFixed(4)}
+                  ${formatQuota(formData.used_quota, 4)}
                 </span>
               </div>
             </div>

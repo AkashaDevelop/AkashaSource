@@ -170,8 +170,8 @@ func UpdateOptionMap(key string, value string) {
 		EmailDomainWhitelist = value
 	}
 
-	if key == "model_ratio" || key == "completion_ratio" {
-		UpdatePricing(OptionMap["model_ratio"], OptionMap["completion_ratio"])
+	if key == "model_ratio" || key == "completion_ratio" || key == "group_ratio" || key == "model_price" {
+		UpdatePricing(OptionMap["model_ratio"], OptionMap["completion_ratio"], OptionMap["group_ratio"], "", "", OptionMap["model_price"])
 	}
 
 	if key == "cxsec_enabled" {
