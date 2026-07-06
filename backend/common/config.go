@@ -7,12 +7,12 @@ import (
 )
 
 var (
-	SystemName = "Akasha"
-	RegisterEnabled = true
+	SystemName              = "Akasha"
+	RegisterEnabled         = true
 	PasswordLoginEnabled    = true
 	PasswordRegisterEnabled = true
-	OptionMap  = make(map[string]string)
-	OptionLock sync.RWMutex
+	OptionMap               = make(map[string]string)
+	OptionLock              sync.RWMutex
 )
 
 func UpdateOptionMap(key string, value string) {
@@ -203,8 +203,14 @@ func UpdateOptionMap(key string, value string) {
 		EmailDomainWhitelist = value
 	}
 
-	if key == "model_ratio" || key == "completion_ratio" || key == "group_ratio" || key == "model_price" {
-		UpdatePricing(OptionMap["model_ratio"], OptionMap["completion_ratio"], OptionMap["group_ratio"], "", "", OptionMap["model_price"])
+	// ～这四个 key 之一变了，就把倍率相关的内存态整体重新刷一遍喵；
+	// image_ratio/audio_ratio/audio_completion_ratio/cache_ratio 以前这里传的是硬编码空字符串，
+	// 导致每次改其他倍率都会把这四项悄悄重置回默认值，现在从 OptionMap 里正确带上～
+	if key == "model_ratio" || key == "completion_ratio" || key == "group_ratio" || key == "model_price" ||
+		key == "image_ratio" || key == "audio_ratio" || key == "audio_completion_ratio" || key == "cache_ratio" {
+		UpdatePricing(OptionMap["model_ratio"], OptionMap["completion_ratio"], OptionMap["group_ratio"],
+			OptionMap["image_ratio"], OptionMap["audio_ratio"], OptionMap["audio_completion_ratio"],
+			OptionMap["cache_ratio"], OptionMap["model_price"])
 	}
 
 	if key == "group_group_ratio" {

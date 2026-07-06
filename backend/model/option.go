@@ -23,20 +23,25 @@ const (
 	OptionKeyEmailDomainWhitelist          = "email_domain_whitelist"
 
 	// Invitation Options
-	OptionKeyInvitationEnabled = "invitation_enabled" // 是否开启邀请码注册（开启后必须使用邀请码）
-	OptionKeyRegisterEnabled   = "register_enabled"   // 是否开放注册（默认 true）
+	OptionKeyInvitationEnabled       = "invitation_enabled"        // 是否开启邀请码注册（开启后必须使用邀请码）
+	OptionKeyRegisterEnabled         = "register_enabled"          // 是否开放注册（默认 true）
 	OptionKeyPasswordLoginEnabled    = "password_login_enabled"    // 是否允许密码登录（默认 true）
 	OptionKeyPasswordRegisterEnabled = "password_register_enabled" // 是否允许密码注册（默认 true）
-	OptionKeyInvitationCost    = "invitation_cost"    // 生成邀请码的成本 (Quota)
-	OptionKeyInvitationReward  = "invitation_reward"  // 邀请者奖励 (Quota)
-	OptionKeyNewUserReward     = "new_user_reward"    // 新用户奖励 (Quota)
+	OptionKeyInvitationCost          = "invitation_cost"           // 生成邀请码的成本 (Quota)
+	OptionKeyInvitationReward        = "invitation_reward"         // 邀请者奖励 (Quota)
+	OptionKeyNewUserReward           = "new_user_reward"           // 新用户奖励 (Quota)
 
 	// Pricing Options
 	OptionKeyModelRatio      = "model_ratio"
 	OptionKeyCompletionRatio = "completion_ratio"
 	OptionKeyGroupRatio      = "group_ratio"
 	OptionKeyModelPrice      = "model_price"
-	OptionKeyBillingPriority  = "billing_priority" // 余额+订阅双资金池优先级：subscription_first | wallet_first
+	// ～图像/音频/缓存倍率，配合模型定价管理页一起用～
+	OptionKeyImageRatio           = "image_ratio"
+	OptionKeyAudioRatio           = "audio_ratio"
+	OptionKeyAudioCompletionRatio = "audio_completion_ratio"
+	OptionKeyCacheRatio           = "cache_ratio"
+	OptionKeyBillingPriority      = "billing_priority" // 余额+订阅双资金池优先级：subscription_first | wallet_first
 
 	// ～分组架构对齐 new-api 的三件套：用户分组特殊倍率、特殊可用分组规则、auto 分组候选列表～
 	OptionKeyGroupGroupRatio         = "group_group_ratio"
@@ -71,17 +76,17 @@ const (
 	OptionKeyEnableTopup         = "enable_topup"
 
 	// ～Stripe 支付配置，连上国际卡需要的一套小钥匙～
-	OptionKeyStripeSecretKey      = "stripe_secret_key"
-	OptionKeyStripeWebhookSecret  = "stripe_webhook_secret"
-	OptionKeyStripeCurrency       = "stripe_currency"
-	OptionKeyStripeSuccessUrl     = "stripe_success_url"
-	OptionKeyStripeCancelUrl      = "stripe_cancel_url"
+	OptionKeyStripeSecretKey     = "stripe_secret_key"
+	OptionKeyStripeWebhookSecret = "stripe_webhook_secret"
+	OptionKeyStripeCurrency      = "stripe_currency"
+	OptionKeyStripeSuccessUrl    = "stripe_success_url"
+	OptionKeyStripeCancelUrl     = "stripe_cancel_url"
 
 	// ～Creem 支付配置，另一家国际收款好伙伴～
 	OptionKeyCreemApiKey        = "creem_api_key"
 	OptionKeyCreemWebhookSecret = "creem_webhook_secret"
-	OptionKeyCreemProductId     = "creem_product_id"  // 已废弃，兼容旧配置保留
-	OptionKeyCreemProducts      = "creem_products"    // JSON 数组，多产品目录
+	OptionKeyCreemProductId     = "creem_product_id" // 已废弃，兼容旧配置保留
+	OptionKeyCreemProducts      = "creem_products"   // JSON 数组，多产品目录
 	OptionKeyCreemSuccessUrl    = "creem_success_url"
 	OptionKeyCreemTestMode      = "creem_test_mode"
 
@@ -95,15 +100,15 @@ const (
 	OptionKeyCheckinMaxReward = "checkin_max_reward"
 
 	// ～宸汐御安全通讯协议配置，守护前端关键接口哦～
-	OptionKeyCxSecEnabled = "cxsec_enabled"        // 是否启用（bool, 默认 false）
+	OptionKeyCxSecEnabled = "cxsec_enabled"         // 是否启用（bool, 默认 false）
 	OptionKeyCxSecPaths   = "cxsec_protected_paths" // 受保护路径，逗号分隔
 
 	// 宸汐清源 - 上下文净化（默认禁用，由超管开启）
 	OptionKeyQingyuanEnabled = "qingyuan_enabled" // "true" | "false"
 
 	// ～通知配置：余额预警和渠道告警开关放这里哦～
-	OptionKeyLowBalanceThreshold  = "low_balance_threshold"  // 用户余额预警阈值（quota 单位，默认 500000 ≈ $1）
-	OptionKeyChannelAlertEnabled  = "channel_alert_enabled"  // 渠道异常告警开关
+	OptionKeyLowBalanceThreshold = "low_balance_threshold" // 用户余额预警阈值（quota 单位，默认 500000 ≈ $1）
+	OptionKeyChannelAlertEnabled = "channel_alert_enabled" // 渠道异常告警开关
 
 	// Model Rate Limiting
 	OptionKeyModelRPM = "model_rpm" // JSON: {"gpt-4": 10, "gpt-3.5-turbo": 60}
@@ -185,7 +190,7 @@ func InitOptions() {
 
 	// Initialize pricing if not present in DB
 	if _, ok := common.OptionMap[OptionKeyModelRatio]; !ok {
-		common.UpdatePricing("", "", "", "", "", "") // Load defaults
+		common.UpdatePricing("", "", "", "", "", "", "", "") // Load defaults
 		// Save defaults to DB
 		// Note: We should check if they exist before creating to avoid duplicates if Find failed but DB has them
 		// But since we did Find above, if map is empty, DB is likely empty or key missing.

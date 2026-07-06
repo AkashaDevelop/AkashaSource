@@ -23,7 +23,7 @@ func CleanupExpiredLogs() (int64, error) {
 	}
 	total += logResult.RowsAffected
 
-	auditResult := common.DB.Where("created_at < ?", cutoff).Delete(&model.AdminAuditLog{})
+	auditResult := common.DB.Where("created_at < ?", cutoff).Delete(&model.AuditLog{})
 	if auditResult.Error != nil {
 		return total, auditResult.Error
 	}

@@ -12,6 +12,7 @@ interface AuditLog {
   id: number;
   admin_id: number;
   admin_username: string;
+  operator_role: string;
   method: string;
   path: string;
   target_type: string;
@@ -26,7 +27,15 @@ const METHOD_COLOR: Record<string, string> = {
   POST: 'success', PUT: 'warning', PATCH: 'warning', DELETE: 'danger',
 };
 
-// ～这个页面专门给超管大人翻看管理员们的操作足迹哦～
+const ROLE_LABEL: Record<string, string> = {
+  user: '普通用户', admin: '管理员', root: '超级管理员',
+};
+
+const ROLE_COLOR: Record<string, string> = {
+  user: 'default', admin: 'primary', root: 'warning',
+};
+
+// ～这个页面专门给超管大人翻看全站用户/管理员/超管的操作足迹哦～
 export default function AdminAuditLog() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(false);
@@ -36,7 +45,7 @@ export default function AdminAuditLog() {
   const [showFilters, setShowFilters] = useState(false);
   const { token } = useAuthStore();
   const [filters, setFilters] = useState({
-    admin_username: '', method: '', path: '', target_type: '', ip: '', start_time: '', end_time: '',
+    admin_username: '', role: '', method: '', path: '', target_type: '', ip: '', start_time: '', end_time: '',
   });
 
   const setFilter = (key: string, val: string) => setFilters(prev => ({ ...prev, [key]: val }));
@@ -64,7 +73,7 @@ export default function AdminAuditLog() {
   useEffect(() => { if (token) fetchLogs(); }, [page, pageSize, token]);
 
   const handleReset = () => {
-    setFilters({ admin_username: '', method: '', path: '', target_type: '', ip: '', start_time: '', end_time: '' });
+    setFilters({ admin_username: '', role: '', method: '', path: '', target_type: '', ip: '', start_time: '', end_time: '' });
     setPage(1);
     setTimeout(fetchLogs, 0);
   };
@@ -75,7 +84,7 @@ export default function AdminAuditLog() {
     <div className="space-y-5">
       <PageHeader
         title="操作审计"
-        description="查看管理员对系统资源的写操作记录，仅超级管理员可见"
+        description="查看全站用户/管理员/超管的写操作记录，仅超级管理员可见"
         actions={
           <div className="flex gap-2 flex-wrap items-center">
             <Button
@@ -99,6 +108,12 @@ export default function AdminAuditLog() {
           <CardBody className="p-4">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
               <Input label="管理员用户名" size="sm" value={filters.admin_username} onValueChange={v => setFilter('admin_username', v)} />
+              <Select label="操作人角色" size="sm" selectedKeys={filters.role ? [filters.role] : []}
+                onSelectionChange={keys => setFilter('role', [...keys][0] as string || '')}>
+                <SelectItem key="user">普通用户</SelectItem>
+                <SelectItem key="admin">管理员</SelectItem>
+                <SelectItem key="root">超级管理员</SelectItem>
+              </Select>
               <Select label="方法" size="sm" selectedKeys={filters.method ? [filters.method] : []}
                 onSelectionChange={keys => setFilter('method', [...keys][0] as string || '')}>
                 {['POST', 'PUT', 'PATCH', 'DELETE'].map(m => <SelectItem key={m}>{m}</SelectItem>)}
@@ -122,7 +137,7 @@ export default function AdminAuditLog() {
           <thead>
             <tr>
               <th>时间</th>
-              <th>管理员</th>
+              <th>操作人</th>
               <th>方法</th>
               <th>路径</th>
               <th>目标类型</th>
@@ -141,7 +156,16 @@ export default function AdminAuditLog() {
             ) : logs.map(item => (
               <tr key={item.id}>
                 <td style={{ whiteSpace: 'nowrap', fontSize: '12px' }}>{new Date(item.created_at * 1000).toLocaleString()}</td>
-                <td style={{ fontSize: '12px' }}>{item.admin_username || item.admin_id || '-'}</td>
+                <td style={{ fontSize: '12px' }}>
+                  <div className="flex items-center gap-1.5">
+                    <span>{item.admin_username || item.admin_id || '-'}</span>
+                    {item.operator_role && (
+                      <Chip size="sm" variant="flat" color={(ROLE_COLOR[item.operator_role] as any) || 'default'}>
+                        {ROLE_LABEL[item.operator_role] || item.operator_role}
+                      </Chip>
+                    )}
+                  </div>
+                </td>
                 <td><Chip size="sm" variant="flat" color={(METHOD_COLOR[item.method] as any) || 'default'}>{item.method}</Chip></td>
                 <td style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{item.path}</td>
                 <td>{item.target_type ? <Chip size="sm" variant="dot">{item.target_type}</Chip> : '-'}</td>

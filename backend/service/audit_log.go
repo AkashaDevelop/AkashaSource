@@ -16,19 +16,20 @@ var sensitiveBodyKeys = []string{"password", "secret", "key", "token", "credenti
 // maxAuditBodyLength ～请求体太长会撑爆数据库肚子，超过就要剪短哦～
 const maxAuditBodyLength = 4000
 
-// RecordAdminAudit ～把管理员大人的这一步操作悄悄记进小本本～
-func RecordAdminAudit(adminId int, username, method, path, targetType, ip, requestId string, status int, rawBody []byte) {
-	entry := model.AdminAuditLog{
-		AdminId:       adminId,
-		AdminUsername: username,
-		Method:        method,
-		Path:          path,
-		TargetType:    targetType,
-		StatusCode:    status,
-		IP:            ip,
-		RequestId:     requestId,
-		RequestBody:   sanitizeAuditBody(rawBody),
-		CreatedAt:     time.Now().Unix(),
+// RecordAudit ～把操作者（不管是普通用户、管理员还是超管）的这一步操作悄悄记进小本本～
+func RecordAudit(operatorId int, username, operatorRole, method, path, targetType, ip, requestId string, status int, rawBody []byte) {
+	entry := model.AuditLog{
+		OperatorId:       operatorId,
+		OperatorUsername: username,
+		OperatorRole:     operatorRole,
+		Method:           method,
+		Path:             path,
+		TargetType:       targetType,
+		StatusCode:       status,
+		IP:               ip,
+		RequestId:        requestId,
+		RequestBody:      sanitizeAuditBody(rawBody),
+		CreatedAt:        time.Now().Unix(),
 	}
 	if err := common.DB.Create(&entry).Error; err != nil {
 		log.Printf("[操作审计] 写入失败: %v", err)

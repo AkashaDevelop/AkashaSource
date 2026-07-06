@@ -403,7 +403,7 @@ export default function UserManagement() {
       </div>
 
       {/* ── 编辑/新增 Modal ── */}
-      <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="2xl">
+      <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="2xl" isDismissable={false}>
         <ModalContent>
           {(onClose) => (
             <>

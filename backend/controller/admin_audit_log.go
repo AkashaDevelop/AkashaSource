@@ -10,8 +10,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// GetAdminAuditLogs ～翻一翻审计小本本，把管理员们的操作足迹分页交出来～
-func GetAdminAuditLogs(c *gin.Context) {
+// GetAuditLogs ～翻一翻审计小本本，把所有操作者（用户/管理员/超管）的操作足迹分页交出来～
+func GetAuditLogs(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("size", "20"))
 	if page < 1 {
@@ -21,9 +21,9 @@ func GetAdminAuditLogs(c *gin.Context) {
 		pageSize = 100
 	}
 
-	var logs []model.AdminAuditLog
+	var logs []model.AuditLog
 	var total int64
-	db := buildAuditLogQuery(c, common.DB.Model(&model.AdminAuditLog{}))
+	db := buildAuditLogQuery(c, common.DB.Model(&model.AuditLog{}))
 	db.Count(&total)
 	if err := db.Order("id desc").Limit(pageSize).Offset((page - 1) * pageSize).Find(&logs).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "获取审计日志失败")
@@ -35,6 +35,9 @@ func GetAdminAuditLogs(c *gin.Context) {
 func buildAuditLogQuery(c *gin.Context, db *gorm.DB) *gorm.DB {
 	if v := c.Query("admin_username"); v != "" {
 		db = db.Where("admin_username LIKE ?", "%"+v+"%")
+	}
+	if v := c.Query("role"); v != "" {
+		db = db.Where("operator_role = ?", v)
 	}
 	if v := c.Query("method"); v != "" {
 		db = db.Where("method = ?", v)

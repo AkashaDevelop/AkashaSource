@@ -104,7 +104,7 @@ func ApplyMigrations() {
 			Version: 8,
 			Name:    "新增日志审计字段与管理员操作审计表",
 			Apply: func() error {
-				return common.DB.AutoMigrate(&Log{}, &AdminAuditLog{})
+				return common.DB.AutoMigrate(&Log{}, &AuditLog{})
 			},
 		},
 		{

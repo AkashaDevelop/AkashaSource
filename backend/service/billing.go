@@ -41,7 +41,7 @@ func PreConsumeQuota(token *model.Token, promptTokens int, maxTokens int, modelN
 	if promptEstimate < minEstimateTokens {
 		promptEstimate = minEstimateTokens
 	}
-	preConsumedQuota := int64((float64(promptEstimate)+float64(imageTokens)*imageRatio+float64(audioTokens)*audioRatio+float64(maxTokens)*completionRatio) * ratio * groupRatio)
+	preConsumedQuota := int64((float64(promptEstimate) + float64(imageTokens)*imageRatio + float64(audioTokens)*audioRatio + float64(maxTokens)*completionRatio) * ratio * groupRatio)
 	if preConsumedQuota < 1 {
 		preConsumedQuota = 1
 	}
@@ -240,7 +240,7 @@ func CalculateQuota(modelName string, promptTokens, completionTokens, cachedToke
 	// 否则走按量计费逻辑
 	ratio := modelRatioBase
 	completionRatio := common.GetCompletionRatio(modelName)
-	cacheRatio := common.GetCacheRatio()
+	cacheRatio := common.GetCacheRatio(modelName)
 	imageRatio := common.GetImageRatio(modelName)
 	audioRatio := common.GetAudioRatio(modelName)
 	audioCompletionRatio := common.GetAudioCompletionRatio(modelName)

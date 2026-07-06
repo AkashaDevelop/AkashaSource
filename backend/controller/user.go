@@ -255,6 +255,23 @@ func UpdateUser(c *gin.Context) {
 		common.Fail(c, common.CodeNotFound, "用户不存在")
 		return
 	}
+
+	// ～管理端改用户，不能碰自己、也不能碰同级/更高权限的账号，防止误操作和提权喵～
+	operatorId := c.GetInt("id")
+	operatorRole := c.GetInt("role")
+	if existing.Id == operatorId {
+		common.Fail(c, common.CodeForbidden, "不能通过管理接口修改自己的账号")
+		return
+	}
+	if existing.Role >= operatorRole {
+		common.Fail(c, common.CodeForbidden, "无权修改同级或更高权限的用户")
+		return
+	}
+	if user.Role >= operatorRole {
+		common.Fail(c, common.CodeForbidden, "不能把用户权限设置为同级或更高")
+		return
+	}
+
 	existing.Username = user.Username
 	existing.DisplayName = user.DisplayName
 	existing.Role = user.Role
@@ -276,6 +293,23 @@ func UpdateUser(c *gin.Context) {
 
 func DeleteUser(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
+
+	// ～不能删自己，也不能删同级/更高权限的账号——不然超管一不小心就把自己删没了喵～
+	operatorId := c.GetInt("id")
+	if id == operatorId {
+		common.Fail(c, common.CodeForbidden, "不能删除自己的账号")
+		return
+	}
+	var target model.User
+	if err := common.DB.First(&target, id).Error; err != nil {
+		common.Fail(c, common.CodeNotFound, "用户不存在")
+		return
+	}
+	if target.Role >= c.GetInt("role") {
+		common.Fail(c, common.CodeForbidden, "无权删除同级或更高权限的用户")
+		return
+	}
+
 	if err := common.DB.Delete(&model.User{}, id).Error; err != nil {
 		common.Fail(c, common.CodeServerError, "删除用户失败")
 		return
@@ -285,9 +319,20 @@ func DeleteUser(c *gin.Context) {
 
 func ToggleUserStatus(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
+
+	// ～同样不能动自己、也不能动同级/更高权限账号的启用状态喵～
+	operatorId := c.GetInt("id")
+	if id == operatorId {
+		common.Fail(c, common.CodeForbidden, "不能修改自己账号的状态")
+		return
+	}
 	var user model.User
 	if err := common.DB.First(&user, id).Error; err != nil {
 		common.Fail(c, common.CodeNotFound, "用户不存在")
+		return
+	}
+	if user.Role >= c.GetInt("role") {
+		common.Fail(c, common.CodeForbidden, "无权修改同级或更高权限用户的状态")
 		return
 	}
 	newStatus := 1

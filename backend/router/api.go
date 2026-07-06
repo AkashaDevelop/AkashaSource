@@ -178,6 +178,7 @@ func SetApiRouter(router *gin.Engine) {
 		// 需要登录的接口
 		authGroup := apiRouter.Group("/")
 		authGroup.Use(middleware.AuthMiddleware())
+		authGroup.Use(middleware.AuditLogMiddleware()) // ～普通用户的每一步写操作也要留下小脚印哦～
 		{
 			// Token 管理 (用户/管理员)
 			authGroup.GET("/token", controller.GetAllTokens)
@@ -410,6 +411,7 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.PUT("/model", controller.UpdateModelConfig)
 			adminGroup.DELETE("/model/:id", controller.DeleteModelConfig)
 			adminGroup.POST("/model/batch-ratio", controller.BatchUpdateModelRatio)
+			adminGroup.POST("/model/batch-apply-pricing", controller.BatchApplyModelPricing)
 			adminGroup.POST("/model/sync-pricing", controller.SyncPricingFromModelConfig)
 			adminGroup.POST("/model/sync-upstream", controller.SyncUpstreamPricing)
 
@@ -505,6 +507,7 @@ func SetApiRouter(router *gin.Engine) {
 		// Root-only 接口（对齐 new-api RootAuth 语义）
 		rootGroup := apiRouter.Group("/")
 		rootGroup.Use(middleware.AuthMiddleware(), middleware.RootAuthMiddleware())
+		rootGroup.Use(middleware.AuditLogMiddleware()) // ～超管的高危操作也要留下小脚印哦～
 		{
 			// 系统设置
 			rootGroup.GET("/option", controller.GetOptions)
@@ -513,7 +516,7 @@ func SetApiRouter(router *gin.Engine) {
 			rootGroup.DELETE("/option/channel_affinity_cache", controller.ClearChannelAffinityCache)
 
 			// 操作审计（仅超管可查，避免普通管理员翻看/干扰审计记录）
-			rootGroup.GET("/admin/audit-log", controller.GetAdminAuditLogs)
+			rootGroup.GET("/admin/audit-log", controller.GetAuditLogs)
 
 			// 补单接口权限收紧到超管，防止普通管理员免费给用户充值
 			rootGroup.POST("/admin/payment/orders/:id/complete", controller.AdminManualCompleteOrder)

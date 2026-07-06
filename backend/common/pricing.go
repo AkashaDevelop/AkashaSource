@@ -12,6 +12,7 @@ var (
 	ImageRatio           = make(map[string]float64) // 图像 token 倍率
 	AudioRatio           = make(map[string]float64) // 音频输入 token 倍率
 	AudioCompletionRatio = make(map[string]float64) // 音频输出 token 倍率
+	CacheRatio           = make(map[string]float64) // 缓存 token 折扣倍率（按模型配置，查不到时兜底 0.5）
 	ModelPrice           = make(map[string]float64) // 按次计费价格，单位美元/次
 	PricingLock          sync.RWMutex
 
@@ -87,22 +88,22 @@ var defaultModelRatio = map[string]float64{
 	"dall-e-3": 1,
 
 	// GPT-4.1
-	"gpt-4.1":             5,
-	"gpt-4.1-mini":        0.2,
-	"gpt-4.1-nano":        0.05,
-	"gpt-4.5-preview":     7.5,
+	"gpt-4.1":         5,
+	"gpt-4.1-mini":    0.2,
+	"gpt-4.1-nano":    0.05,
+	"gpt-4.5-preview": 7.5,
 
 	// o1/o3 series
-	"o1":                  60,
-	"o1-pro":              75,
-	"o3":                  30,
-	"o3-pro":              75,
-	"o3-mini":             1.1,
-	"o4-mini":             1.1,
+	"o1":      60,
+	"o1-pro":  75,
+	"o3":      30,
+	"o3-pro":  75,
+	"o3-mini": 1.1,
+	"o4-mini": 1.1,
 
 	// GPT-5
-	"gpt-5":               5,
-	"gpt-5-mini":          0.25,
+	"gpt-5":      5,
+	"gpt-5-mini": 0.25,
 
 	// Claude 3.5/4
 	"claude-3-5-sonnet-20241022": 3,
@@ -113,23 +114,23 @@ var defaultModelRatio = map[string]float64{
 	"claude-opus-4-1-20250805":   15,
 
 	// Gemini 2
-	"gemini-2.0-flash":           0.1,
-	"gemini-2.0-flash-thinking":  0.35,
-	"gemini-2.5-pro":             1.25,
-	"gemini-2.5-flash":           0.075,
+	"gemini-2.0-flash":          0.1,
+	"gemini-2.0-flash-thinking": 0.35,
+	"gemini-2.5-pro":            1.25,
+	"gemini-2.5-flash":          0.075,
 
 	// Deepseek
-	"deepseek-chat":              0.14,
-	"deepseek-reasoner":          0.28,
+	"deepseek-chat":     0.14,
+	"deepseek-reasoner": 0.28,
 
 	// Qwen
-	"qwen-max":                   1.2,
-	"qwen-plus":                  0.14,
-	"qwen-turbo":                 0.05,
+	"qwen-max":   1.2,
+	"qwen-plus":  0.14,
+	"qwen-turbo": 0.05,
 
 	// Groq
-	"llama-3.3-70b-versatile":    0.13,
-	"llama-3.1-8b-instant":       0.02,
+	"llama-3.3-70b-versatile": 0.13,
+	"llama-3.1-8b-instant":    0.02,
 }
 
 var defaultCompletionRatio = map[string]float64{
@@ -154,26 +155,26 @@ var defaultCompletionRatio = map[string]float64{
 	"gemini-ultra":     3,
 
 	// New models
-	"gpt-4.1":                     4,
-	"gpt-4.1-mini":                4,
-	"gpt-4.1-nano":                4,
-	"gpt-4.5-preview":             2,
-	"o1":                          4,
-	"o3":                          4,
-	"o3-pro":                      4,
-	"o4-mini":                     3,
-	"gpt-5":                       4,
-	"gpt-5-mini":                  4,
-	"claude-3-5-sonnet-20241022":  5,
-	"claude-3-5-haiku-20241022":   5,
-	"claude-3-7-sonnet-20250219":  5,
-	"claude-sonnet-4-20250514":    5,
-	"claude-opus-4-20250514":      5,
-	"claude-opus-4-1-20250805":    5,
-	"gemini-2.0-flash":            3,
-	"gemini-2.5-pro":              4,
-	"gemini-2.5-flash":            4,
-	"deepseek-reasoner":           2,
+	"gpt-4.1":                    4,
+	"gpt-4.1-mini":               4,
+	"gpt-4.1-nano":               4,
+	"gpt-4.5-preview":            2,
+	"o1":                         4,
+	"o3":                         4,
+	"o3-pro":                     4,
+	"o4-mini":                    3,
+	"gpt-5":                      4,
+	"gpt-5-mini":                 4,
+	"claude-3-5-sonnet-20241022": 5,
+	"claude-3-5-haiku-20241022":  5,
+	"claude-3-7-sonnet-20250219": 5,
+	"claude-sonnet-4-20250514":   5,
+	"claude-opus-4-20250514":     5,
+	"claude-opus-4-1-20250805":   5,
+	"gemini-2.0-flash":           3,
+	"gemini-2.5-pro":             4,
+	"gemini-2.5-flash":           4,
+	"deepseek-reasoner":          2,
 }
 
 var defaultImageRatio = map[string]float64{
@@ -221,8 +222,14 @@ func GetModelRatio(modelName string) float64 {
 	return 1.0
 }
 
-// GetCacheRatio returns the discount ratio for cached tokens (default 0.5 = 50% discount)
-func GetCacheRatio() float64 {
+// GetCacheRatio returns the discount ratio for cached tokens for a given model
+// (default 0.5 = 50% discount when the model has no explicit override)
+func GetCacheRatio(modelName string) float64 {
+	PricingLock.RLock()
+	defer PricingLock.RUnlock()
+	if ratio, ok := CacheRatio[modelName]; ok {
+		return ratio
+	}
 	return 0.5
 }
 
@@ -323,6 +330,20 @@ func AudioRatio2JSONString() string {
 	return string(jsonBytes)
 }
 
+func AudioCompletionRatio2JSONString() string {
+	PricingLock.RLock()
+	defer PricingLock.RUnlock()
+	jsonBytes, _ := json.Marshal(AudioCompletionRatio)
+	return string(jsonBytes)
+}
+
+func CacheRatio2JSONString() string {
+	PricingLock.RLock()
+	defer PricingLock.RUnlock()
+	jsonBytes, _ := json.Marshal(CacheRatio)
+	return string(jsonBytes)
+}
+
 func ModelPrice2JSONString() string {
 	PricingLock.RLock()
 	defer PricingLock.RUnlock()
@@ -330,7 +351,7 @@ func ModelPrice2JSONString() string {
 	return string(jsonBytes)
 }
 
-func UpdatePricing(modelRatioStr string, completionRatioStr string, groupRatioStr string, imageRatioStr string, audioRatioStr string, modelPriceStr string) {
+func UpdatePricing(modelRatioStr string, completionRatioStr string, groupRatioStr string, imageRatioStr string, audioRatioStr string, audioCompletionRatioStr string, cacheRatioStr string, modelPriceStr string) {
 	PricingLock.Lock()
 	defer PricingLock.Unlock()
 
@@ -378,6 +399,24 @@ func UpdatePricing(modelRatioStr string, completionRatioStr string, groupRatioSt
 		}
 	} else {
 		AudioRatio = defaultAudioRatio
+	}
+
+	if audioCompletionRatioStr != "" {
+		var newRatio map[string]float64
+		if err := json.Unmarshal([]byte(audioCompletionRatioStr), &newRatio); err == nil {
+			AudioCompletionRatio = newRatio
+		}
+	} else {
+		AudioCompletionRatio = defaultAudioCompletionRatio
+	}
+
+	if cacheRatioStr != "" {
+		var newRatio map[string]float64
+		if err := json.Unmarshal([]byte(cacheRatioStr), &newRatio); err == nil {
+			CacheRatio = newRatio
+		}
+	} else {
+		CacheRatio = make(map[string]float64)
 	}
 
 	if modelPriceStr != "" {
@@ -510,6 +549,30 @@ func UpdateAudioRatio(audioRatioStr string) {
 	} else {
 		AudioRatio = defaultAudioRatio
 	}
+}
+
+func UpdateAudioCompletionRatio(audioCompletionRatioStr string) {
+	PricingLock.Lock()
+	defer PricingLock.Unlock()
+	if audioCompletionRatioStr != "" {
+		var newRatio map[string]float64
+		if err := json.Unmarshal([]byte(audioCompletionRatioStr), &newRatio); err == nil {
+			AudioCompletionRatio = newRatio
+		}
+	} else {
+		AudioCompletionRatio = defaultAudioCompletionRatio
+	}
+}
+
+// UpdateCacheRatio 喵～按模型配置缓存折扣倍率，没配置的模型继续沿用 GetCacheRatio 里的兜底 0.5
+func UpdateCacheRatio(cacheRatioStr string) {
+	PricingLock.Lock()
+	defer PricingLock.Unlock()
+	newRatio := make(map[string]float64)
+	if cacheRatioStr != "" {
+		_ = json.Unmarshal([]byte(cacheRatioStr), &newRatio)
+	}
+	CacheRatio = newRatio
 }
 
 func UpdateModelPrice(modelPriceStr string) {
