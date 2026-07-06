@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Button, Progress, Chip } from '../components/ui';
+import { Button, Progress } from '../components/ui';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell,
 } from 'recharts';
 import {
   Activity, CreditCard, Key, RefreshCw, Zap,
-  FlaskConical, Tag, History, Cpu, Hash, Copy, Check, Shield,
+  FlaskConical, Tag, History, Cpu, Hash, Copy, Check,
 } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 import { useNavigate } from 'react-router-dom';
@@ -217,6 +217,10 @@ export default function Dashboard() {
   const usedDisplay      = formatQuota((userInfo?.used_quota || 0), 4);
   const remainingPct  = userInfo?.quota ? Math.min((remainingRaw / userInfo.quota) * 100, 100) : 0;
   const totalModelQ   = modelStats.reduce((s, m) => s + m.total_quota, 0);
+  const modelRows: (ModelStat | undefined)[] =
+    statLoading && modelStats.length === 0 ? Array.from({ length: 4 }) : modelStats;
+  const logRows: (RecentLog | undefined)[] =
+    statLoading && recentLogs.length === 0 ? Array.from({ length: 5 }) : recentLogs;
   const rangeLabel    = { today: '今日', '7d': '近7天', '30d': '近30天' }[timeRange];
   const rpm           = periodStats ? calcRPM(periodStats.requests, timeRange) : '—';
   const initials      = (userInfo?.username || user?.username || 'U').slice(0, 2).toUpperCase();
@@ -506,7 +510,7 @@ export default function Dashboard() {
                     </Pie>
                     <Tooltip
                       contentStyle={{ background:'var(--bg-elevated)', borderRadius:'var(--radius-lg)', border:'1px solid var(--border-color)', fontSize:'11px' }}
-                      formatter={(v: number) => [formatQuota(v, 4), '消耗']}
+                      formatter={(v: number | undefined) => [formatQuota(v ?? 0, 4), '消耗']}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -536,7 +540,7 @@ export default function Dashboard() {
             <div style={{ padding:'40px 0', textAlign:'center', color:'var(--text-muted)', fontSize:'13px' }}>暂无数据</div>
           ) : (
             <div className="space-y-3">
-              {(statLoading && modelStats.length === 0 ? Array.from({length:4}) : modelStats).map((m, i) => {
+              {modelRows.map((m, i) => {
                 if (!m) return <div key={i} className="space-y-1"><div className="skeleton-shimmer h-3 w-2/3 rounded" /><div className="skeleton-shimmer h-2 rounded" /></div>;
                 const pct   = totalModelQ > 0 ? (m.total_quota / totalModelQ) * 100 : 0;
                 const color = MODEL_COLORS[i] || 'var(--text-muted)';
@@ -571,7 +575,7 @@ export default function Dashboard() {
             <div style={{ padding:'40px 0', textAlign:'center', color:'var(--text-muted)', fontSize:'13px' }}>暂无记录</div>
           ) : (
             <div className="space-y-2">
-              {(statLoading && recentLogs.length === 0 ? Array.from({length:5}) : recentLogs).map((log, i) => {
+              {logRows.map((log, i) => {
                 if (!log) return <div key={i} className="skeleton-shimmer rounded-lg" style={{ height:'48px' }} />;
                 const ti = LOG_TYPES[log.type] || { color:'var(--text-muted)' };
                 return (

@@ -45,7 +45,8 @@ func UserLogin(c *gin.Context) {
 		return
 	}
 	if user.TOTPEnabled {
-		common.OK(c, gin.H{"requires_2fa": true, "user_id": user.Id, "msg": "请输入两步验证码"})
+		ticket := common.IssuePreAuthTicket(user.Id)
+		common.OK(c, gin.H{"requires_2fa": true, "user_id": user.Id, "pre_auth_ticket": ticket, "msg": "请输入两步验证码"})
 		return
 	}
 	token, err := common.GenerateToken(user.Id, user.Username, user.Role)

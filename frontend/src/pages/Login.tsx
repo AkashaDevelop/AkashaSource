@@ -43,6 +43,7 @@ export default function Login() {
   // 2FA state
   const [requires2FA, setRequires2FA] = useState(false);
   const [totpUserId, setTotpUserId] = useState<number | null>(null);
+  const [preAuthTicket, setPreAuthTicket] = useState<string | null>(null);
   const [totpCode, setTotpCode] = useState('');
   const [totpLoading, setTotpLoading] = useState(false);
 
@@ -317,6 +318,7 @@ export default function Login() {
       if (data.data?.requires_2fa) {
         setRequires2FA(true);
         setTotpUserId(data.data.user_id);
+        setPreAuthTicket(data.data.pre_auth_ticket);
         return;
       }
 
@@ -342,7 +344,7 @@ export default function Login() {
       const res = await fetch('/api/user/login/2fa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: totpUserId, code: totpCode }),
+        body: JSON.stringify({ user_id: totpUserId, code: totpCode, pre_auth_ticket: preAuthTicket }),
       });
       const data = await res.json();
       if (data.code !== 0) throw new Error(data.msg || '验证失败');
@@ -436,7 +438,7 @@ export default function Login() {
                 >
                   验证
                 </Button>
-                <Button variant="light" onPress={() => { setRequires2FA(false); setTotpCode(''); setError(''); }} style={{ color: 'var(--text-secondary)' }}>
+                <Button variant="light" onPress={() => { setRequires2FA(false); setTotpCode(''); setPreAuthTicket(null); setError(''); }} style={{ color: 'var(--text-secondary)' }}>
                   返回登录
                 </Button>
               </div>

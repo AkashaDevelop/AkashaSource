@@ -53,6 +53,9 @@ func main() {
 
 	// Initialize Gin
 	r := gin.Default()
+	if err := r.SetTrustedProxies(common.TrustedProxies()); err != nil {
+		log.Fatalf("受信任代理配置有误（AKASHA_TRUSTED_PROXIES）: %v", err)
+	}
 
 	// Set API Router
 	router.SetApiRouter(r)

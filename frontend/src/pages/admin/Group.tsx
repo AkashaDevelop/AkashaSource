@@ -360,7 +360,7 @@ export default function GroupManagement() {
                 <Input label="QPM (每分钟请求数)" type="number" value={formData.qpm}
                   onValueChange={(v) => setFormData({ ...formData, qpm: v })}
                   description="0 表示不限制" />
-                <Input label="计费倍率" type="number" step="0.1" value={formData.ratio}
+                <Input label="计费倍率" type="number" value={formData.ratio}
                   onValueChange={(v) => setFormData({ ...formData, ratio: v })}
                   description="1 = 原价，0.8 = 八折，影响该分组下所有用户的消费金额" />
                 <RatioEditor

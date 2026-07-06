@@ -4,6 +4,7 @@ import (
 	"STfreApi/common"
 	"STfreApi/model"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -11,6 +12,9 @@ import (
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
+
+// ErrQuotaRace 并发扣减时额度被其他请求抢先扣光，属于正常的"额度不足"场景，非数据库故障
+var ErrQuotaRace = errors.New("并发扣减导致额度不足")
 
 // PreConsumeQuota 预扣额度
 // 在请求转发前调用，检查余额并预扣
@@ -57,20 +61,30 @@ func PreConsumeQuota(token *model.Token, promptTokens int, maxTokens int, modelN
 	// 执行预扣
 	err := common.DB.Transaction(func(tx *gorm.DB) error {
 		// 扣减用户余额
-		if err := tx.Model(&model.User{}).Where("id = ? AND quota >= ?", token.UserId, preConsumedQuota).
+		result := tx.Model(&model.User{}).Where("id = ? AND quota >= ?", token.UserId, preConsumedQuota).
 			Updates(map[string]interface{}{
 				"quota": gorm.Expr("quota - ?", preConsumedQuota),
-			}).Error; err != nil {
-			return err
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			// WHERE 条件不满足时 GORM 不会返回 error，必须显式检查 RowsAffected
+			// 否则并发场景下额度已被其他请求扣光时，这里会误判为预扣成功
+			return fmt.Errorf("%w: 用户额度不足或已被并发请求扣减（用户 %d，需要 %d）", ErrQuotaRace, token.UserId, preConsumedQuota)
 		}
 
 		// 扣减 token 额度（非无限额度时）
 		if !token.UnlimitedQuota {
-			if err := tx.Model(token).Where("remain_quota >= ?", preConsumedQuota).
+			result = tx.Model(token).Where("remain_quota >= ?", preConsumedQuota).
 				Updates(map[string]interface{}{
 					"remain_quota": gorm.Expr("remain_quota - ?", preConsumedQuota),
-				}).Error; err != nil {
-				return err
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return fmt.Errorf("%w: 令牌额度不足或已被并发请求扣减（token %d，需要 %d）", ErrQuotaRace, token.Id, preConsumedQuota)
 			}
 		}
 
@@ -101,16 +115,20 @@ func PostConsumeQuota(token *model.Token, preConsumedQuota int64, actualQuota in
 				return err
 			}
 			if !token.UnlimitedQuota {
-				tx.Model(token).Updates(map[string]interface{}{
+				if err := tx.Model(token).Updates(map[string]interface{}{
 					"used_quota":    gorm.Expr("used_quota + ?", actualQuota),
 					"remain_quota":  gorm.Expr("remain_quota - ?", delta),
 					"accessed_time": time.Now().Unix(),
-				})
+				}).Error; err != nil {
+					return err
+				}
 			} else {
-				tx.Model(token).Updates(map[string]interface{}{
+				if err := tx.Model(token).Updates(map[string]interface{}{
 					"used_quota":    gorm.Expr("used_quota + ?", actualQuota),
 					"accessed_time": time.Now().Unix(),
-				})
+				}).Error; err != nil {
+					return err
+				}
 			}
 		} else if delta < 0 {
 			// 实际消耗 < 预扣，退还差额
@@ -123,25 +141,33 @@ func PostConsumeQuota(token *model.Token, preConsumedQuota int64, actualQuota in
 				return err
 			}
 			if !token.UnlimitedQuota {
-				tx.Model(token).Updates(map[string]interface{}{
+				if err := tx.Model(token).Updates(map[string]interface{}{
 					"used_quota":    gorm.Expr("used_quota + ?", actualQuota),
 					"remain_quota":  gorm.Expr("remain_quota + ?", refundAmount),
 					"accessed_time": time.Now().Unix(),
-				})
+				}).Error; err != nil {
+					return err
+				}
 			} else {
-				tx.Model(token).Updates(map[string]interface{}{
+				if err := tx.Model(token).Updates(map[string]interface{}{
 					"used_quota":    gorm.Expr("used_quota + ?", actualQuota),
 					"accessed_time": time.Now().Unix(),
-				})
+				}).Error; err != nil {
+					return err
+				}
 			}
 		} else {
 			// 实际消耗 = 预扣，只记录 used_quota
-			tx.Model(&model.User{}).Where("id = ?", token.UserId).
-				Update("used_quota", gorm.Expr("used_quota + ?", actualQuota))
-			tx.Model(token).Updates(map[string]interface{}{
+			if err := tx.Model(&model.User{}).Where("id = ?", token.UserId).
+				Update("used_quota", gorm.Expr("used_quota + ?", actualQuota)).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(token).Updates(map[string]interface{}{
 				"used_quota":    gorm.Expr("used_quota + ?", actualQuota),
 				"accessed_time": time.Now().Unix(),
-			})
+			}).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -157,7 +183,9 @@ func RefundQuota(token *model.Token, preConsumedQuota int64) error {
 			return err
 		}
 		if !token.UnlimitedQuota {
-			tx.Model(token).Update("remain_quota", gorm.Expr("remain_quota + ?", preConsumedQuota))
+			if err := tx.Model(token).Update("remain_quota", gorm.Expr("remain_quota + ?", preConsumedQuota)).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	})

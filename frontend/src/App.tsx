@@ -22,6 +22,7 @@ import UserInvitation from './pages/user/Invitation';
 import SubscriptionManagement from './pages/admin/Subscription';
 
 import AdminInvitation from './pages/admin/Invitation';
+import Changelog from './pages/admin/Changelog';
 import FilesPage from './pages/user/Files';
 import TasksPage from './pages/admin/Tasks';
 import UserTasksPage from './pages/user/Tasks';
@@ -97,6 +98,7 @@ function App() {
         <Route path="log" element={<LogPage />} />
         <Route path="subscription" element={<SubscriptionManagement />} />
         <Route path="invitation" element={<AdminInvitation />} />
+        <Route path="changelog" element={<Changelog />} />
         <Route path="tasks" element={<TasksPage />} />
         <Route path="ops" element={<TasksPage />} />
         <Route path="vendor" element={<VendorHub />} />

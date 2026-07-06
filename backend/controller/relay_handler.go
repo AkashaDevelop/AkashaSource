@@ -6,6 +6,7 @@ import (
 	"STfreApi/model"
 	"STfreApi/service"
 	"fmt"
+	stdlog "log"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -246,7 +247,9 @@ func RecordConsumeWithBilling(c *gin.Context, token *model.Token, modelName stri
 
 	switch priority {
 	case BillingPreferenceWalletOnly:
-		service.PostConsumeQuota(token, preConsumedQuota, finalQuota)
+		if _, err := service.PostConsumeQuota(token, preConsumedQuota, finalQuota); err != nil {
+			stdlog.Printf("[billing] 结算失败 token=%d: %v", token.Id, err)
+		}
 		service.EnqueueLog(log)
 		return
 
@@ -257,7 +260,9 @@ func RecordConsumeWithBilling(c *gin.Context, token *model.Token, modelName stri
 			service.EnqueueLog(log)
 			return
 		}
-		service.PostConsumeQuota(token, preConsumedQuota, finalQuota)
+		if _, err := service.PostConsumeQuota(token, preConsumedQuota, finalQuota); err != nil {
+			stdlog.Printf("[billing] 结算失败 token=%d: %v", token.Id, err)
+		}
 		service.EnqueueLog(log)
 		return
 
@@ -265,7 +270,9 @@ func RecordConsumeWithBilling(c *gin.Context, token *model.Token, modelName stri
 		var user model.User
 		common.DB.First(&user, token.UserId)
 		if user.Quota+preConsumedQuota >= finalQuota {
-			service.PostConsumeQuota(token, preConsumedQuota, finalQuota)
+			if _, err := service.PostConsumeQuota(token, preConsumedQuota, finalQuota); err != nil {
+				stdlog.Printf("[billing] 结算失败 token=%d: %v", token.Id, err)
+			}
 			service.EnqueueLog(log)
 			return
 		}
@@ -275,7 +282,9 @@ func RecordConsumeWithBilling(c *gin.Context, token *model.Token, modelName stri
 			service.EnqueueLog(log)
 			return
 		}
-		service.PostConsumeQuota(token, preConsumedQuota, finalQuota)
+		if _, err := service.PostConsumeQuota(token, preConsumedQuota, finalQuota); err != nil {
+			stdlog.Printf("[billing] 结算失败 token=%d: %v", token.Id, err)
+		}
 		service.EnqueueLog(log)
 		return
 
@@ -286,7 +295,9 @@ func RecordConsumeWithBilling(c *gin.Context, token *model.Token, modelName stri
 			service.EnqueueLog(log)
 			return
 		}
-		service.PostConsumeQuota(token, preConsumedQuota, finalQuota)
+		if _, err := service.PostConsumeQuota(token, preConsumedQuota, finalQuota); err != nil {
+			stdlog.Printf("[billing] 结算失败 token=%d: %v", token.Id, err)
+		}
 		service.EnqueueLog(log)
 	}
 }

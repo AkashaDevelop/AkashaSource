@@ -2,7 +2,7 @@ import { Outlet } from 'react-router-dom';
 import {
   LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box,
   Crown, Building2, Ticket, ListTodo,
-  ArrowLeft, CreditCard, Shield,
+  ArrowLeft, CreditCard, Shield, Sparkles,
 } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 import SidebarLayout, { type NavGroup, useLayoutCommon } from './SidebarLayout';
@@ -40,6 +40,7 @@ const navGroups: NavGroup[] = [
     items: [
       { key: '/admin/setting', icon: Settings, label: '系统设置' },
       { key: '/admin/security', icon: Shield, label: '安全中心' },
+      { key: '/admin/changelog', icon: Sparkles, label: '更新日志' },
     ],
   },
 ];

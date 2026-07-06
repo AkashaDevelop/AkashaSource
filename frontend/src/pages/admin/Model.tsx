@@ -18,6 +18,8 @@ interface ModelConfig {
   category: string;
   input_ratio: number;
   output_ratio: number;
+  upstream_input_price: number;
+  upstream_output_price: number;
   max_context: number;
   enabled: boolean;
 }

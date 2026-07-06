@@ -135,7 +135,7 @@ export default function ChannelManagement() {
 
   // Custom Config State
   const [customConfigs, setCustomConfigs] = useState<CustomChannelConfig[]>([]);
-  const [loadingConfigs, setLoadingConfigs] = useState(false);
+  const [, setLoadingConfigs] = useState(false);
 
   const fetchChannels = async () => {
     setLoading(true);
@@ -241,15 +241,6 @@ export default function ChannelManagement() {
     } finally {
       setTestingId(null);
     }
-  };
-
-  const showPromptDialog = (config: PromptDialogConfig): Promise<string | null> => {
-    return new Promise((resolve) => {
-      setPromptConfig(config);
-      setPromptValue(config.defaultValue || '');
-      promptResolveRef.current = resolve;
-      onPromptOpen();
-    });
   };
 
   useEffect(() => {
@@ -1484,9 +1475,6 @@ export default function ChannelManagement() {
                           const configId = parseInt([...keys][0] as string || '0');
                           setFormData({...formData, custom_config_id: configId});
                         }}
-                        isRequired
-                        isLoading={loadingConfigs}
-                        description="选择或创建一个自定义 API 配置模板"
                       >
                         {customConfigs.map((config) => (
                           <SelectItem key={config.id.toString()} textValue={config.name}>
@@ -2045,7 +2033,7 @@ export default function ChannelManagement() {
       </Modal>
 
       {/* 自定义配置创建模态框 */}
-      <Modal isOpen={isCustomConfigOpen} onOpenChange={onCustomConfigOpenChange} size="full" scrollBehavior="inside" className="max-w-6xl mx-4">
+      <Modal isOpen={isCustomConfigOpen} onOpenChange={onCustomConfigOpenChange} size="xl" scrollBehavior="inside">
         <ModalContent>
           {(onClose) => (
             <>
@@ -2079,7 +2067,6 @@ export default function ChannelManagement() {
                           placeholder="简要说明此配置的用途"
                           value={customConfigFormData.description}
                           onValueChange={(v) => setCustomConfigFormData({ ...customConfigFormData, description: v })}
-                          size="sm"
                           minRows={2}
                         />
                       </div>

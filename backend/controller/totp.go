@@ -60,8 +60,18 @@ func TOTPSetup(c *gin.Context) {
 	}
 
 	// Generate and store backup codes alongside secret (not enabled yet)
+	// 备份码入库前要哈希一下喵～不能明文存，不然数据库一泄露备份码就全裸奔了
 	backupCodes, _ := generateBackupCodes(8)
-	backupJSON, _ := json.Marshal(backupCodes)
+	hashedCodes := make([]string, len(backupCodes))
+	for i, code := range backupCodes {
+		h, err := common.Password2Hash(code)
+		if err != nil {
+			common.Fail(c, common.CodeServerError, "生成备份码失败")
+			return
+		}
+		hashedCodes[i] = h
+	}
+	backupJSON, _ := json.Marshal(hashedCodes)
 
 	common.DB.Model(&user).Updates(map[string]interface{}{
 		"totp_secret":  key.Secret(),
@@ -71,7 +81,7 @@ func TOTPSetup(c *gin.Context) {
 	common.OK(c, gin.H{
 		"uri":          key.URL(),
 		"secret":       key.Secret(),
-		"backup_codes": backupCodes,
+		"backup_codes": backupCodes, // 明文只在这次响应里出现一次，用户务必保存好
 	})
 }
 
@@ -149,11 +159,19 @@ func TOTPDisable(c *gin.Context) {
 // TOTPLogin verifies 2FA code during login (second step)
 func TOTPLogin(c *gin.Context) {
 	var req struct {
-		UserId int    `json:"user_id" binding:"required"`
-		Code   string `json:"code" binding:"required"`
+		UserId        int    `json:"user_id" binding:"required"`
+		Code          string `json:"code" binding:"required"`
+		PreAuthTicket string `json:"pre_auth_ticket" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.Fail(c, common.CodeParamError, "参数错误")
+		return
+	}
+
+	// 票据必须对应"刚刚密码校验通过"的那次登录，否则光靠 user_id + 验证码
+	// 就能跳过密码硬撞 2FA，票据一次性消费（取出即删）防止被反复拿去撞库
+	if !common.ConsumePreAuthTicket(req.PreAuthTicket, req.UserId) {
+		common.Fail(c, common.CodeUnauthorized, "登录会话已过期，请重新登录")
 		return
 	}
 
@@ -179,13 +197,13 @@ func TOTPLogin(c *gin.Context) {
 
 	// Try backup code if TOTP fails
 	if !valid {
-		var codes []string
-		json.Unmarshal([]byte(user.BackupCodes), &codes)
-		for i, bc := range codes {
-			if bc == req.Code {
+		var hashedCodes []string
+		json.Unmarshal([]byte(user.BackupCodes), &hashedCodes)
+		for i, h := range hashedCodes {
+			if common.ValidatePassword(req.Code, h) {
 				valid = true
-				codes = append(codes[:i], codes[i+1:]...)
-				newJSON, _ := json.Marshal(codes)
+				hashedCodes = append(hashedCodes[:i], hashedCodes[i+1:]...)
+				newJSON, _ := json.Marshal(hashedCodes)
 				common.DB.Model(&user).Update("backup_codes", string(newJSON))
 				break
 			}

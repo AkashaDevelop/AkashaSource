@@ -14,7 +14,6 @@ import {
   Switch,
   Chip,
   Tooltip,
-  Progress,
   Tabs,
   Tab,
 } from '../../components/ui';
@@ -447,7 +446,7 @@ export default function ChannelAccountManagement() {
     <div className="space-y-6">
       <PageHeader
         title="渠道账号管理"
-        subtitle="管理渠道签到和余额监控"
+        description="管理渠道签到和余额监控"
         actions={
           <div className="flex gap-2">
             <Button
@@ -553,10 +552,6 @@ export default function ChannelAccountManagement() {
         selectedKey={activeTab}
         onSelectionChange={(key) => setActiveTab(key as string)}
         variant="underlined"
-        classNames={{
-          tabList: 'gap-6',
-          tab: 'text-lg',
-        }}
       >
         <Tab
           key="channels"
@@ -602,9 +597,9 @@ export default function ChannelAccountManagement() {
           </CardHeader>
           <CardBody>
             {loading ? (
-              <LoadingRows rows={5} />
+              <table className="w-full text-sm"><tbody><LoadingRows cols={8} rows={5} /></tbody></table>
             ) : channels.length === 0 ? (
-              <EmptyState message="暂无渠道数据" />
+              <EmptyState title="暂无渠道数据" />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -730,9 +725,9 @@ export default function ChannelAccountManagement() {
           </CardHeader>
           <CardBody>
             {logsLoading ? (
-              <LoadingRows rows={5} />
+              <table className="w-full text-sm"><tbody><LoadingRows cols={5} rows={5} /></tbody></table>
             ) : checkinLogs.length === 0 ? (
-              <EmptyState message="暂无签到日志" />
+              <EmptyState title="暂无签到日志" />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -785,9 +780,9 @@ export default function ChannelAccountManagement() {
           </CardHeader>
           <CardBody>
             {logsLoading ? (
-              <LoadingRows rows={5} />
+              <table className="w-full text-sm"><tbody><LoadingRows cols={6} rows={5} /></tbody></table>
             ) : balanceLogs.length === 0 ? (
-              <EmptyState message="暂无余额日志" />
+              <EmptyState title="暂无余额日志" />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">

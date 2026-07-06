@@ -19,7 +19,7 @@ import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
 import EmptyState from '../../components/EmptyState';
-import LoadingRows from '../../components/LoadingRows';
+import { SkeletonCard } from '../../components/SkeletonCard';
 
 interface CustomChannelConfig {
   id: number;
@@ -302,7 +302,9 @@ export default function CustomChannelConfig() {
       </div>
 
       {loading ? (
-        <LoadingRows count={3} />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
       ) : configs.length === 0 ? (
         <EmptyState
           title="暂无自定义配置"
@@ -381,7 +383,7 @@ export default function CustomChannelConfig() {
         </div>
       )}
 
-      <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="4xl" scrollBehavior="inside">
+      <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="xl" scrollBehavior="inside">
         <ModalContent>
           {(onClose) => (
             <>

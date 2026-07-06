@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Card, CardBody, CardHeader, Button, Input, Select, Switch, Textarea } from '../../components/ui';
-import { Plus, Trash2, Save, RefreshCw, Info } from 'lucide-react';
+import { Card, CardBody, CardHeader, Button, Input, Select, SelectItem, Switch, Textarea } from '../../components/ui';
+import { Plus, Trash2, Save, Info } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import PageHeader from '../../components/PageHeader';
 
@@ -40,7 +40,7 @@ interface CacheStats {
 export default function ChannelAffinity() {
   const [rules, setRules] = useState<AffinityRule[]>([]);
   const [stats, setStats] = useState<CacheStats | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const { token } = useAuthStore();
 
@@ -182,11 +182,11 @@ export default function ChannelAffinity() {
         description="配置智能路由规则，提升 Prompt Cache 命中率"
         actions={
           <div className="flex gap-2">
-            <Button onClick={clearAllCache} variant="outline">
+            <Button onClick={clearAllCache} variant="bordered">
               <Trash2 className="w-4 h-4 mr-2" />
               清空缓存
             </Button>
-            <Button onClick={addRule} variant="outline">
+            <Button onClick={addRule} variant="bordered">
               <Plus className="w-4 h-4 mr-2" />
               添加规则
             </Button>
@@ -277,7 +277,7 @@ export default function ChannelAffinity() {
                 <h3 className="text-lg font-semibold">规则 #{index + 1}: {rule.name}</h3>
                 <Button
                   onClick={() => deleteRule(index)}
-                  variant="outline"
+                  variant="bordered"
                   size="sm"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -329,13 +329,16 @@ export default function ChannelAffinity() {
                     亲和性键来源 <span className="text-red-500">*</span>
                   </label>
                   <Select
-                    value={rule.key_source_type}
-                    onChange={(e) => updateRule(index, 'key_source_type', e.target.value)}
+                    selectedKeys={rule.key_source_type ? [rule.key_source_type] : []}
+                    onSelectionChange={(keys) => {
+                      const v = [...keys][0] as string;
+                      if (v) updateRule(index, 'key_source_type', v);
+                    }}
                   >
-                    <option value="context_int">Context Int (如 user_id)</option>
-                    <option value="context_string">Context String (如 session_id)</option>
-                    <option value="header">HTTP Header</option>
-                    <option value="query">Query 参数</option>
+                    <SelectItem key="context_int">Context Int (如 user_id)</SelectItem>
+                    <SelectItem key="context_string">Context String (如 session_id)</SelectItem>
+                    <SelectItem key="header">HTTP Header</SelectItem>
+                    <SelectItem key="query">Query 参数</SelectItem>
                   </Select>
                   <p className="text-xs text-gray-500 mt-1">从哪里提取亲和性值</p>
                 </div>
@@ -363,7 +366,7 @@ export default function ChannelAffinity() {
                   <label className="block text-sm font-medium mb-1">缓存 TTL (秒)</label>
                   <Input
                     type="number"
-                    value={rule.ttl_seconds}
+                    value={String(rule.ttl_seconds)}
                     onChange={(e) => updateRule(index, 'ttl_seconds', parseInt(e.target.value) || 3600)}
                     placeholder="3600"
                   />
@@ -379,8 +382,8 @@ export default function ChannelAffinity() {
                     <div className="text-xs text-gray-500">缓存键是否包含规则名（用于隔离不同规则）</div>
                   </div>
                   <Switch
-                    checked={rule.include_rule_name}
-                    onChange={(checked) => updateRule(index, 'include_rule_name', checked)}
+                    isSelected={rule.include_rule_name}
+                    onValueChange={(v) => updateRule(index, 'include_rule_name', v)}
                   />
                 </div>
 
@@ -390,8 +393,8 @@ export default function ChannelAffinity() {
                     <div className="text-xs text-gray-500">缓存键是否包含用户组（按组隔离缓存）</div>
                   </div>
                   <Switch
-                    checked={rule.include_using_group}
-                    onChange={(checked) => updateRule(index, 'include_using_group', checked)}
+                    isSelected={rule.include_using_group}
+                    onValueChange={(v) => updateRule(index, 'include_using_group', v)}
                   />
                 </div>
 
@@ -401,8 +404,8 @@ export default function ChannelAffinity() {
                     <div className="text-xs text-gray-500">匹配此规则的请求失败时不重试其他渠道</div>
                   </div>
                   <Switch
-                    checked={rule.skip_retry_on_fail}
-                    onChange={(checked) => updateRule(index, 'skip_retry_on_fail', checked)}
+                    isSelected={rule.skip_retry_on_fail}
+                    onValueChange={(v) => updateRule(index, 'skip_retry_on_fail', v)}
                   />
                 </div>
               </div>
@@ -433,7 +436,7 @@ export default function ChannelAffinity() {
                           } catch {}
                         }}
                         placeholder='{"temperature": 0.7}'
-                        rows={3}
+                        minRows={3}
                       />
                       <p className="text-xs text-gray-500 mt-1">可选，动态覆盖请求参数</p>
                     </div>

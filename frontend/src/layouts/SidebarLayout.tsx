@@ -171,6 +171,7 @@ function NavButton({ item, isActive, onClick }: {
 export default function SidebarLayout({ navGroups, logoContent, userCard, headerMenu, children }: SidebarLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const { version } = useSystemStore();
 
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
 
@@ -216,6 +217,18 @@ export default function SidebarLayout({ navGroups, logoContent, userCard, header
           </div>
         ))}
       </nav>
+
+      {/* 版本号（喵～小小的角落留下版本印记） */}
+      {version && (
+        <div
+          className="px-5 py-3 text-center"
+          style={{ borderTop: '1px solid var(--border-color)' }}
+        >
+          <span className="text-xs" style={{ color: 'var(--text-secondary)', opacity: 0.5 }}>
+            {version}
+          </span>
+        </div>
+      )}
     </div>
   );
 

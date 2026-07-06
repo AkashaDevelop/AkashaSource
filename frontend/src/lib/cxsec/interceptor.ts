@@ -66,7 +66,7 @@ async function cxFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Re
       ...(init?.headers as Record<string, string> ?? {}),
       'Content-Type': 'application/octet-stream',
     },
-    body: cipherBody.buffer,
+    body: new Uint8Array(cipherBody),
   };
 
   const rawResp = await _originalFetch(url, newInit);

@@ -6,7 +6,7 @@ import { Chip, Tooltip, Button, Input, Snippet, Select, SelectItem, Switch } fro
 import {
   Edit, Trash2, Plus, RefreshCw, Search, X,
   KeyRound, Clock, Wallet, Shield, Power, Users,
-  ChevronDown, ChevronUp, Copy, Check,
+  ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
@@ -68,7 +68,7 @@ function TokenDrawer({ isOpen, onClose, editingToken, authToken, onSuccess }: Dr
   const [remainQuota,    setRemainQuota]    = useState('10');
   const [allowedIps,     setAllowedIps]     = useState('');
   const [allowedModels,  setAllowedModels]  = useState<string[]>([]);
-  const [note,           setNote]           = useState('');
+  const [,               setNote]           = useState('');
   const [group,          setGroup]          = useState('');
   const [crossGroupRetry, setCrossGroupRetry] = useState(false);
 

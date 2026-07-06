@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/glebarez/sqlite" // Pure Go SQLite driver
@@ -19,6 +20,23 @@ var (
 	DBDriver string
 )
 
+// buildSQLiteDSN 给 SQLite DSN 追加并发相关的 pragma 参数喵～
+// glebarez/sqlite（底层 modernc.org/sqlite）用的是 `_pragma=NAME(value)` 语法，
+// 不是 mattn/go-sqlite3 那种 `_journal_mode=` 写法，别搞混啦
+// - journal_mode(WAL): 读写不互相阻塞
+// - busy_timeout(5000): 写锁冲突时等待而不是直接报 SQLITE_BUSY
+// - synchronous(NORMAL): 搭配 WAL 使用的官方推荐折中项
+func buildSQLiteDSN(dsn string) string {
+	if strings.Contains(dsn, "_pragma=") {
+		return dsn // 用户已经自己配置过 pragma，不重复覆盖
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
+}
+
 // InitDB 初始化数据库连接
 // driver: sqlite, mysql, postgres
 // dsn: 数据源名称 (例如: "file.db", "user:pass@tcp(127.0.0.1:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local")
@@ -29,7 +47,7 @@ func InitDB(driver string, dsn string) error {
 
 	switch driver {
 	case "sqlite":
-		dialector = sqlite.Open(dsn)
+		dialector = sqlite.Open(buildSQLiteDSN(dsn))
 	case "mysql":
 		dialector = mysql.Open(dsn)
 	case "postgres":
@@ -67,8 +85,14 @@ func InitDB(driver string, dsn string) error {
 		return fmt.Errorf("数据库无法访问: %w", err)
 	}
 
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
+	if driver == "sqlite" {
+		// SQLite 写入本质单线程，多连接没有意义，只会增加锁等待/SQLITE_BUSY 概率喵
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
+	} else {
+		sqlDB.SetMaxIdleConns(10)
+		sqlDB.SetMaxOpenConns(100)
+	}
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
 	DB = db
