@@ -469,7 +469,7 @@ func TestChannel(c *gin.Context) {
 
 	var channel model.Channel
 	if err := common.DB.First(&channel, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, common.R{Code: common.CodeNotFound, Msg: "渠道不存在"})
+		common.Fail(c, common.CodeNotFound, "渠道不存在")
 		return
 	}
 	responseTime, err := service.CheckChannelWithPrompt(&channel, req.Model, req.Prompt)

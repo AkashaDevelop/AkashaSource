@@ -32,7 +32,7 @@ func (a *Adaptor) GetModelList() []string {
 func (a *Adaptor) ConvertRequest(c *gin.Context, request *dto.OpenAIRequest) (any, error) {
 	// 预先统计 prompt tokens，供流式响应使用
 	if raw, err := json.Marshal(request.Messages); err == nil {
-		a.promptTokenCount = common.CountToken(string(raw))
+		a.promptTokenCount = common.CountTokenForModel(string(raw), request.Model)
 	}
 
 	result := make(map[string]any)

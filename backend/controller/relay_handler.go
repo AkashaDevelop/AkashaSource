@@ -12,6 +12,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// 本文件为中继流程的计费/结算辅助逻辑（预扣、结算、退款、日志记录），
+// 并非独立的 relay 请求处理器；主中继入口见 relay.go。
+
 // usageDetail 由调用者通过 c.Set("usage_detail", usage) 设置，用于传递额外计费维度
 type usageDetail struct {
 	ImageTokens           int
@@ -38,58 +41,26 @@ func hasActiveSubscriptionQuota(userId int, finalQuota int64) (model.UserSubscri
 	return model.UserSubscription{}, false
 }
 
-// getBillingPriority 读取资金来源优先级配置
-// 返回 "subscription_first"（默认，订阅优先）或 "wallet_first"（余额优先）
-func getBillingPriority() string {
-	common.OptionLock.RLock()
-	defer common.OptionLock.RUnlock()
-	if p, ok := common.OptionMap[model.OptionKeyBillingPriority]; ok && p != "" {
-		return p
+// getUserBillingPreference 读取用户个人的资金来源优先级
+// 返回 "subscription_first"（默认）、"wallet_first"、"subscription_only" 或 "wallet_only"
+func getUserBillingPreference(userId int) string {
+	var user model.User
+	if err := common.DB.Select("billing_preference").First(&user, userId).Error; err != nil {
+		return BillingPreferenceSubscriptionFirst
 	}
-	return "subscription_first"
+	switch user.BillingPreference {
+	case BillingPreferenceSubscriptionFirst,
+		BillingPreferenceWalletFirst,
+		BillingPreferenceSubscriptionOnly,
+		BillingPreferenceWalletOnly:
+		return user.BillingPreference
+	default:
+		return BillingPreferenceSubscriptionFirst
+	}
 }
 
-// deductFromPrioritySource 根据优先级从对应资金来源扣减额度
-func deductFromPrioritySource(tx *gorm.DB, token *model.Token, finalQuota int64) error {
-	priority := getBillingPriority()
-
-	if priority == "wallet_first" {
-		// 先尝试钱包
-		var user model.User
-		tx.First(&user, token.UserId)
-		if user.Quota >= finalQuota {
-			tx.Model(&model.User{}).Where("id = ?", token.UserId).Updates(map[string]interface{}{
-				"used_quota": gorm.Expr("used_quota + ?", finalQuota),
-				"quota":      gorm.Expr("quota - ?", finalQuota),
-			})
-			if !token.UnlimitedQuota {
-				tx.Model(token).Updates(map[string]interface{}{
-					"used_quota":    gorm.Expr("used_quota + ?", finalQuota),
-					"remain_quota":  gorm.Expr("remain_quota - ?", finalQuota),
-					"accessed_time": time.Now().Unix(),
-				})
-			} else {
-				tx.Model(token).Updates(map[string]interface{}{
-					"used_quota":    gorm.Expr("used_quota + ?", finalQuota),
-					"accessed_time": time.Now().Unix(),
-				})
-			}
-			return nil
-		}
-		// 钱包不足，尝试订阅
-		if sub, ok := hasActiveSubscriptionQuota(token.UserId, finalQuota); ok {
-			tx.Model(&sub).Update("used_quota", gorm.Expr("used_quota + ?", finalQuota))
-			return nil
-		}
-		return fmt.Errorf("余额和订阅额度均不足")
-	}
-
-	// 默认：订阅优先
-	if sub, ok := hasActiveSubscriptionQuota(token.UserId, finalQuota); ok {
-		tx.Model(&sub).Update("used_quota", gorm.Expr("used_quota + ?", finalQuota))
-		return nil
-	}
-	// 订阅不足或无订阅，从钱包扣减
+// deductFromWalletTx 在事务中从钱包扣减额度
+func deductFromWalletTx(tx *gorm.DB, token *model.Token, finalQuota int64) {
 	tx.Model(&model.User{}).Where("id = ?", token.UserId).Updates(map[string]interface{}{
 		"used_quota": gorm.Expr("used_quota + ?", finalQuota),
 		"quota":      gorm.Expr("quota - ?", finalQuota),
@@ -106,7 +77,50 @@ func deductFromPrioritySource(tx *gorm.DB, token *model.Token, finalQuota int64)
 			"accessed_time": time.Now().Unix(),
 		})
 	}
-	return nil
+}
+
+// deductFromPrioritySource 根据用户偏好从对应资金来源扣减额度
+func deductFromPrioritySource(tx *gorm.DB, token *model.Token, finalQuota int64) error {
+	priority := getUserBillingPreference(token.UserId)
+
+	switch priority {
+	case BillingPreferenceWalletOnly:
+		var user model.User
+		tx.First(&user, token.UserId)
+		if user.Quota < finalQuota {
+			return fmt.Errorf("钱包余额不足")
+		}
+		deductFromWalletTx(tx, token, finalQuota)
+		return nil
+
+	case BillingPreferenceSubscriptionOnly:
+		if sub, ok := hasActiveSubscriptionQuota(token.UserId, finalQuota); ok {
+			tx.Model(&sub).Update("used_quota", gorm.Expr("used_quota + ?", finalQuota))
+			return nil
+		}
+		return fmt.Errorf("订阅额度不足")
+
+	case BillingPreferenceWalletFirst:
+		var user model.User
+		tx.First(&user, token.UserId)
+		if user.Quota >= finalQuota {
+			deductFromWalletTx(tx, token, finalQuota)
+			return nil
+		}
+		if sub, ok := hasActiveSubscriptionQuota(token.UserId, finalQuota); ok {
+			tx.Model(&sub).Update("used_quota", gorm.Expr("used_quota + ?", finalQuota))
+			return nil
+		}
+		return fmt.Errorf("余额和订阅额度均不足")
+
+	default: // subscription_first
+		if sub, ok := hasActiveSubscriptionQuota(token.UserId, finalQuota); ok {
+			tx.Model(&sub).Update("used_quota", gorm.Expr("used_quota + ?", finalQuota))
+			return nil
+		}
+		deductFromWalletTx(tx, token, finalQuota)
+		return nil
+	}
 }
 
 func RecordConsumeLog(c *gin.Context, token *model.Token, modelName string, promptTokens int, completionTokens int, cachedTokens ...int) {
@@ -227,44 +241,54 @@ func RecordConsumeWithBilling(c *gin.Context, token *model.Token, modelName stri
 		RequestId:        c.GetString("request_id"),
 	}
 
-	// 根据优先级决定结算来源
-	priority := getBillingPriority()
+	// 根据用户偏好决定结算来源
+	priority := getUserBillingPreference(token.UserId)
 
-	if priority == "wallet_first" {
-		// 余额优先：检查钱包是否足以覆盖实际消耗（预扣已从钱包扣除）
-		var user model.User
-		common.DB.First(&user, token.UserId)
-		if user.Quota+preConsumedQuota >= finalQuota {
-			// 钱包充足，用钱包结算（多退少补）
-			service.PostConsumeQuota(token, preConsumedQuota, finalQuota)
-			service.EnqueueLog(log)
-			return
-		}
-		// 钱包不足，尝试从订阅扣减并退还预扣到钱包
+	switch priority {
+	case BillingPreferenceWalletOnly:
+		service.PostConsumeQuota(token, preConsumedQuota, finalQuota)
+		service.EnqueueLog(log)
+		return
+
+	case BillingPreferenceSubscriptionOnly:
 		if sub, ok := hasActiveSubscriptionQuota(token.UserId, finalQuota); ok {
 			service.RefundQuota(token, preConsumedQuota)
 			common.DB.Model(&sub).Update("used_quota", gorm.Expr("used_quota + ?", finalQuota))
 			service.EnqueueLog(log)
 			return
 		}
-		// 订阅也不足，仍用钱包结算（可能透支）
 		service.PostConsumeQuota(token, preConsumedQuota, finalQuota)
 		service.EnqueueLog(log)
 		return
-	}
 
-	// 默认：订阅优先
-	if sub, ok := hasActiveSubscriptionQuota(token.UserId, finalQuota); ok {
-		// 有活跃订阅且订阅额度充足：退还预扣，从订阅额度扣减
-		service.RefundQuota(token, preConsumedQuota)
-		common.DB.Model(&sub).Update("used_quota", gorm.Expr("used_quota + ?", finalQuota))
+	case BillingPreferenceWalletFirst:
+		var user model.User
+		common.DB.First(&user, token.UserId)
+		if user.Quota+preConsumedQuota >= finalQuota {
+			service.PostConsumeQuota(token, preConsumedQuota, finalQuota)
+			service.EnqueueLog(log)
+			return
+		}
+		if sub, ok := hasActiveSubscriptionQuota(token.UserId, finalQuota); ok {
+			service.RefundQuota(token, preConsumedQuota)
+			common.DB.Model(&sub).Update("used_quota", gorm.Expr("used_quota + ?", finalQuota))
+			service.EnqueueLog(log)
+			return
+		}
+		service.PostConsumeQuota(token, preConsumedQuota, finalQuota)
 		service.EnqueueLog(log)
 		return
-	}
 
-	// 订阅不足或无订阅，从用户钱包结算（多退少补）
-	service.PostConsumeQuota(token, preConsumedQuota, finalQuota)
-	service.EnqueueLog(log)
+	default: // subscription_first
+		if sub, ok := hasActiveSubscriptionQuota(token.UserId, finalQuota); ok {
+			service.RefundQuota(token, preConsumedQuota)
+			common.DB.Model(&sub).Update("used_quota", gorm.Expr("used_quota + ?", finalQuota))
+			service.EnqueueLog(log)
+			return
+		}
+		service.PostConsumeQuota(token, preConsumedQuota, finalQuota)
+		service.EnqueueLog(log)
+	}
 }
 
 func RecordFailLog(c *gin.Context, token *model.Token, modelName string, errContent string) {

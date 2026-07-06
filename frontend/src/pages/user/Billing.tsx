@@ -163,6 +163,9 @@ export default function BillingPage() {
   const [selectedPlan,setSelectedPlan]= useState<Plan | null>(null);
   const [subPaying,   setSubPaying]   = useState(false);
 
+  /* 计费偏好 */
+  const [billingPreference, setBillingPreference] = useState('subscription_first');
+
   /* 充值历史 */
   interface PayOrder { id: number; amount: number; quota_added: number; status: number; provider: string; created_at: number; completed_at: number; trade_no: string; }
   const [payOrders,   setPayOrders]   = useState<PayOrder[]>([]);
@@ -205,6 +208,9 @@ export default function BillingPage() {
     // 我的订阅
     fetch('/api/subscription/my', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { if (d.code === 0) setMySubs(d.data || []); }).catch(() => {});
+    // 计费偏好
+    fetch('/api/subscription/self', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => { if (d.code === 0 && d.data.billing_preference) setBillingPreference(d.data.billing_preference); }).catch(() => {});
   }, [token]);
 
   // 切换到充值记录 Tab 时加载数据
@@ -254,6 +260,20 @@ export default function BillingPage() {
       else toast.error(data.msg || '创建订单失败');
     } catch { toast.error('请求失败'); }
     finally { setSubPaying(false); }
+  };
+
+  /* 计费偏好 */
+  const handleBillingPreferenceChange = async (pref: string) => {
+    try {
+      const res = await fetch('/api/subscription/self/preference', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ billing_preference: pref }),
+      });
+      const data = await res.json();
+      if (data.code === 0) { setBillingPreference(pref); toast.success('计费偏好已更新'); }
+      else toast.error(data.msg || '更新失败');
+    } catch { toast.error('请求失败'); }
   };
 
   /* ── 渲染 ── */
@@ -329,6 +349,40 @@ export default function BillingPage() {
               ))}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* ══ 计费偏好 ══ */}
+      <div style={{ borderRadius: 'var(--radius-2xl)', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', padding: '20px 24px' }}>
+        <div className="flex items-center gap-2 mb-3">
+          <Wallet size={16} style={{ color: 'var(--accent-primary)' }} />
+          <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>计费偏好</span>
+        </div>
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>资金来源优先级</span>
+          <div className="flex gap-2 flex-wrap">
+            {([
+              { key: 'subscription_first', label: '订阅优先' },
+              { key: 'wallet_first', label: '余额优先' },
+              { key: 'subscription_only', label: '仅订阅' },
+              { key: 'wallet_only', label: '仅余额' },
+            ] as const).map(item => {
+              const active = billingPreference === item.key;
+              return (
+                <button key={item.key} type="button"
+                  onClick={() => handleBillingPreferenceChange(item.key)}
+                  className={`px-3 py-1.5 rounded-lg border text-sm transition-all ${active
+                    ? 'border-[var(--accent-primary)] bg-[var(--nav-active-bg)] text-[var(--accent-primary)] font-semibold'
+                    : 'border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] cursor-pointer'}`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            订阅优先：先扣订阅额度，不足再扣余额；余额优先：先扣余额，不足再扣订阅；仅订阅/仅余额：只从对应来源扣减，不足则请求失败
+          </p>
         </div>
       </div>
 

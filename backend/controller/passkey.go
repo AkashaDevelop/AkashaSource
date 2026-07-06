@@ -4,8 +4,11 @@ import (
 	"STfreApi/common"
 	"STfreApi/model"
 	passkeysvc "STfreApi/service/passkey"
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -83,11 +86,18 @@ func PasskeyRegisterFinish(c *gin.Context) {
 		return
 	}
 
+	// Read body once, then restore it for FinishRegistration to parse
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		common.Fail(c, common.CodeParamError, "读取请求失败")
+		return
+	}
 	var req passkeyFinishRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		common.Fail(c, common.CodeParamError, err.Error())
 		return
 	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 	var user model.User
 	if err := common.DB.First(&user, userID).Error; err != nil {
@@ -191,11 +201,18 @@ func PasskeyLoginBegin(c *gin.Context) {
 }
 
 func PasskeyLoginFinish(c *gin.Context) {
+	// Read body once, then restore it for FinishPasskeyLogin to parse
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		common.Fail(c, common.CodeParamError, "读取请求失败")
+		return
+	}
 	var req passkeyFinishRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		common.Fail(c, common.CodeParamError, err.Error())
 		return
 	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 	sessionData, err := passkeysvc.PopLoginSession(req.SessionID)
 	if err != nil {

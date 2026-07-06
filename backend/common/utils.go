@@ -4,13 +4,15 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
-	"math/rand"
-	"net/http"
 	"encoding/json"
-	"io/ioutil"
+	"fmt"
+	"io"
+	"net/http"
 	"net/url"
+	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -36,7 +38,7 @@ func VerifyTurnstile(token string) bool {
 	}
 	defer resp.Body.Close()
 
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 	var result TurnstileResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return false
@@ -83,7 +85,7 @@ func VerifyGeeTest(req *GeeTestValidateRequest) bool {
 	}
 	defer resp.Body.Close()
 
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 	var result GeeTestResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return false
@@ -91,9 +93,80 @@ func VerifyGeeTest(req *GeeTestValidateRequest) bool {
 	return result.Result == "success"
 }
 
+// hCaptcha Verification
+type HCaptchaResponse struct {
+	Success bool `json:"success"`
+}
+
+func VerifyHCaptcha(token string) bool {
+	if !HCaptchaEnabled {
+		return true
+	}
+	if HCaptchaSecretKey == "" {
+		return true
+	}
+
+	resp, err := http.PostForm("https://api.hcaptcha.com/siteverify", url.Values{
+		"secret":   {HCaptchaSecretKey},
+		"response": {token},
+	})
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var result HCaptchaResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return false
+	}
+	return result.Success
+}
+
+// Google reCAPTCHA Verification
+type ReCaptchaResponse struct {
+	Success bool    `json:"success"`
+	Score   float64 `json:"score"`
+	Action  string  `json:"action"`
+}
+
+func VerifyReCaptcha(token string) bool {
+	if !ReCaptchaEnabled {
+		return true
+	}
+	if ReCaptchaSecretKey == "" {
+		return true
+	}
+
+	resp, err := http.PostForm("https://www.google.com/recaptcha/api/siteverify", url.Values{
+		"secret":   {ReCaptchaSecretKey},
+		"response": {token},
+	})
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var result ReCaptchaResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return false
+	}
+	if !result.Success {
+		return false
+	}
+	// v3: check score threshold (0.5)
+	if ReCaptchaVersion == "v3" {
+		if result.Score < 0.5 {
+			return false
+		}
+	}
+	return true
+}
+
 // VerifyCaptcha is a unified captcha verification function
-// It checks the configured provider (turnstile or geetest)
-func VerifyCaptcha(turnstileToken string, geetest *GeeTestValidateRequest) bool {
+// It checks the configured provider (turnstile, geetest, hcaptcha, or recaptcha)
+func VerifyCaptcha(turnstileToken, hcaptchaToken, recaptchaToken string, geetest *GeeTestValidateRequest) bool {
 	switch CaptchaProvider {
 	case "turnstile":
 		if !TurnstileCheckEnabled {
@@ -105,6 +178,16 @@ func VerifyCaptcha(turnstileToken string, geetest *GeeTestValidateRequest) bool 
 			return true
 		}
 		return VerifyGeeTest(geetest)
+	case "hcaptcha":
+		if !HCaptchaEnabled {
+			return true
+		}
+		return VerifyHCaptcha(hcaptchaToken)
+	case "recaptcha":
+		if !ReCaptchaEnabled {
+			return true
+		}
+		return VerifyReCaptcha(recaptchaToken)
 	default:
 		// Fallback: check turnstile if enabled
 		if TurnstileCheckEnabled {
@@ -131,11 +214,7 @@ func GenerateKey() string {
 }
 
 func GetUUID() string {
-	// Simple UUID generation for demo purposes.
-	// In production, consider using "github.com/google/uuid"
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	return strings.ReplaceAll(uuid.NewString(), "-", "")
 }
 
 // HMAC-SHA256 signature
@@ -149,4 +228,9 @@ func HmacSha256(data string, secret string) string {
 func MapToJSON(m map[string]float64) (string, error) {
 	b, err := json.Marshal(m)
 	return string(b), err
+}
+
+// GetTimestamp 返回当前 Unix 时间戳
+func GetTimestamp() int64 {
+	return time.Now().Unix()
 }

@@ -6,7 +6,7 @@
 **汇聚全宇宙智慧的 AI 网关系统**
 
 [![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
 [![TailwindCSS](https://img.shields.io/badge/Tailwind-4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
@@ -84,10 +84,10 @@ Akasha 是一个统一的 AI API 网关，将多家大模型供应商聚合在 O
 
 | 层级 | 技术 |
 |:---|:---|
-| 后端 | Go 1.24+, Gin, GORM |
+| 后端 | Go 1.26+, Gin, GORM |
 | 数据库 | SQLite (默认) / MySQL / PostgreSQL |
 | 缓存 | Redis (可选，分布式限流) |
-| 前端 | React 19, TypeScript, Vite 7, TailwindCSS 4, HeroUI |
+| 前端 | React 19, TypeScript, Vite 7, TailwindCSS 4, 自建组件库（HeroUI 风格 API） |
 | 状态管理 | Zustand + TanStack React Query |
 | 认证 | JWT, OAuth (GitHub/LinuxDO/Discord/OIDC/Telegram/微信), Passkey/WebAuthn |
 | 支付 | 易支付(epay), Stripe v86, Creem |
@@ -118,7 +118,7 @@ Akasha 是一个统一的 AI API 网关，将多家大模型供应商聚合在 O
 
 ### 前置要求
 
-- Go 1.24+
+- Go 1.26+
 - Node.js 18+ / pnpm
 - MySQL 5.7+ 或 PostgreSQL 9.6+（可选，默认 SQLite）
 

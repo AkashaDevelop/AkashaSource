@@ -3,7 +3,6 @@ package controller
 import (
 	"STfreApi/common"
 	"STfreApi/model"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -63,7 +62,7 @@ func GetUserDashboard(c *gin.Context) {
 	userId, _ := c.Get("id")
 	var user model.User
 	if err := common.DB.First(&user, userId).Error; err != nil {
-		c.JSON(http.StatusNotFound, common.R{Code: common.CodeNotFound, Msg: "用户不存在"})
+		common.Fail(c, common.CodeNotFound, "用户不存在")
 		return
 	}
 	var tokenCount, requestCount int64

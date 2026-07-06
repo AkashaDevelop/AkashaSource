@@ -92,6 +92,13 @@ func GetOptionSchema(c *gin.Context) {
 		{"key": "geetest_enabled", "label": "极验开关", "type": "boolean", "group": "安全"},
 		{"key": "geetest_id", "label": "极验 Captcha ID", "type": "text", "group": "安全"},
 		{"key": "geetest_key", "label": "极验 Captcha Key", "type": "password", "group": "安全"},
+		{"key": "hcaptcha_enabled", "label": "hCaptcha 开关", "type": "boolean", "group": "安全"},
+		{"key": "hcaptcha_site_key", "label": "hCaptcha Site Key", "type": "text", "group": "安全"},
+		{"key": "hcaptcha_secret_key", "label": "hCaptcha Secret Key", "type": "password", "group": "安全"},
+		{"key": "recaptcha_enabled", "label": "reCAPTCHA 开关", "type": "boolean", "group": "安全"},
+		{"key": "recaptcha_version", "label": "reCAPTCHA 版本", "type": "text", "group": "安全"},
+		{"key": "recaptcha_site_key", "label": "reCAPTCHA Site Key", "type": "text", "group": "安全"},
+		{"key": "recaptcha_secret_key", "label": "reCAPTCHA Secret Key", "type": "password", "group": "安全"},
 	}
 	values := map[string]string{}
 	common.OptionLock.RLock()
@@ -125,13 +132,19 @@ func IsSystemInitialized(c *gin.Context) {
 	options := make(map[string]string)
 	common.OptionLock.RLock()
 	for _, k := range []string{
-		"system_name", "logo_url", "notice",
+		"system_name", "logo_url", "footer_html", "notice", "about",
 		"github_client_id", "linuxdo_client_id", "discord_client_id",
-		"oidc_client_id", "telegram_bot_token",
+		"oidc_client_id", "telegram_bot_token", "wechat_app_id",
 		"turnstile_check_enabled", "turnstile_site_key",
 		"captcha_provider", "geetest_enabled", "geetest_id", "checkin_captcha",
+		"hcaptcha_enabled", "hcaptcha_site_key",
+		"recaptcha_enabled", "recaptcha_site_key", "recaptcha_version",
 		"enable_topup", "payment_provider", "min_topup", "price",
 		"email_verification_enabled",
+		"register_enabled",
+		"password_login_enabled",
+		"password_register_enabled",
+		"passkey_enabled",
 		"quota_display_type", "quota_display_symbol", "quota_display_rate",
 	} {
 		options[k] = common.OptionMap[k]

@@ -32,76 +32,8 @@ import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
-
-interface Channel {
-  id: number;
-  name: string;
-  type: number;
-  key: string;
-  base_url: string;
-  models: string;
-  group: string;
-  model_mapping: string;
-  tags: string;
-  priority: number;
-  weight: number;
-  status: number;
-  response_time: number;
-  balance: number;
-  is_custom: number;
-  custom_config_id: number;
-}
-
-interface CustomChannelConfig {
-  id: number;
-  name: string;
-  description: string;
-}
-
-interface MultiKeyStatusItem {
-  index: number;
-  status: number;
-  disabled_time: number;
-  reason: string;
-  key_preview: string;
-}
-
-interface PromptDialogConfig {
-  title: string;
-  placeholder?: string;
-  defaultValue?: string;
-  description?: string;
-  confirmText?: string;
-  multiline?: boolean;
-  readOnly?: boolean;
-}
-
-const CHANNEL_TYPES = [
-  { key: '1', label: 'OpenAI' },
-  { key: '3', label: 'Azure' },
-  { key: '8', label: 'Custom' },
-  { key: '14', label: 'Claude' },
-  { key: '18', label: 'Gemini' },
-  { key: '30', label: 'Midjourney' },
-  { key: '40', label: '通义千问' },
-  { key: '41', label: '混元' },
-  { key: '42', label: '文心一言' },
-  { key: '43', label: '讯飞星火' },
-  { key: '44', label: 'Deepseek' },
-  { key: '45', label: '智谱 ChatGLM' },
-  { key: '46', label: 'Moonshot' },
-  { key: '47', label: 'Ollama' },
-  { key: '50', label: 'Suno' },
-  { key: '51', label: 'Dify' },
-  { key: '52', label: 'SiliconFlow' },
-  { key: '53', label: 'Mistral' },
-  { key: '54', label: 'xAI / Grok' },
-  { key: '55', label: 'Groq' },
-  { key: '56', label: 'Together AI' },
-  { key: '57', label: 'Perplexity' },
-  { key: '58', label: 'Codex' },
-  { key: '100', label: '🔧 自定义渠道' },
-];
+import type { Channel, CustomChannelConfig, MultiKeyStatusItem, PromptDialogConfig } from './channelTypes';
+import { CHANNEL_TYPES } from './channelConstants';
 
 export default function ChannelManagement() {
   const [channels, setChannels] = useState<Channel[]>([]);

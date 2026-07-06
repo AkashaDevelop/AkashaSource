@@ -22,7 +22,7 @@ const (
 )
 
 var (
-	affinityCache     *cachex.HybridCache
+	affinityCache     *cachex.HybridCache[int]
 	affinityCacheOnce sync.Once
 	regexCache        sync.Map
 )
@@ -51,9 +51,9 @@ type AffinityMeta struct {
 	ParamTemplate map[string]interface{}
 }
 
-func getAffinityCache() *cachex.HybridCache {
+func getAffinityCache() *cachex.HybridCache[int] {
 	affinityCacheOnce.Do(func() {
-		affinityCache = cachex.NewHybridCache(
+		affinityCache = cachex.NewHybridCache[int](
 			channelAffinityCacheNamespace,
 			common.RedisClient,
 			func() bool { return common.RedisClient != nil },

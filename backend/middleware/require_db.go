@@ -45,10 +45,10 @@ func RequireDatabaseReady() gin.HandlerFunc {
 		}
 		for _, required := range dbRequiredPrefixes {
 			if strings.HasPrefix(path, required) {
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-					"code": 503,
-					"msg":  "数据库尚未配置，请先完成初始化向导",
-				})
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, common.R{
+				Code: common.CodeServerError,
+				Msg:  "数据库尚未配置，请先完成初始化向导",
+			})
 				return
 			}
 		}

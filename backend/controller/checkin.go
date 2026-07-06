@@ -19,6 +19,8 @@ import (
 type CheckInRequest struct {
 	Turnstile string                        `json:"turnstile"`
 	GeeTest   *common.GeeTestValidateRequest `json:"geetest"`
+	HCaptcha  string                        `json:"hcaptcha"`
+	ReCaptcha string                        `json:"recaptcha"`
 }
 
 func CheckIn(c *gin.Context) {
@@ -37,7 +39,7 @@ func CheckIn(c *gin.Context) {
 		if c.Request.Body != nil {
 			json.NewDecoder(c.Request.Body).Decode(&req)
 		}
-		if !common.VerifyCaptcha(req.Turnstile, req.GeeTest) {
+		if !common.VerifyCaptcha(req.Turnstile, req.HCaptcha, req.ReCaptcha, req.GeeTest) {
 			common.Fail(c, common.CodeParamError, "人机验证失败")
 			return
 		}

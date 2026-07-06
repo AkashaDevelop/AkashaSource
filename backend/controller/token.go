@@ -71,7 +71,7 @@ func UpdateToken(c *gin.Context) {
 	}
 	var existing model.Token
 	if err := db.First(&existing).Error; err != nil {
-		c.JSON(http.StatusNotFound, common.R{Code: common.CodeNotFound, Msg: "令牌不存在"})
+		common.Fail(c, common.CodeNotFound, "令牌不存在")
 		return
 	}
 	existing.Name = token.Name

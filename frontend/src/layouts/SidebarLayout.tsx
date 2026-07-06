@@ -1,7 +1,12 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, ChevronDown } from 'lucide-react';
-import ThemeToggle from '../components/ThemeToggle';
+import { Menu, X, LogOut, User as UserIcon } from 'lucide-react';
+import { useAuthStore } from '../store/auth';
+import { useSystemStore } from '../store/system';
+import { formatQuota } from '../lib/quota';
+import UserDropdown, { type HeaderMenuProps, type HeaderMenuItem } from './UserDropdown';
+
+export type { HeaderMenuProps, HeaderMenuItem };
 
 export interface NavItem {
   key: string;
@@ -15,20 +20,6 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-export interface HeaderMenuItem {
-  icon: React.ComponentType<{ size?: number }>;
-  label: string;
-  onClick: () => void;
-  variant?: 'default' | 'primary' | 'danger';
-}
-
-export interface HeaderMenuProps {
-  initials: string;
-  name: string;
-  subtitle: string;
-  items: HeaderMenuItem[];
-}
-
 interface SidebarLayoutProps {
   navGroups: NavGroup[];
   logoContent: ReactNode;
@@ -37,6 +28,110 @@ interface SidebarLayoutProps {
   children: ReactNode;
 }
 
+/* ── 共享布局数据 hook：封装 logo / 用户卡片 / 头像菜单的构建逻辑 ── */
+export interface LayoutCommonOptions {
+  defaultInitial: string;
+  logoIcon: ReactNode;
+  logoIconColor: string;
+  subtitle: string;
+  badge?: { label: string };
+  roleLabel: string;
+  showBalance?: boolean;
+  switchTarget?: { path: string; label: string; icon: React.ComponentType<{ size?: number }>; minRole?: number };
+}
+
+export function useLayoutCommon(options: LayoutCommonOptions) {
+  const navigate = useNavigate();
+  const { user, logout } = useAuthStore();
+  const { systemName, logoUrl, fetch: fetchSystem } = useSystemStore();
+
+  useEffect(() => { fetchSystem(); }, []);
+
+  const initials = (user?.username?.[0] ?? options.defaultInitial).toUpperCase();
+
+  const logoContent = (
+    <>
+      <div className="flex items-center gap-2.5">
+        {logoUrl
+          ? <img src={logoUrl} alt="logo" className="w-7 h-7 rounded-full" />
+          : <span className="text-xl" style={{ color: options.logoIconColor }}>{options.logoIcon}</span>
+        }
+        <h1 className="text-base font-bold gradient-text truncate">{systemName}</h1>
+      </div>
+      {options.badge ? (
+        <div className="flex items-center gap-1.5 mt-1 ml-9">
+          <span
+            className="px-1.5 py-0.5 text-xs font-semibold rounded-md"
+            style={{
+              background: 'rgba(251,191,36,0.15)',
+              border: '1px solid rgba(251,191,36,0.25)',
+              color: 'var(--accent-star)',
+            }}
+          >
+            {options.badge.label}
+          </span>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)', opacity: 0.6 }}>{options.subtitle}</p>
+        </div>
+      ) : (
+        <p className="text-xs mt-0.5 ml-9" style={{ color: 'var(--text-muted, var(--text-secondary))' }}>{options.subtitle}</p>
+      )}
+    </>
+  );
+
+  const userCard = (
+    <div
+      className="p-3 rounded-xl cursor-pointer transition-all duration-200"
+      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
+      onClick={() => navigate('/profile')}
+    >
+      <div className="flex items-center gap-2.5">
+        <div
+          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+          style={{ background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))' }}
+        >
+          {initials}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{user?.username}</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{options.roleLabel}</p>
+        </div>
+      </div>
+      {options.showBalance && (
+        <div
+          className="mt-2 flex items-center justify-between px-2 py-1.5 rounded-lg"
+          style={{ background: 'var(--bg-base)', border: '1px solid var(--border-color)' }}
+        >
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>余额</span>
+          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--accent-cosmic)' }}>
+            ${formatQuota(user?.quota ?? 0, 4)}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+
+  const showSwitch = options.switchTarget && (!options.switchTarget.minRole || (user?.role ?? 0) >= options.switchTarget.minRole);
+
+  const headerMenu: HeaderMenuProps = {
+    initials,
+    name: user?.username ?? '',
+    subtitle: options.roleLabel,
+    items: [
+      { icon: UserIcon, label: '个人设置', onClick: () => navigate('/profile') },
+      ...(showSwitch && options.switchTarget ? [{
+        icon: options.switchTarget.icon,
+        label: options.switchTarget.label,
+        onClick: () => navigate(options.switchTarget!.path),
+        variant: 'primary' as const,
+      }] : []),
+      { icon: LogOut, label: '退出登录', onClick: () => { logout(); navigate('/login'); }, variant: 'danger' as const },
+    ],
+  };
+
+  return { logoContent, userCard, headerMenu, user };
+}
+
+/* ── 导航按钮 ── */
 function NavButton({ item, isActive, onClick }: {
   item: NavItem;
   isActive: boolean;
@@ -69,157 +164,6 @@ function NavButton({ item, isActive, onClick }: {
       <span>{item.label}</span>
       {item.external && <span className="ml-auto text-xs opacity-40">↗</span>}
     </button>
-  );
-}
-
-/* ── 顶栏用户头像下拉菜单 ── */
-function UserDropdown({ menu }: { menu: HeaderMenuProps }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const variantStyle = (v?: string) => {
-    if (v === 'danger')   return { color: 'var(--color-danger-fg)' };
-    if (v === 'primary')  return { color: 'var(--accent-primary)' };
-    return { color: 'var(--text-secondary)' };
-  };
-
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      {/* 触发按钮 */}
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-2 px-2 py-1.5 rounded-xl transition-all duration-150"
-        style={{
-          background: open ? 'var(--nav-hover-bg)' : 'transparent',
-          border: '1px solid transparent',
-          cursor: 'pointer',
-        }}
-        onMouseEnter={e => { if (!open) (e.currentTarget as HTMLElement).style.background = 'var(--nav-hover-bg)'; }}
-        onMouseLeave={e => { if (!open) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-        aria-label="用户菜单"
-        aria-expanded={open}
-      >
-        {/* 头像 */}
-        <div
-          className="flex items-center justify-center text-white font-bold"
-          style={{
-            width: '30px', height: '30px', borderRadius: '50%', fontSize: '12px',
-            background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))',
-            boxShadow: open ? '0 0 0 2px var(--accent-primary)' : 'none',
-            transition: 'box-shadow 0.15s',
-            flexShrink: 0,
-          }}
-        >
-          {menu.initials}
-        </div>
-        {/* 姓名（md+ 显示） */}
-        <div className="hidden md:block text-left" style={{ maxWidth: '120px' }}>
-          <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {menu.name}
-          </p>
-          <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>{menu.subtitle}</p>
-        </div>
-        <ChevronDown
-          size={14}
-          className="hidden md:block"
-          style={{
-            color: 'var(--text-muted)',
-            transform: open ? 'rotate(180deg)' : 'rotate(0)',
-            transition: 'transform 0.2s',
-          }}
-        />
-      </button>
-
-      {/* 下拉面板 */}
-      {open && (
-        <div
-          className="header-dropdown"
-          style={{
-            position: 'absolute', top: 'calc(100% + 8px)', right: 0,
-            width: '220px', zIndex: 200,
-            background: 'var(--bg-elevated)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-xl)',
-            boxShadow: 'var(--shadow-hover)',
-            overflow: 'hidden',
-          }}
-        >
-          {/* 用户信息头 */}
-          <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--border-color)' }}>
-            <div className="flex items-center gap-2.5">
-              <div
-                className="flex items-center justify-center text-white font-bold flex-shrink-0"
-                style={{
-                  width: '36px', height: '36px', borderRadius: '50%', fontSize: '13px',
-                  background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))',
-                }}
-              >
-                {menu.initials}
-              </div>
-              <div className="min-w-0">
-                <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {menu.name}
-                </p>
-                <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>{menu.subtitle}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* 主题切换 */}
-          <div
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '10px 16px',
-              borderBottom: '1px solid var(--border-color)',
-            }}
-          >
-            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>界面主题</span>
-            <ThemeToggle />
-          </div>
-
-          {/* 操作项 */}
-          <div style={{ padding: '6px' }}>
-            {menu.items.map((item, i) => {
-              const Icon = item.icon;
-              const isDanger = item.variant === 'danger';
-              return (
-                <button
-                  key={i}
-                  onClick={() => { item.onClick(); setOpen(false); }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-100"
-                  style={{
-                    ...variantStyle(item.variant),
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as HTMLElement).style.background = isDanger ? 'var(--color-danger-bg)' : 'var(--nav-hover-bg)';
-                    (e.currentTarget as HTMLElement).style.color = isDanger ? 'var(--color-danger-fg)' : 'var(--text-primary)';
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLElement).style.background = 'transparent';
-                    (e.currentTarget as HTMLElement).style.color = variantStyle(item.variant).color;
-                  }}
-                >
-                  <Icon size={15} style={{ flexShrink: 0 }} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
   );
 }
 

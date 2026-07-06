@@ -8,6 +8,9 @@ import (
 
 var (
 	SystemName = "Akasha"
+	RegisterEnabled = true
+	PasswordLoginEnabled    = true
+	PasswordRegisterEnabled = true
 	OptionMap  = make(map[string]string)
 	OptionLock sync.RWMutex
 )
@@ -18,6 +21,15 @@ func UpdateOptionMap(key string, value string) {
 	OptionMap[key] = value
 	if key == "system_name" {
 		SystemName = value
+	}
+	if key == "register_enabled" {
+		RegisterEnabled = (value == "true")
+	}
+	if key == "password_login_enabled" {
+		PasswordLoginEnabled = (value == "true")
+	}
+	if key == "password_register_enabled" {
+		PasswordRegisterEnabled = (value == "true")
 	}
 
 	if key == "github_client_id" {
@@ -82,6 +94,27 @@ func UpdateOptionMap(key string, value string) {
 	}
 	if key == "checkin_captcha" {
 		CheckinCaptcha = (value == "true")
+	}
+	if key == "hcaptcha_site_key" {
+		HCaptchaSiteKey = value
+	}
+	if key == "hcaptcha_secret_key" {
+		HCaptchaSecretKey = value
+	}
+	if key == "hcaptcha_enabled" {
+		HCaptchaEnabled = (value == "true")
+	}
+	if key == "recaptcha_site_key" {
+		ReCaptchaSiteKey = value
+	}
+	if key == "recaptcha_secret_key" {
+		ReCaptchaSecretKey = value
+	}
+	if key == "recaptcha_enabled" {
+		ReCaptchaEnabled = (value == "true")
+	}
+	if key == "recaptcha_version" {
+		ReCaptchaVersion = value
 	}
 	if key == "content_moderation_timeout" {
 		timeout, err := strconv.Atoi(value)

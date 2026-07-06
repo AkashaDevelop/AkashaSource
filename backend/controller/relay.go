@@ -411,9 +411,9 @@ func Relay(c *gin.Context) {
 		} else {
 			// 适配器未返回用量时估算
 			if attemptReq.Input != nil {
-				promptTokens = common.CountToken(fmt.Sprint(attemptReq.Input))
+				promptTokens = common.CountTokenForModel(fmt.Sprint(attemptReq.Input), openAIReq.Model)
 			} else {
-				promptTokens = common.CountToken(fmt.Sprint(attemptReq.Messages))
+				promptTokens = common.CountTokenForModel(fmt.Sprint(attemptReq.Messages), openAIReq.Model)
 			}
 			// 流式返回无法准确统计输出用量
 		}

@@ -4,7 +4,6 @@ import (
 	"STfreApi/common"
 	"STfreApi/model"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -82,7 +81,7 @@ func UpdateRedemptionStatus(c *gin.Context) {
 	}
 	var r model.Redemption
 	if err := common.DB.First(&r, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, common.R{Code: common.CodeNotFound, Msg: "兑换码不存在"})
+		common.Fail(c, common.CodeNotFound, "兑换码不存在")
 		return
 	}
 	if r.Status == model.RedemptionStatusUsed && body.Status != model.RedemptionStatusUsed {

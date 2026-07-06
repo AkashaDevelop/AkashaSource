@@ -147,8 +147,14 @@ func GetStatus(c *gin.Context) {
 		"oidc_client_id", "telegram_bot_token", "wechat_app_id",
 		"turnstile_check_enabled", "turnstile_site_key", "captcha_provider",
 		"geetest_enabled", "geetest_id", "checkin_captcha",
+		"hcaptcha_enabled", "hcaptcha_site_key",
+		"recaptcha_enabled", "recaptcha_site_key", "recaptcha_version",
 		"enable_topup", "payment_provider", "min_topup", "price",
 		"email_verification_enabled",
+		"register_enabled",
+		"password_login_enabled",
+		"password_register_enabled",
+		"passkey_enabled",
 	} {
 		options[k] = common.OptionMap[k]
 	}

@@ -56,6 +56,17 @@ var (
 	CaptchaProvider  = "" // "turnstile" or "geetest"
 	CheckinCaptcha   = false // 签到是否需要人机验证
 
+	// hCaptcha
+	HCaptchaSiteKey   = ""
+	HCaptchaSecretKey = ""
+	HCaptchaEnabled   = false
+
+	// Google reCAPTCHA
+	ReCaptchaSiteKey   = ""
+	ReCaptchaSecretKey = ""
+	ReCaptchaEnabled   = false
+	ReCaptchaVersion   = "v2" // "v2" or "v3"
+
 	// Redis
 	RedisAddr     = ""
 	RedisPassword = ""

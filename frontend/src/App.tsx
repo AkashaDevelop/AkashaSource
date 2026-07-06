@@ -22,11 +22,9 @@ import UserInvitation from './pages/user/Invitation';
 import SubscriptionManagement from './pages/admin/Subscription';
 
 import AdminInvitation from './pages/admin/Invitation';
-import MigrationPage from './pages/admin/Migration';
 import FilesPage from './pages/user/Files';
 import TasksPage from './pages/admin/Tasks';
 import UserTasksPage from './pages/user/Tasks';
-import SystemMonitor from './pages/admin/SystemMonitor';
 import CustomChannelConfig from './pages/admin/CustomChannelConfig';
 import PaymentManagement from './pages/admin/PaymentManagement';
 import ChannelHub from './pages/admin/ChannelHub';
@@ -99,10 +97,8 @@ function App() {
         <Route path="log" element={<LogPage />} />
         <Route path="subscription" element={<SubscriptionManagement />} />
         <Route path="invitation" element={<AdminInvitation />} />
-        <Route path="migration" element={<MigrationPage />} />
         <Route path="tasks" element={<TasksPage />} />
         <Route path="ops" element={<TasksPage />} />
-        <Route path="system-monitor" element={<SystemMonitor />} />
         <Route path="vendor" element={<VendorHub />} />
         <Route path="security" element={<SecurityHub />} />
         <Route

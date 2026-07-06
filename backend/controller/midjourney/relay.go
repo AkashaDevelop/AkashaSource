@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 
@@ -127,7 +127,7 @@ func RelayMidjourney(c *gin.Context) {
 	defer resp.Body.Close()
 
 	// 4. Handle Response
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 
 	// Check if upstream returned success
 	var mjResp MJResponse
@@ -218,7 +218,7 @@ func RelayMidjourneyFetch(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 	contentType := resp.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/json"

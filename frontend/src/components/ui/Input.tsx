@@ -24,6 +24,8 @@ export interface InputProps {
   min?: string | number
   max?: string | number
   onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>
+  onBlur?: React.FocusEventHandler<HTMLInputElement>
+  isInvalid?: boolean
   style?: React.CSSProperties
 }
 
@@ -51,9 +53,11 @@ export function Input({
   min,
   max,
   onKeyDown,
+  onBlur,
+  isInvalid,
   style,
 }: InputProps) {
-  const hasError = !!errorMessage
+  const hasError = !!errorMessage || isInvalid
   const py = size === 'sm' ? 'py-1.5' : size === 'lg' ? 'py-3' : 'py-2.5'
 
   return (
@@ -87,6 +91,7 @@ export function Input({
           min={min}
           max={max}
           onKeyDown={onKeyDown}
+          onBlur={onBlur}
           className={`flex-1 bg-transparent outline-none text-[var(--text-primary)] placeholder:text-[var(--text-faint)] text-sm ${py} disabled:cursor-not-allowed`}
           onChange={(e) => {
             onValueChange?.(e.target.value)

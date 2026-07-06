@@ -28,6 +28,17 @@ export default function Login() {
   const [geetestEnabled, setGeetestEnabled] = useState(false);
   const [geetestId, setGeetestId] = useState('');
   const [geetestResult, setGeetestResult] = useState<any>(null);
+  const [hcaptchaEnabled, setHcaptchaEnabled] = useState(false);
+  const [hcaptchaSiteKey, setHcaptchaSiteKey] = useState('');
+  const [hcaptchaToken, setHcaptchaToken] = useState('');
+  const [recaptchaEnabled, setRecaptchaEnabled] = useState(false);
+  const [recaptchaSiteKey, setRecaptchaSiteKey] = useState('');
+  const [recaptchaToken, setRecaptchaToken] = useState('');
+  const [recaptchaVersion, setRecaptchaVersion] = useState('v2');
+  const [registerEnabled, setRegisterEnabled] = useState(true);
+  const [passwordLoginEnabled, setPasswordLoginEnabled] = useState(true);
+  const [passkeyEnabled, setPasskeyEnabled] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
 
   // 2FA state
   const [requires2FA, setRequires2FA] = useState(false);
@@ -75,6 +86,18 @@ export default function Login() {
             setGeetestEnabled(true);
             setGeetestId(payload.options.geetest_id || '');
           }
+          if (payload.options.hcaptcha_enabled === 'true') {
+            setHcaptchaEnabled(true);
+            setHcaptchaSiteKey(payload.options.hcaptcha_site_key || '');
+          }
+          if (payload.options.recaptcha_enabled === 'true') {
+            setRecaptchaEnabled(true);
+            setRecaptchaSiteKey(payload.options.recaptcha_site_key || '');
+          }
+          if (payload.options.recaptcha_version) setRecaptchaVersion(payload.options.recaptcha_version);
+          if (payload.options.register_enabled !== undefined) setRegisterEnabled(payload.options.register_enabled !== 'false');
+          if (payload.options.password_login_enabled !== undefined) setPasswordLoginEnabled(payload.options.password_login_enabled !== 'false');
+          if (payload.options.passkey_enabled === 'true') setPasskeyEnabled(true);
         }
       });
   }, []);
@@ -104,6 +127,44 @@ export default function Login() {
     }
   }, [geetestEnabled, geetestId]);
 
+  useEffect(() => {
+    if (hcaptchaEnabled && hcaptchaSiteKey && (window as any).hcaptcha) {
+      try {
+        (window as any).hcaptcha.render('#hcaptcha-widget', {
+          sitekey: hcaptchaSiteKey,
+          callback: (token: string) => setHcaptchaToken(token),
+        });
+      } catch (e) { /* already rendered */ }
+    }
+  }, [hcaptchaEnabled, hcaptchaSiteKey]);
+
+  useEffect(() => {
+    if (!recaptchaEnabled || !recaptchaSiteKey) return;
+    const existing = document.querySelector('#recaptcha-api-script');
+    if (existing) return;
+    const script = document.createElement('script');
+    script.id = 'recaptcha-api-script';
+    if (recaptchaVersion === 'v3') {
+      script.src = `https://www.google.com/recaptcha/api.js?render=${recaptchaSiteKey}`;
+    } else {
+      script.src = 'https://www.google.com/recaptcha/api.js?render=explicit';
+    }
+    script.async = true;
+    script.defer = true;
+    document.head.appendChild(script);
+  }, [recaptchaEnabled, recaptchaSiteKey, recaptchaVersion]);
+
+  useEffect(() => {
+    if (recaptchaEnabled && recaptchaSiteKey && recaptchaVersion === 'v2' && (window as any).grecaptcha && (window as any).grecaptcha.render) {
+      try {
+        (window as any).grecaptcha.render('#recaptcha-widget', {
+          sitekey: recaptchaSiteKey,
+          callback: (token: string) => setRecaptchaToken(token),
+        });
+      } catch (e) { /* already rendered */ }
+    }
+  }, [recaptchaEnabled, recaptchaSiteKey, recaptchaVersion]);
+
   const triggerGeetest = (): Promise<any> => {
     return new Promise((resolve) => {
       const captchaObj = (window as any)._geetestCaptcha;
@@ -131,14 +192,82 @@ export default function Login() {
     window.location.href = '/oauth/oidc';
   };
 
+  const handlePasskeyLogin = async () => {
+    setPasskeyLoading(true);
+    setError('');
+    try {
+      const beginRes = await fetch('/api/user/passkey/login/begin', { method: 'POST' });
+      const beginData = await beginRes.json();
+      if (beginData.code !== 0) throw new Error(beginData.msg || 'Passkey 启动失败');
+      const { session_id, options } = beginData.data;
+      const pk = options.publicKey;
+      pk.challenge = b64urlToBuf(pk.challenge);
+      pk.allowCredentials = [];
+      const cred = await navigator.credentials.get({ publicKey: pk });
+      if (!cred) throw new Error('Passkey 验证已取消');
+      const credential = cred as any;
+      const finishBody = {
+        session_id,
+        id: credential.id,
+        rawId: bufToB64url(credential.rawId),
+        response: {
+          clientDataJSON: bufToB64url(credential.response.clientDataJSON),
+          authenticatorData: bufToB64url(credential.response.authenticatorData),
+          signature: bufToB64url(credential.response.signature),
+          userHandle: credential.response.userHandle ? bufToB64url(credential.response.userHandle) : null,
+        },
+        type: credential.type,
+      };
+      const finishRes = await fetch('/api/user/passkey/login/finish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(finishBody),
+      });
+      const finishData = await finishRes.json();
+      if (finishData.code !== 0) throw new Error(finishData.msg || 'Passkey 登录失败');
+      login(finishData.data.user, finishData.data.token);
+      if (finishData.data.user.role >= 10) navigate('/admin');
+      else navigate('/');
+    } catch (err: any) {
+      setError(err.message || 'Passkey 登录失败');
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
+
+  const b64urlToBuf = (b64: string) => Uint8Array.from(atob(b64.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+  const bufToB64url = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const useGeetest = captchaProvider === 'geetest' && geetestEnabled;
     const useTurnstile = captchaProvider === 'turnstile' ? turnstileEnabled : (!captchaProvider && turnstileEnabled);
+    const useHCaptcha = captchaProvider === 'hcaptcha' && hcaptchaEnabled;
+    const useReCaptcha = captchaProvider === 'recaptcha' && recaptchaEnabled;
 
     if (useTurnstile && !turnstileToken) {
       setError("请完成人机验证");
       return;
+    }
+    if (useHCaptcha && !hcaptchaToken) {
+      setError("请完成人机验证");
+      return;
+    }
+    let recaptchaTokenToSend = recaptchaToken;
+    if (useReCaptcha) {
+      if (recaptchaVersion === 'v3') {
+        try {
+          recaptchaTokenToSend = await (window as any).grecaptcha.execute(recaptchaSiteKey, { action: 'login' });
+        } catch {
+          setError('人机验证失败，请重试');
+          return;
+        }
+      } else {
+        if (!recaptchaTokenToSend) {
+          setError("请完成人机验证");
+          return;
+        }
+      }
     }
 
     let geetestData = geetestResult;
@@ -157,6 +286,8 @@ export default function Login() {
       const body: any = { username, password };
       if (useTurnstile) body.turnstile = turnstileToken;
       if (useGeetest && geetestData) body.geetest = geetestData;
+      if (useHCaptcha) body.hcaptcha = hcaptchaToken;
+      if (useReCaptcha) body.recaptcha = recaptchaTokenToSend;
 
       const res = await fetch('/api/user/login', {
         method: 'POST',
@@ -169,6 +300,14 @@ export default function Login() {
         if (turnstileEnabled && (window as any).turnstile) {
           (window as any).turnstile.reset();
           setTurnstileToken('');
+        }
+        if (useHCaptcha && (window as any).hcaptcha) {
+          (window as any).hcaptcha.reset();
+          setHcaptchaToken('');
+        }
+        if (useReCaptcha && recaptchaVersion === 'v2' && (window as any).grecaptcha) {
+          (window as any).grecaptcha.reset();
+          setRecaptchaToken('');
         }
         setGeetestResult(null);
         throw new Error(data.msg || 'Login failed');
@@ -344,38 +483,67 @@ export default function Login() {
 
           <CardBody className="overflow-visible py-6 px-8">
             {error && <Alert color="danger" className="mb-4">{error}</Alert>}
-            <Form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-              <Input isRequired label="用户名" placeholder="请输入用户名" value={username} onValueChange={setUsername} />
-              <Input isRequired label="密码" type="password" placeholder="请输入密码" value={password} onValueChange={setPassword} />
+            {passwordLoginEnabled && (
+              <Form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+                <Input isRequired label="用户名" placeholder="请输入用户名" value={username} onValueChange={setUsername} />
+                <Input isRequired label="密码" type="password" placeholder="请输入密码" value={password} onValueChange={setPassword} />
 
-              {turnstileEnabled && (
-                <div id="turnstile-widget" className="cf-turnstile" data-sitekey={turnstileSiteKey} data-callback="onTurnstileSuccess" />
-              )}
+                {turnstileEnabled && (
+                  <div id="turnstile-widget" className="cf-turnstile" data-sitekey={turnstileSiteKey} data-callback="onTurnstileSuccess" />
+                )}
 
-              <Button
-                type="submit"
-                isLoading={loading}
-                className="w-full font-bold h-11 mt-1"
-                style={{ background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))', color: 'white', borderRadius: '12px' }}
-              >
-                登录
-              </Button>
-            </Form>
+                {hcaptchaEnabled && captchaProvider === 'hcaptcha' && (
+                  <div id="hcaptcha-widget" />
+                )}
 
-            <div className="mt-2 text-right">
-              <Button variant="light" size="sm" onPress={onResetOpen} style={{ color: 'var(--text-secondary)' }}>
-                忘记密码?
-              </Button>
-            </div>
+                {recaptchaEnabled && recaptchaVersion === 'v2' && captchaProvider === 'recaptcha' && (
+                  <div id="recaptcha-widget" className="g-recaptcha" />
+                )}
+                {recaptchaEnabled && recaptchaVersion === 'v3' && captchaProvider === 'recaptcha' && (
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>受 reCAPTCHA v3 保护</p>
+                )}
 
-            {(githubEnabled || linuxDOEnabled || discordEnabled || oidcEnabled || telegramEnabled || wechatEnabled) && (
+                <Button
+                  type="submit"
+                  isLoading={loading}
+                  className="w-full font-bold h-11 mt-1"
+                  style={{ background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-cosmic))', color: 'white', borderRadius: '12px' }}
+                >
+                  登录
+                </Button>
+              </Form>
+            )}
+
+            {passwordLoginEnabled && (
+              <div className="mt-2 text-right">
+                <Button variant="light" size="sm" onPress={onResetOpen} style={{ color: 'var(--text-secondary)' }}>
+                  忘记密码?
+                </Button>
+              </div>
+            )}
+
+            {(passkeyEnabled || githubEnabled || linuxDOEnabled || discordEnabled || oidcEnabled || telegramEnabled || wechatEnabled) && (
               <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full" style={{ borderTop: '1px solid var(--border-color)' }} />
                 </div>
                 <div className="relative flex justify-center text-xs">
-                  <span className="px-3" style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)' }}>或使用第三方登录</span>
+                  <span className="px-3" style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)' }}>{passwordLoginEnabled ? '或使用其他方式' : '登录方式'}</span>
                 </div>
+              </div>
+            )}
+
+            {passkeyEnabled && (
+              <div className="mt-2">
+                <Button
+                  variant="bordered"
+                  isLoading={passkeyLoading}
+                  className="w-full"
+                  onPress={handlePasskeyLogin}
+                  style={{ borderColor: 'var(--accent-primary)', color: 'var(--accent-primary)', borderRadius: '12px' }}
+                >
+                  🔑 Passkey 登录
+                </Button>
               </div>
             )}
 
@@ -434,11 +602,13 @@ export default function Login() {
               </div>
             )}
 
-            <div className="mt-5 text-center">
-              <Button variant="light" onPress={() => navigate(initialized ? '/register' : '/setup')} style={{ color: 'var(--accent-primary)' }}>
-                {initialized ? '没有账号？立即注册 ✦' : '初始化系统（配置数据库 + 创建管理员）'}
-              </Button>
-            </div>
+            {registerEnabled && (
+              <div className="mt-5 text-center">
+                <Button variant="light" onPress={() => navigate(initialized ? '/register' : '/setup')} style={{ color: 'var(--accent-primary)' }}>
+                  {initialized ? '没有账号？立即注册 ✦' : '初始化系统（配置数据库 + 创建管理员）'}
+                </Button>
+              </div>
+            )}
           </CardBody>
         </Card>
       </div>

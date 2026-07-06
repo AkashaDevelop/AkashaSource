@@ -32,6 +32,10 @@ func BuildWebAuthn(r *http.Request) (*webauthn.WebAuthn, error) {
 	if rpID == "" {
 		rpID = hostWithoutPort(r.Host)
 	}
+	// WebAuthn requires a domain, not an IP address
+	if rpID == "127.0.0.1" || rpID == "0.0.0.0" {
+		rpID = "localhost"
+	}
 	if rpID == "" {
 		return nil, fmt.Errorf("passkey RPID 未配置")
 	}

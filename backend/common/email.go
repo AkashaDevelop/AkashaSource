@@ -15,9 +15,13 @@ func SendEmail(subject string, receiver string, content string) error {
 	if from == "" {
 		from = SMTPAccount
 	}
+	fromHeader := from
+	if SystemName != "" {
+		fromHeader = fmt.Sprintf("%s <%s>", SystemName, from)
+	}
 
 	msg := []byte("To: " + receiver + "\r\n" +
-		"From: " + from + "\r\n" +
+		"From: " + fromHeader + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"Content-Type: text/html; charset=UTF-8\r\n" +
 		"\r\n" + content + "\r\n")

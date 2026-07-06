@@ -24,6 +24,9 @@ const (
 
 	// Invitation Options
 	OptionKeyInvitationEnabled = "invitation_enabled" // 是否开启邀请码注册（开启后必须使用邀请码）
+	OptionKeyRegisterEnabled   = "register_enabled"   // 是否开放注册（默认 true）
+	OptionKeyPasswordLoginEnabled    = "password_login_enabled"    // 是否允许密码登录（默认 true）
+	OptionKeyPasswordRegisterEnabled = "password_register_enabled" // 是否允许密码注册（默认 true）
 	OptionKeyInvitationCost    = "invitation_cost"    // 生成邀请码的成本 (Quota)
 	OptionKeyInvitationReward  = "invitation_reward"  // 邀请者奖励 (Quota)
 	OptionKeyNewUserReward     = "new_user_reward"    // 新用户奖励 (Quota)
@@ -133,6 +136,15 @@ const (
 	OptionKeyPasskeyUserVerification = "passkey_user_verification"
 	OptionKeyPasskeyAttachment       = "passkey_attachment"
 
+	// Captcha Providers - hCaptcha & Google reCAPTCHA
+	OptionKeyHCaptchaSiteKey    = "hcaptcha_site_key"
+	OptionKeyHCaptchaSecretKey  = "hcaptcha_secret_key"
+	OptionKeyHCaptchaEnabled    = "hcaptcha_enabled"
+	OptionKeyReCaptchaSiteKey   = "recaptcha_site_key"
+	OptionKeyReCaptchaSecretKey = "recaptcha_secret_key"
+	OptionKeyReCaptchaEnabled   = "recaptcha_enabled"
+	OptionKeyReCaptchaVersion   = "recaptcha_version" // v2 or v3
+
 	// 宸汐玄鉴 - 行为风控模块（仅超管可配置）
 	OptionKeyXuanJianEnabled = "xuanjian_enabled" // "true" | "false"
 	OptionKeyXuanJianPolicy  = "xuanjian_policy"  // JSON 策略配置
@@ -190,16 +202,24 @@ func InitOptions() {
 		common.DB.FirstOrCreate(&Option{Key: OptionKeyModelPrice, Value: mpJSON}, Option{Key: OptionKeyModelPrice})
 	}
 
-	// billing_priority 默认值：订阅优先
-	if _, ok := common.OptionMap[OptionKeyBillingPriority]; !ok {
-		common.DB.FirstOrCreate(&Option{Key: OptionKeyBillingPriority, Value: "subscription_first"}, Option{Key: OptionKeyBillingPriority})
-		common.UpdateOptionMap(OptionKeyBillingPriority, "subscription_first")
-	}
-
 	// auto_groups 默认值：["default"]，管理员可以在设置里改成自己的候选分组顺序～
 	if _, ok := common.OptionMap[OptionKeyAutoGroups]; !ok {
 		agJSON := common.AutoGroups2JSONString()
 		common.DB.FirstOrCreate(&Option{Key: OptionKeyAutoGroups, Value: agJSON}, Option{Key: OptionKeyAutoGroups})
 		common.UpdateOptionMap(OptionKeyAutoGroups, agJSON)
+	}
+
+	// 登录注册开关默认值（首次启动写入 DB，管理员可在设置页修改）
+	common.DB.FirstOrCreate(&Option{Key: OptionKeyRegisterEnabled, Value: "true"}, Option{Key: OptionKeyRegisterEnabled})
+	common.DB.FirstOrCreate(&Option{Key: OptionKeyPasswordLoginEnabled, Value: "true"}, Option{Key: OptionKeyPasswordLoginEnabled})
+	common.DB.FirstOrCreate(&Option{Key: OptionKeyPasswordRegisterEnabled, Value: "true"}, Option{Key: OptionKeyPasswordRegisterEnabled})
+	if v, ok := common.OptionMap[OptionKeyRegisterEnabled]; !ok || v == "" {
+		common.UpdateOptionMap(OptionKeyRegisterEnabled, "true")
+	}
+	if v, ok := common.OptionMap[OptionKeyPasswordLoginEnabled]; !ok || v == "" {
+		common.UpdateOptionMap(OptionKeyPasswordLoginEnabled, "true")
+	}
+	if v, ok := common.OptionMap[OptionKeyPasswordRegisterEnabled]; !ok || v == "" {
+		common.UpdateOptionMap(OptionKeyPasswordRegisterEnabled, "true")
 	}
 }

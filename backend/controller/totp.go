@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"net/http"
 	"time"
 
 	"STfreApi/common"
 	"STfreApi/model"
+	"log"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pquerna/otp/totp"
@@ -32,31 +32,45 @@ func TOTPSetup(c *gin.Context) {
 	userId, _ := c.Get("id")
 	var user model.User
 	if err := common.DB.First(&user, userId).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+		common.Fail(c, common.CodeNotFound, "用户不存在")
 		return
 	}
 	if user.TOTPEnabled {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "2FA 已启用"})
+		common.Fail(c, common.CodeParamError, "2FA 已启用")
 		return
+	}
+
+	issuer := common.SystemName
+	if issuer == "" {
+		issuer = "Akasha"
+	}
+	accountName := user.Username
+	if accountName == "" {
+		accountName = user.Email
 	}
 
 	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer:      common.SystemName,
-		AccountName: user.Username,
+		Issuer:      issuer,
+		AccountName: accountName,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成密钥失败"})
+		log.Printf("[TOTP] Generate failed: issuer=%q account=%q err=%v", issuer, accountName, err)
+		common.Fail(c, common.CodeServerError, "生成密钥失败")
 		return
 	}
 
-	// Store secret temporarily (not enabled yet)
-	common.DB.Model(&user).Update("totp_secret", key.Secret())
-
+	// Generate and store backup codes alongside secret (not enabled yet)
 	backupCodes, _ := generateBackupCodes(8)
+	backupJSON, _ := json.Marshal(backupCodes)
 
-	c.JSON(http.StatusOK, gin.H{
+	common.DB.Model(&user).Updates(map[string]interface{}{
+		"totp_secret":  key.Secret(),
+		"backup_codes": string(backupJSON),
+	})
+
+	common.OK(c, gin.H{
+		"uri":          key.URL(),
 		"secret":       key.Secret(),
-		"url":          key.URL(),
 		"backup_codes": backupCodes,
 	})
 }
@@ -64,38 +78,32 @@ func TOTPSetup(c *gin.Context) {
 // TOTPEnable verifies a TOTP code and activates 2FA
 func TOTPEnable(c *gin.Context) {
 	var req struct {
-		Code        string   `json:"code" binding:"required"`
-		BackupCodes []string `json:"backup_codes"`
+		Code string `json:"code" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		common.Fail(c, common.CodeParamError, "参数错误")
 		return
 	}
 
 	userId, _ := c.Get("id")
 	var user model.User
 	if err := common.DB.First(&user, userId).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+		common.Fail(c, common.CodeNotFound, "用户不存在")
 		return
 	}
 	if user.TOTPSecret == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请先调用 setup 接口"})
+		common.Fail(c, common.CodeParamError, "请先调用 setup 接口")
 		return
 	}
 
 	if !totp.Validate(req.Code, user.TOTPSecret) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
+		common.Fail(c, common.CodeParamError, "验证码错误")
 		return
 	}
 
-	// Hash and store backup codes
-	backupJSON, _ := json.Marshal(req.BackupCodes)
-	common.DB.Model(&user).Updates(map[string]interface{}{
-		"totp_enabled": true,
-		"backup_codes": string(backupJSON),
-	})
+	common.DB.Model(&user).Update("totp_enabled", true)
 
-	c.JSON(http.StatusOK, gin.H{"message": "2FA 已启用"})
+	common.OK(c, gin.H{"message": "2FA 已启用"})
 }
 
 // TOTPDisable disables 2FA (requires password + TOTP code)
@@ -105,37 +113,37 @@ func TOTPDisable(c *gin.Context) {
 		Code     string `json:"code" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		common.Fail(c, common.CodeParamError, "参数错误")
 		return
 	}
 
 	userId, _ := c.Get("id")
 	var user model.User
 	if err := common.DB.First(&user, userId).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+		common.Fail(c, common.CodeNotFound, "用户不存在")
 		return
 	}
 	if !user.TOTPEnabled {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "2FA 未启用"})
+		common.Fail(c, common.CodeParamError, "2FA 未启用")
 		return
 	}
 	if !common.ValidatePassword(req.Password, user.Password) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "密码错误"})
+		common.Fail(c, common.CodeParamError, "密码错误")
 		return
 	}
 	if !totp.Validate(req.Code, user.TOTPSecret) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
+		common.Fail(c, common.CodeParamError, "验证码错误")
 		return
 	}
 
 	common.DB.Model(&user).Updates(map[string]interface{}{
-		"totp_enabled":  false,
-		"totp_secret":   "",
-		"backup_codes":  "",
+		"totp_enabled":    false,
+		"totp_secret":     "",
+		"backup_codes":    "",
 		"totp_fail_count": 0,
 		"totp_locked_at":  0,
 	})
-	c.JSON(http.StatusOK, gin.H{"message": "2FA 已禁用"})
+	common.OK(c, gin.H{"message": "2FA 已禁用"})
 }
 
 // TOTPLogin verifies 2FA code during login (second step)
@@ -145,13 +153,13 @@ func TOTPLogin(c *gin.Context) {
 		Code   string `json:"code" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		common.Fail(c, common.CodeParamError, "参数错误")
 		return
 	}
 
 	var user model.User
 	if err := common.DB.First(&user, req.UserId).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+		common.Fail(c, common.CodeNotFound, "用户不存在")
 		return
 	}
 
@@ -159,7 +167,7 @@ func TOTPLogin(c *gin.Context) {
 	if user.TOTPLockedAt > 0 {
 		lockUntil := time.Unix(user.TOTPLockedAt, 0).Add(15 * time.Minute)
 		if time.Now().Before(lockUntil) {
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "2FA 已锁定，请15分钟后重试"})
+			common.Fail(c, common.CodeForbidden, "2FA 已锁定，请15分钟后重试")
 			return
 		}
 		common.DB.Model(&user).Updates(map[string]interface{}{
@@ -191,7 +199,7 @@ func TOTPLogin(c *gin.Context) {
 			updates["totp_locked_at"] = time.Now().Unix()
 		}
 		common.DB.Model(&user).Updates(updates)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
+		common.Fail(c, common.CodeParamError, "验证码错误")
 		return
 	}
 
@@ -203,13 +211,12 @@ func TOTPLogin(c *gin.Context) {
 	// Generate JWT
 	token, err := common.GenerateToken(user.Id, user.Username, user.Role)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成令牌失败"})
+		common.Fail(c, common.CodeServerError, "生成令牌失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "登录成功",
-		"token":   token,
+	common.OK(c, gin.H{
+		"token": token,
 		"user": gin.H{
 			"id": user.Id, "username": user.Username,
 			"role": user.Role, "quota": user.Quota,

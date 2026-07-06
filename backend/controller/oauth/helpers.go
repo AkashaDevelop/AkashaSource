@@ -66,6 +66,9 @@ func verifyState(state string) bool {
 // buildUser: returns a skeleton User (Quota will be overwritten by new-user reward)
 // invitationCode: optional invitation code from query param "aff"
 func createOAuthUser(idField, idValue string, buildUser func() model.User, invitationCode string) (*model.User, error) {
+	if !common.RegisterEnabled {
+		return nil, fmt.Errorf("注册已关闭")
+	}
 	var user model.User
 	if err := common.DB.Where(idField+" = ?", idValue).First(&user).Error; err == nil {
 		if user.Status == model.UserStatusBanned {

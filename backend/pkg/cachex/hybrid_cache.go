@@ -9,27 +9,29 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type HybridCache struct {
+// HybridCache 是 Redis 优先、进程内 map 兜底的混合缓存。
+// 泛型参数 T 允许缓存任意可 JSON 序列化的值类型。
+type HybridCache[T any] struct {
 	namespace    string
 	redis        *redis.Client
 	redisEnabled func() bool
-	memory       map[string]cacheEntry
+	memory       map[string]cacheEntry[T]
 	mu           sync.RWMutex
 	maxEntries   int
 	defaultTTL   time.Duration
 }
 
-type cacheEntry struct {
-	value    int
+type cacheEntry[T any] struct {
+	value    T
 	expireAt int64
 }
 
-func NewHybridCache(namespace string, redis *redis.Client, redisEnabled func() bool, maxEntries int, defaultTTL time.Duration) *HybridCache {
-	cache := &HybridCache{
+func NewHybridCache[T any](namespace string, redis *redis.Client, redisEnabled func() bool, maxEntries int, defaultTTL time.Duration) *HybridCache[T] {
+	cache := &HybridCache[T]{
 		namespace:    namespace,
 		redis:        redis,
 		redisEnabled: redisEnabled,
-		memory:       make(map[string]cacheEntry),
+		memory:       make(map[string]cacheEntry[T]),
 		maxEntries:   maxEntries,
 		defaultTTL:   defaultTTL,
 	}
@@ -37,7 +39,7 @@ func NewHybridCache(namespace string, redis *redis.Client, redisEnabled func() b
 	return cache
 }
 
-func (c *HybridCache) Get(key string) (int, bool) {
+func (c *HybridCache[T]) Get(key string) (T, bool) {
 	fullKey := c.namespace + ":" + key
 
 	if c.redisEnabled != nil && c.redisEnabled() && c.redis != nil {
@@ -45,7 +47,7 @@ func (c *HybridCache) Get(key string) (int, bool) {
 		defer cancel()
 		val, err := c.redis.Get(ctx, fullKey).Result()
 		if err == nil {
-			var result int
+			var result T
 			if json.Unmarshal([]byte(val), &result) == nil {
 				return result, true
 			}
@@ -56,12 +58,13 @@ func (c *HybridCache) Get(key string) (int, bool) {
 	defer c.mu.RUnlock()
 	entry, ok := c.memory[key]
 	if !ok || time.Now().Unix() > entry.expireAt {
-		return 0, false
+		var zero T
+		return zero, false
 	}
 	return entry.value, true
 }
 
-func (c *HybridCache) Set(key string, value int, ttl time.Duration) {
+func (c *HybridCache[T]) Set(key string, value T, ttl time.Duration) {
 	fullKey := c.namespace + ":" + key
 
 	if c.redisEnabled != nil && c.redisEnabled() && c.redis != nil {
@@ -78,13 +81,13 @@ func (c *HybridCache) Set(key string, value int, ttl time.Duration) {
 		c.evictOldest()
 	}
 
-	c.memory[key] = cacheEntry{
+	c.memory[key] = cacheEntry[T]{
 		value:    value,
 		expireAt: time.Now().Add(ttl).Unix(),
 	}
 }
 
-func (c *HybridCache) evictOldest() {
+func (c *HybridCache[T]) evictOldest() {
 	var oldestKey string
 	var oldestTime int64 = time.Now().Unix()
 
@@ -100,7 +103,7 @@ func (c *HybridCache) evictOldest() {
 	}
 }
 
-func (c *HybridCache) cleanup() {
+func (c *HybridCache[T]) cleanup() {
 	ticker := time.NewTicker(5 * time.Minute)
 	for range ticker.C {
 		c.mu.Lock()
@@ -114,7 +117,7 @@ func (c *HybridCache) cleanup() {
 	}
 }
 
-func (c *HybridCache) Keys() []string {
+func (c *HybridCache[T]) Keys() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -125,7 +128,7 @@ func (c *HybridCache) Keys() []string {
 	return keys
 }
 
-func (c *HybridCache) DeleteMany(keys []string) {
+func (c *HybridCache[T]) DeleteMany(keys []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

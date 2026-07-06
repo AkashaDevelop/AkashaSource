@@ -39,11 +39,19 @@ export default function Register() {
   const [geetestEnabled, setGeetestEnabled] = useState(false);
   const [geetestId, setGeetestId] = useState('');
   const [geetestResult, setGeetestResult] = useState<any>(null);
+  const [hcaptchaEnabled, setHcaptchaEnabled] = useState(false);
+  const [hcaptchaSiteKey, setHcaptchaSiteKey] = useState('');
+  const [hcaptchaToken, setHcaptchaToken] = useState('');
+  const [recaptchaEnabled, setRecaptchaEnabled] = useState(false);
+  const [recaptchaSiteKey, setRecaptchaSiteKey] = useState('');
+  const [recaptchaToken, setRecaptchaToken] = useState('');
+  const [recaptchaVersion, setRecaptchaVersion] = useState('v2');
   const [emailVerifyEnabled, setEmailVerifyEnabled] = useState(false);
   const [emailCode, setEmailCode] = useState('');
   const [sendingCode, setSendingCode] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [registerDisabled, setRegisterDisabled] = useState(false);
 
   useEffect(() => {
     fetch('/api/system/status')
@@ -60,8 +68,20 @@ export default function Register() {
             setGeetestEnabled(true);
             setGeetestId(payload.options.geetest_id || '');
           }
+          if (payload.options.hcaptcha_enabled === 'true') {
+            setHcaptchaEnabled(true);
+            setHcaptchaSiteKey(payload.options.hcaptcha_site_key || '');
+          }
+          if (payload.options.recaptcha_enabled === 'true') {
+            setRecaptchaEnabled(true);
+            setRecaptchaSiteKey(payload.options.recaptcha_site_key || '');
+          }
+          if (payload.options.recaptcha_version) setRecaptchaVersion(payload.options.recaptcha_version);
           if (payload.options.email_verification_enabled === 'true') {
             setEmailVerifyEnabled(true);
+          }
+          if (payload.options.register_enabled === 'false') {
+            setRegisterDisabled(true);
           }
         }
       });
@@ -89,6 +109,44 @@ export default function Register() {
       });
     }
   }, [geetestEnabled, geetestId]);
+
+  useEffect(() => {
+    if (hcaptchaEnabled && hcaptchaSiteKey && (window as any).hcaptcha) {
+      try {
+        (window as any).hcaptcha.render('#register-hcaptcha-widget', {
+          sitekey: hcaptchaSiteKey,
+          callback: (token: string) => setHcaptchaToken(token),
+        });
+      } catch (e) { /* already rendered */ }
+    }
+  }, [hcaptchaEnabled, hcaptchaSiteKey]);
+
+  useEffect(() => {
+    if (!recaptchaEnabled || !recaptchaSiteKey) return;
+    const existing = document.querySelector('#recaptcha-api-script');
+    if (existing) return;
+    const script = document.createElement('script');
+    script.id = 'recaptcha-api-script';
+    if (recaptchaVersion === 'v3') {
+      script.src = `https://www.google.com/recaptcha/api.js?render=${recaptchaSiteKey}`;
+    } else {
+      script.src = 'https://www.google.com/recaptcha/api.js?render=explicit';
+    }
+    script.async = true;
+    script.defer = true;
+    document.head.appendChild(script);
+  }, [recaptchaEnabled, recaptchaSiteKey, recaptchaVersion]);
+
+  useEffect(() => {
+    if (recaptchaEnabled && recaptchaSiteKey && recaptchaVersion === 'v2' && (window as any).grecaptcha && (window as any).grecaptcha.render) {
+      try {
+        (window as any).grecaptcha.render('#register-recaptcha-widget', {
+          sitekey: recaptchaSiteKey,
+          callback: (token: string) => setRecaptchaToken(token),
+        });
+      } catch (e) { /* already rendered */ }
+    }
+  }, [recaptchaEnabled, recaptchaSiteKey, recaptchaVersion]);
 
   const sendCode = async () => {
     if (!email) { setError('请先填写邮箱'); return; }
@@ -127,10 +185,32 @@ export default function Register() {
     if (!validateAll()) return;
     const useGeetest = captchaProvider === 'geetest' && geetestEnabled;
     const useTurnstile = captchaProvider === 'turnstile' ? turnstileEnabled : (!captchaProvider && turnstileEnabled);
+    const useHCaptcha = captchaProvider === 'hcaptcha' && hcaptchaEnabled;
+    const useReCaptcha = captchaProvider === 'recaptcha' && recaptchaEnabled;
 
     if (useTurnstile && !turnstileToken) {
       setError("请完成人机验证");
       return;
+    }
+    if (useHCaptcha && !hcaptchaToken) {
+      setError("请完成人机验证");
+      return;
+    }
+    let recaptchaTokenToSend = recaptchaToken;
+    if (useReCaptcha) {
+      if (recaptchaVersion === 'v3') {
+        try {
+          recaptchaTokenToSend = await (window as any).grecaptcha.execute(recaptchaSiteKey, { action: 'register' });
+        } catch {
+          setError('人机验证失败，请重试');
+          return;
+        }
+      } else {
+        if (!recaptchaTokenToSend) {
+          setError("请完成人机验证");
+          return;
+        }
+      }
     }
 
     let geetestData = geetestResult;
@@ -150,6 +230,8 @@ export default function Register() {
       if (emailVerifyEnabled) body.email_code = emailCode;
       if (useTurnstile) body.turnstile = turnstileToken;
       if (useGeetest && geetestData) body.geetest = geetestData;
+      if (useHCaptcha) body.hcaptcha = hcaptchaToken;
+      if (useReCaptcha) body.recaptcha = recaptchaTokenToSend;
 
       const res = await fetch('/api/user/register', {
         method: 'POST',
@@ -163,6 +245,14 @@ export default function Register() {
         if (useTurnstile && (window as any).turnstile) {
           (window as any).turnstile.reset();
           setTurnstileToken('');
+        }
+        if (useHCaptcha && (window as any).hcaptcha) {
+          (window as any).hcaptcha.reset();
+          setHcaptchaToken('');
+        }
+        if (useReCaptcha && recaptchaVersion === 'v2' && (window as any).grecaptcha) {
+          (window as any).grecaptcha.reset();
+          setRecaptchaToken('');
         }
         setGeetestResult(null);
         throw new Error(data.msg || 'Registration failed');
@@ -197,6 +287,11 @@ export default function Register() {
           </CardHeader>
           <CardBody className="overflow-visible py-6 px-8">
             {error && <Alert color="danger" className="mb-4">{error}</Alert>}
+            {registerDisabled ? (
+              <div className="text-center py-8">
+                <p className="text-base" style={{ color: 'var(--text-secondary)' }}>注册已关闭，请联系管理员</p>
+              </div>
+            ) : (
             <Form className="flex flex-col gap-4" onSubmit={handleSubmit}>
               <div>
                 <Input
@@ -244,6 +339,17 @@ export default function Register() {
                 <div id="register-turnstile-widget" className="cf-turnstile" data-sitekey={turnstileSiteKey} />
               )}
 
+              {hcaptchaEnabled && captchaProvider === 'hcaptcha' && (
+                <div id="register-hcaptcha-widget" />
+              )}
+
+              {recaptchaEnabled && recaptchaVersion === 'v2' && captchaProvider === 'recaptcha' && (
+                <div id="register-recaptcha-widget" className="g-recaptcha" />
+              )}
+              {recaptchaEnabled && recaptchaVersion === 'v3' && captchaProvider === 'recaptcha' && (
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>受 reCAPTCHA v3 保护</p>
+              )}
+
               <Button
                 type="submit"
                 isLoading={loading}
@@ -253,6 +359,7 @@ export default function Register() {
                 注册
               </Button>
             </Form>
+            )}
             <div className="mt-5 text-center">
               <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>已有账号？</span>
               <Link href="/login" style={{ color: 'var(--accent-primary)' }}> 立即登录 ✦</Link>

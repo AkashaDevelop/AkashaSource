@@ -243,8 +243,8 @@ func RelayGeminiNative(c *gin.Context) {
 
 	// 9. Estimate usage for billing
 	if resp.StatusCode == http.StatusOK {
-		promptTokens := common.CountToken(string(bodyBytes))
-		completionTokens := common.CountToken(string(respBody))
+		promptTokens := common.CountTokenForModel(string(bodyBytes), mappedModel)
+		completionTokens := common.CountTokenForModel(string(respBody), mappedModel)
 		c.Set("channel_id", channel.Id)
 		c.Set("billing_group", billingGroup)
 		c.Set("is_stream", false)

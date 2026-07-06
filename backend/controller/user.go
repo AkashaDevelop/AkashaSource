@@ -4,7 +4,6 @@ import (
 	"STfreApi/common"
 	"STfreApi/model"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -14,19 +13,25 @@ import (
 )
 
 type LoginRequest struct {
-	Username  string                         `json:"username" binding:"required"`
-	Password  string                         `json:"password" binding:"required"`
-	Turnstile string                         `json:"turnstile"`
-	GeeTest   *common.GeeTestValidateRequest `json:"geetest"`
+	Username   string                         `json:"username" binding:"required"`
+	Password   string                         `json:"password" binding:"required"`
+	Turnstile  string                         `json:"turnstile"`
+	GeeTest    *common.GeeTestValidateRequest `json:"geetest"`
+	HCaptcha   string                         `json:"hcaptcha"`
+	ReCaptcha  string                         `json:"recaptcha"`
 }
 
 func UserLogin(c *gin.Context) {
+	if !common.PasswordLoginEnabled {
+		common.Fail(c, common.CodeForbidden, "密码登录已关闭")
+		return
+	}
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.Fail(c, common.CodeParamError, err.Error())
 		return
 	}
-	if !common.VerifyCaptcha(req.Turnstile, req.GeeTest) {
+	if !common.VerifyCaptcha(req.Turnstile, req.HCaptcha, req.ReCaptcha, req.GeeTest) {
 		common.Fail(c, common.CodeParamError, "人机验证失败")
 		return
 	}
@@ -61,16 +66,26 @@ type RegisterRequest struct {
 	EmailCode      string                         `json:"email_code"`
 	Turnstile      string                         `json:"turnstile"`
 	GeeTest        *common.GeeTestValidateRequest `json:"geetest"`
+	HCaptcha       string                         `json:"hcaptcha"`
+	ReCaptcha      string                         `json:"recaptcha"`
 	InvitationCode string                         `json:"invitation_code"`
 }
 
 func UserRegister(c *gin.Context) {
+	if !common.RegisterEnabled {
+		common.Fail(c, common.CodeForbidden, "注册已关闭")
+		return
+	}
+	if !common.PasswordRegisterEnabled {
+		common.Fail(c, common.CodeForbidden, "密码注册已关闭，请使用第三方登录")
+		return
+	}
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.Fail(c, common.CodeParamError, err.Error())
 		return
 	}
-	if !common.VerifyCaptcha(req.Turnstile, req.GeeTest) {
+	if !common.VerifyCaptcha(req.Turnstile, req.HCaptcha, req.ReCaptcha, req.GeeTest) {
 		common.Fail(c, common.CodeParamError, "人机验证失败")
 		return
 	}
@@ -236,7 +251,7 @@ func UpdateUser(c *gin.Context) {
 	}
 	var existing model.User
 	if err := common.DB.First(&existing, user.Id).Error; err != nil {
-		c.JSON(http.StatusNotFound, common.R{Code: common.CodeNotFound, Msg: "用户不存在"})
+		common.Fail(c, common.CodeNotFound, "用户不存在")
 		return
 	}
 	existing.Username = user.Username
@@ -308,7 +323,7 @@ func GetSelf(c *gin.Context) {
 	userId, _ := c.Get("id")
 	var user model.User
 	if err := common.DB.First(&user, userId).Error; err != nil {
-		c.JSON(http.StatusNotFound, common.R{Code: common.CodeNotFound, Msg: "用户不存在"})
+		common.Fail(c, common.CodeNotFound, "用户不存在")
 		return
 	}
 	user.Password = ""
@@ -324,7 +339,7 @@ func UpdateSelf(c *gin.Context) {
 	userId, _ := c.Get("id")
 	var existing model.User
 	if err := common.DB.First(&existing, userId).Error; err != nil {
-		c.JSON(http.StatusNotFound, common.R{Code: common.CodeNotFound, Msg: "用户不存在"})
+		common.Fail(c, common.CodeNotFound, "用户不存在")
 		return
 	}
 	existing.DisplayName = user.DisplayName

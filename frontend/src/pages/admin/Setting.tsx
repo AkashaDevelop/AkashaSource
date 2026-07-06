@@ -10,7 +10,7 @@ import {
 } from '../../components/ui';
 import {
   Save, Plus, Edit, Trash2,
-  Globe, CreditCard, Shield, Link2, Mail, Gift, CalendarCheck, Bell, Settings, Settings2, BarChart3,
+  Globe, CreditCard, Shield, Link2, Mail, Gift, CalendarCheck, Bell, Settings, BarChart3, Fingerprint, Lock,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
@@ -134,14 +134,18 @@ export default function SystemSettings() {
       'cxsec_enabled','cxsec_protected_paths','qingyuan_enabled',
       'turnstile_site_key','turnstile_secret_key','turnstile_check_enabled',
       'captcha_provider','geetest_enabled','geetest_id','geetest_key',
+      'hcaptcha_enabled','hcaptcha_site_key','hcaptcha_secret_key',
+      'recaptcha_enabled','recaptcha_version','recaptcha_site_key','recaptcha_secret_key',
       'invitation_enabled','invitation_cost','invitation_reward','new_user_reward',
+      'register_enabled','password_login_enabled','password_register_enabled',
       'checkin_enabled','checkin_min_reward','checkin_max_reward','checkin_captcha',
       'low_balance_threshold','channel_alert_enabled',
       'thinking_to_content','model_rpm',
       'email_domain_restriction_enabled','email_domain_whitelist',
       'log_retention_days',
       'quota_display_type', 'quota_display_symbol', 'quota_display_rate',
-      'billing_priority',
+      'passkey_enabled','passkey_rp_id','passkey_display_name','passkey_origins','passkey_allow_insecure','passkey_user_verification','passkey_attachment',
+      'about','payment_notify_secret','epay_notify_url','epay_return_url',
       'model_price',
     ];
     const options = [
@@ -195,6 +199,33 @@ export default function SystemSettings() {
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
+                  <Lock size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>登录与注册</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-3">
+                <SettingRow title="允许密码登录" description="关闭后用户只能通过第三方账号或 Passkey 登录">
+                  <Switch isSelected={get('password_login_enabled', 'true') === 'true'} onValueChange={v => set('password_login_enabled', String(v))} />
+                </SettingRow>
+                <Divider />
+                <SettingRow title="允许新用户注册" description="关闭后密码注册和第三方自动注册均不可用">
+                  <Switch isSelected={get('register_enabled', 'true') === 'true'} onValueChange={v => set('register_enabled', String(v))} />
+                </SettingRow>
+                <Divider />
+                <SettingRow title="允许密码注册" description="关闭后仅允许第三方账号注册新用户">
+                  <Switch isSelected={get('password_register_enabled', 'true') === 'true'} onValueChange={v => set('password_register_enabled', String(v))} />
+                </SettingRow>
+                <Divider />
+                <SettingRow title="要求邮箱验证" description="注册时需要输入邮箱验证码">
+                  <Switch isSelected={get('email_verification_enabled') === 'true'} onValueChange={v => set('email_verification_enabled', String(v))} />
+                </SettingRow>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>邮箱验证需要在「邮件」标签页配置 SMTP 服务器</p>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
                   <Globe size={16} style={{ color: 'var(--accent-primary)' }} />
                   <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>站点信息</span>
                 </div>
@@ -220,6 +251,7 @@ export default function SystemSettings() {
               <CardBody className="gap-4">
                 <Textarea label="公告内容（Markdown）" value={get('notice')} onValueChange={v => set('notice', v)} minRows={3} placeholder="向用户展示的公告信息" />
                 <Textarea label="页脚 HTML" value={get('footer_html')} onValueChange={v => set('footer_html', v)} minRows={2} placeholder="自定义页脚内容，支持 HTML" />
+                <Textarea label="关于页内容" value={get('about')} onValueChange={v => set('about', v)} minRows={3} description="Markdown 格式，显示在关于页面" />
               </CardBody>
             </Card>
 
@@ -266,29 +298,6 @@ export default function SystemSettings() {
                     <Input label="汇率（相对美元）" type="number" value={get('quota_display_rate', '1')} onValueChange={v => set('quota_display_rate', v)} description="1 美元 = 此汇率 货币" />
                   </div>
                 )}
-                <Divider />
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>资金来源优先级</span>
-                  <div className="flex gap-2 flex-wrap">
-                    {([
-                      { key: 'subscription_first', label: '订阅优先' },
-                      { key: 'wallet_first', label: '余额优先' },
-                    ] as const).map(item => {
-                      const active = (get('billing_priority') || 'subscription_first') === item.key;
-                      return (
-                        <button key={item.key} type="button"
-                          onClick={() => set('billing_priority', item.key)}
-                          className={`px-3 py-1.5 rounded-lg border text-sm transition-all ${active
-                            ? 'border-[var(--accent-primary)] bg-[var(--nav-active-bg)] text-[var(--accent-primary)] font-semibold'
-                            : 'border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] cursor-pointer'}`}
-                        >
-                          {item.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>订阅优先：先扣订阅额度，不足再扣余额；余额优先：先扣余额，不足再扣订阅</p>
-                </div>
               </CardBody>
             </Card>
           </div>
@@ -337,6 +346,8 @@ export default function SystemSettings() {
                   </div>
                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>选择启用的支付渠道，仅该渠道的配置会生效</p>
                 </div>
+                <Divider />
+                <Input label="支付回调签名密钥" type="password" value={get('payment_notify_secret')} onValueChange={v => set('payment_notify_secret', v)} description="用于验证支付异步通知合法性，留空则不校验" />
               </CardBody>
             </Card>
 
@@ -358,6 +369,10 @@ export default function SystemSettings() {
                   </div>
                   <UrlBlock label="异步回调地址（在易支付后台填写）" url={systemUrl ? `${systemUrl}/api/payment/notify` : null} />
                   <UrlBlock label="同步返回地址" url={systemUrl || null} />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input label="异步通知地址" value={get('epay_notify_url')} onValueChange={v => set('epay_notify_url', v)} description="留空则自动使用 系统地址/api/payment/notify" />
+                    <Input label="同步返回地址" value={get('epay_return_url')} onValueChange={v => set('epay_return_url', v)} description="留空则自动使用系统地址" />
+                  </div>
                 </CardBody>
               </Card>
             )}
@@ -454,7 +469,7 @@ export default function SystemSettings() {
                 <div className="flex items-center gap-2">
                   <Shield size={16} style={{ color: 'var(--accent-cosmic)' }} />
                   <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>内容审查</span>
-                  <Chip size="sm" color="info" variant="flat">腾讯云天御</Chip>
+                  <Chip size="sm" color="primary" variant="flat">腾讯云天御</Chip>
                 </div>
               </CardHeader>
               <CardBody className="gap-4">
@@ -486,20 +501,135 @@ export default function SystemSettings() {
                 </div>
               </CardHeader>
               <CardBody className="gap-4">
-                <SettingRow title="Cloudflare Turnstile" description="无需用户交互的无感人机验证">
-                  <Switch isSelected={get('turnstile_check_enabled') === 'true'} onValueChange={v => set('turnstile_check_enabled', String(v))} />
-                </SettingRow>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input label="站点密钥" value={get('turnstile_site_key')} onValueChange={v => set('turnstile_site_key', v)} />
-                  <Input label="私钥" type="password" value={get('turnstile_secret_key')} onValueChange={v => set('turnstile_secret_key', v)} />
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>验证码提供商</span>
+                  <div className="flex gap-2 flex-wrap">
+                    {([
+                      { key: '', label: '关闭' },
+                      { key: 'turnstile', label: 'Turnstile' },
+                      { key: 'geetest', label: '极验' },
+                      { key: 'hcaptcha', label: 'hCaptcha' },
+                      { key: 'recaptcha', label: 'reCAPTCHA' },
+                    ] as const).map(item => {
+                      const active = get('captcha_provider') === item.key;
+                      return (
+                        <button
+                          key={item.key || 'none'}
+                          type="button"
+                          onClick={() => set('captcha_provider', item.key)}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-sm transition-all duration-200
+                            ${active
+                              ? 'border-[var(--accent-primary)] bg-[var(--nav-active-bg)] text-[var(--accent-primary)] font-semibold'
+                              : 'border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] cursor-pointer'
+                            }`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>选择启用的验证码提供商，仅该提供商的配置会生效</p>
                 </div>
                 <Divider />
-                <SettingRow title="极验 GeeTest" description="滑动拼图/点选文字等交互式验证">
-                  <Switch isSelected={get('geetest_enabled') === 'true'} onValueChange={v => set('geetest_enabled', String(v))} />
+                {get('captcha_provider') === 'turnstile' && (
+                  <>
+                    <SettingRow title="Cloudflare Turnstile" description="无需用户交互的无感人机验证">
+                      <Switch isSelected={get('turnstile_check_enabled') === 'true'} onValueChange={v => set('turnstile_check_enabled', String(v))} />
+                    </SettingRow>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Input label="站点密钥" value={get('turnstile_site_key')} onValueChange={v => set('turnstile_site_key', v)} />
+                      <Input label="私钥" type="password" value={get('turnstile_secret_key')} onValueChange={v => set('turnstile_secret_key', v)} />
+                    </div>
+                  </>
+                )}
+                {get('captcha_provider') === 'geetest' && (
+                  <>
+                    <SettingRow title="极验 GeeTest" description="滑动拼图/点选文字等交互式验证">
+                      <Switch isSelected={get('geetest_enabled') === 'true'} onValueChange={v => set('geetest_enabled', String(v))} />
+                    </SettingRow>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Input label="Captcha ID" value={get('geetest_id')} onValueChange={v => set('geetest_id', v)} />
+                      <Input label="Captcha Key" type="password" value={get('geetest_key')} onValueChange={v => set('geetest_key', v)} />
+                    </div>
+                  </>
+                )}
+                {get('captcha_provider') === 'hcaptcha' && (
+                  <>
+                    <SettingRow title="hCaptcha" description="hCaptcha 人机验证">
+                      <Switch isSelected={get('hcaptcha_enabled') === 'true'} onValueChange={v => set('hcaptcha_enabled', String(v))} />
+                    </SettingRow>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Input label="站点密钥" value={get('hcaptcha_site_key')} onValueChange={v => set('hcaptcha_site_key', v)} />
+                      <Input label="私钥" type="password" value={get('hcaptcha_secret_key')} onValueChange={v => set('hcaptcha_secret_key', v)} />
+                    </div>
+                  </>
+                )}
+                {get('captcha_provider') === 'recaptcha' && (
+                  <>
+                    <SettingRow title="Google reCAPTCHA" description="Google reCAPTCHA 人机验证">
+                      <Switch isSelected={get('recaptcha_enabled') === 'true'} onValueChange={v => set('recaptcha_enabled', String(v))} />
+                    </SettingRow>
+                    <div className="flex flex-col gap-2">
+                      <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>版本</span>
+                      <div className="flex gap-2 flex-wrap">
+                        {([
+                          { key: 'v2', label: 'v2（复选框）' },
+                          { key: 'v3', label: 'v3（不可见）' },
+                        ] as const).map(item => {
+                          const active = (get('recaptcha_version') || 'v2') === item.key;
+                          return (
+                            <button
+                              key={item.key}
+                              type="button"
+                              onClick={() => set('recaptcha_version', item.key)}
+                              className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-sm transition-all duration-200
+                                ${active
+                                  ? 'border-[var(--accent-primary)] bg-[var(--nav-active-bg)] text-[var(--accent-primary)] font-semibold'
+                                  : 'border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] cursor-pointer'
+                                }`}
+                            >
+                              {item.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>v2 显示复选框组件，v3 不可见基于评分验证</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Input label="站点密钥" value={get('recaptcha_site_key')} onValueChange={v => set('recaptcha_site_key', v)} />
+                      <Input label="私钥" type="password" value={get('recaptcha_secret_key')} onValueChange={v => set('recaptcha_secret_key', v)} />
+                    </div>
+                  </>
+                )}
+                {get('captcha_provider') === '' && (
+                  <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>未启用验证码，用户无需通过人机验证即可注册和登录</p>
+                )}
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Fingerprint size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Passkey / WebAuthn</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <SettingRow title="启用 Passkey" description="允许用户注册指纹/面容/安全密钥作为无密码登录凭证">
+                  <Switch isSelected={get('passkey_enabled') === 'true'} onValueChange={v => set('passkey_enabled', String(v))} />
+                </SettingRow>
+                <Divider />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="RP ID（域名）" value={get('passkey_rp_id')} onValueChange={v => set('passkey_rp_id', v)} placeholder="自动检测（如 localhost 或 example.com）" description="通常为站点域名（不含端口和协议）" />
+                  <Input label="显示名称" value={get('passkey_display_name')} onValueChange={v => set('passkey_display_name', v)} placeholder="留空则使用系统名称" />
+                </div>
+                <Input label="允许的 Origins" value={get('passkey_origins')} onValueChange={v => set('passkey_origins', v)} placeholder="https://example.com,http://localhost:5173" description="多个用英文逗号分隔，留空则自动检测当前请求来源" />
+                <SettingRow title="允许 HTTP" description="开发环境下允许非 HTTPS 来源（生产环境不建议开启）">
+                  <Switch isSelected={get('passkey_allow_insecure') === 'true'} onValueChange={v => set('passkey_allow_insecure', String(v))} />
                 </SettingRow>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input label="Captcha ID" value={get('geetest_id')} onValueChange={v => set('geetest_id', v)} />
-                  <Input label="Captcha Key" type="password" value={get('geetest_key')} onValueChange={v => set('geetest_key', v)} />
+                  <Input label="用户验证" value={get('passkey_user_verification')} onValueChange={v => set('passkey_user_verification', v)} placeholder="preferred" description="preferred / required / discouraged" />
+                  <Input label="认证器类型" value={get('passkey_attachment')} onValueChange={v => set('passkey_attachment', v)} placeholder="不限" description="platform（设备内置）/ cross-platform（安全密钥）/ 留空不限" />
                 </div>
               </CardBody>
             </Card>
@@ -584,11 +714,11 @@ export default function SystemSettings() {
                       <Input
                         key={f.k}
                         label={f.l}
-                        type={f.pw ? 'password' : 'text'}
+                        type={(f as any).pw ? 'password' : 'text'}
                         value={get(f.k)}
                         onValueChange={v => set(f.k, v)}
-                        placeholder={f.ph || ''}
-                        className={f.span2 ? 'md:col-span-2' : ''}
+                        placeholder={(f as any).ph || ''}
+                        className={(f as any).span2 ? 'md:col-span-2' : ''}
                       />
                     ))}
                   </div>
@@ -632,10 +762,6 @@ export default function SystemSettings() {
                 </div>
               </CardHeader>
               <CardBody className="gap-4">
-                <SettingRow title="注册邮箱验证" description="注册时需要输入邮箱验证码">
-                  <Switch isSelected={get('email_verification_enabled') === 'true'} onValueChange={v => set('email_verification_enabled', String(v))} />
-                </SettingRow>
-                <Divider />
                 <SettingRow title="限制注册邮箱域名" description="仅允许白名单内域名的邮箱注册">
                   <Switch isSelected={get('email_domain_restriction_enabled') === 'true'} onValueChange={v => set('email_domain_restriction_enabled', String(v))} />
                 </SettingRow>
