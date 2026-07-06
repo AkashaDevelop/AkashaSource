@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"STfreApi/common"
@@ -58,35 +60,58 @@ func StripeWebhook(c *gin.Context) {
 		}
 
 	case stripe.EventTypeCheckoutSessionAsyncPaymentSucceeded:
-		tradeNo := event.GetObjectValue("client_reference_id")
-		if tradeNo == "" {
-			tradeNo = event.GetObjectValue("id")
+		// ～client_reference_id 存的是下单时的订单自增 Id（见 service/payment/stripe.go），
+		// 不是 trade_no（trade_no 存的是 Stripe SessionId），两者不能混用查询喵～
+		if refId := event.GetObjectValue("client_reference_id"); refId != "" {
+			orderId, err := strconv.Atoi(refId)
+			if err != nil {
+				log.Printf("[StripeWebhook] async_payment_succeeded client_reference_id 非法: %s", refId)
+				break
+			}
+			if err := paymentservice.RechargeOrder(orderId, notifyData); err != nil {
+				log.Printf("[StripeWebhook] async_payment_succeeded 入账失败 orderId=%d: %v", orderId, err)
+			}
+			break
 		}
-		if err := paymentservice.RechargeOrderByTradeNo(tradeNo, notifyData); err != nil {
-			log.Printf("[StripeWebhook] async_payment_succeeded 入账失败 tradeNo=%s: %v", tradeNo, err)
+		if sessionId := event.GetObjectValue("id"); sessionId != "" {
+			if err := paymentservice.RechargeOrderByTradeNo(sessionId, notifyData); err != nil {
+				log.Printf("[StripeWebhook] async_payment_succeeded 入账失败 sessionId=%s: %v", sessionId, err)
+			}
 		}
 
 	case stripe.EventTypeCheckoutSessionAsyncPaymentFailed:
-		tradeNo := event.GetObjectValue("client_reference_id")
-		if tradeNo == "" {
-			tradeNo = event.GetObjectValue("id")
+		if refId := event.GetObjectValue("client_reference_id"); refId != "" {
+			orderId, err := strconv.Atoi(refId)
+			if err != nil {
+				log.Printf("[StripeWebhook] async_payment_failed client_reference_id 非法: %s", refId)
+				break
+			}
+			log.Printf("[StripeWebhook] 异步支付失败 orderId=%d", orderId)
+			paymentservice.MarkOrderFailed(orderId, notifyData)
+			break
 		}
-		log.Printf("[StripeWebhook] 异步支付失败 tradeNo=%s", tradeNo)
-		if tradeNo != "" {
-			order, _ := model.GetOrderByTradeNo(tradeNo)
+		if sessionId := event.GetObjectValue("id"); sessionId != "" {
+			log.Printf("[StripeWebhook] 异步支付失败 sessionId=%s", sessionId)
+			order, _ := model.GetOrderByTradeNo(sessionId)
 			if order != nil {
 				paymentservice.MarkOrderFailed(order.Id, notifyData)
 			}
 		}
 
 	case stripe.EventTypeCheckoutSessionExpired:
-		tradeNo := event.GetObjectValue("client_reference_id")
-		if tradeNo == "" {
-			tradeNo = event.GetObjectValue("id")
+		if refId := event.GetObjectValue("client_reference_id"); refId != "" {
+			orderId, err := strconv.Atoi(refId)
+			if err != nil {
+				log.Printf("[StripeWebhook] session expired client_reference_id 非法: %s", refId)
+				break
+			}
+			paymentservice.MarkOrderExpired(orderId)
+			log.Printf("[StripeWebhook] checkout 过期 orderId=%d", orderId)
+			break
 		}
-		if tradeNo != "" {
-			paymentservice.MarkOrderExpiredByTradeNo(tradeNo)
-			log.Printf("[StripeWebhook] checkout 过期 tradeNo=%s", tradeNo)
+		if sessionId := event.GetObjectValue("id"); sessionId != "" {
+			paymentservice.MarkOrderExpiredByTradeNo(sessionId)
+			log.Printf("[StripeWebhook] checkout 过期 sessionId=%s", sessionId)
 		}
 
 	default:
@@ -247,7 +272,7 @@ func RequestAmount(c *gin.Context) {
 		common.Fail(c, common.CodeParamError, "参数错误")
 		return
 	}
-	common.OK(c, gin.H{"amount": req.Amount, "quota": int64(req.Amount * 500000)})
+	common.OK(c, gin.H{"amount": req.Amount, "quota": int64(math.Round(req.Amount * common.QuotaPerUnit))})
 }
 
 func RequestStripeAmount(c *gin.Context) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	stripe "github.com/stripe/stripe-go/v86"
-	"github.com/stripe/stripe-go/v86/checkout/session"
+	"github.com/stripe/stripe-go/v86/client"
 )
 
 // StripeCheckoutResult ～Stripe 发回来的付款跳转小票～
@@ -20,7 +20,9 @@ func CreateStripeCheckout(secretKey, currency, successUrl, cancelUrl string, amo
 		return nil, fmt.Errorf("Stripe Secret Key 未配置")
 	}
 
-	stripe.Key = secretKey
+	// ～用 client.API 实例而不是包级全局 stripe.Key，避免并发请求间互相覆盖密钥喵～
+	sc := &client.API{}
+	sc.Init(secretKey, nil)
 
 	if currency == "" {
 		currency = "usd"
@@ -52,7 +54,7 @@ func CreateStripeCheckout(secretKey, currency, successUrl, cancelUrl string, amo
 		ClientReferenceID: stripe.String(fmt.Sprintf("%d", orderId)),
 	}
 
-	sess, err := session.New(params)
+	sess, err := sc.CheckoutSessions.New(params)
 	if err != nil {
 		return nil, fmt.Errorf("创建 Stripe Checkout Session 失败: %w", err)
 	}

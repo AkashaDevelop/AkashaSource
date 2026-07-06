@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -72,6 +73,8 @@ func CreatePayment(c *gin.Context) {
 		Amount:    req.Amount,
 		Status:    model.PaymentStatusPending,
 		Provider:  provider,
+		// ～trade_no 有唯一索引，建单时必须先给个占位值，不然空字符串会和之前的订单撞车导致后续下单全部失败喵～
+		TradeNo:   "pending-" + common.GetUUID(),
 		CreatedAt: time.Now().Unix(),
 	}
 	if err := common.DB.Create(&order).Error; err != nil {
@@ -103,7 +106,7 @@ func CreatePayment(c *gin.Context) {
 		if cancelUrl == "" {
 			cancelUrl = systemUrl + "/topup"
 		}
-		amountCents := int64(req.Amount * 100)
+		amountCents := int64(math.Round(req.Amount * 100))
 		result, err := paymentservice.CreateStripeCheckout(
 			secretKey, currency, successUrl, cancelUrl,
 			amountCents, order.Id, fmt.Sprintf("Akasha 账户充值 %.2f", req.Amount),
@@ -239,6 +242,12 @@ func PaymentNotify(c *gin.Context) {
 		return
 	}
 
+	// ～幂等短路：已经处理过的订单直接当成功返回，和 epay 分支保持一致，避免回调重放重复入账喵～
+	if order.Status == model.PaymentStatusPaid {
+		common.OKMsg(c, "已处理", nil)
+		return
+	}
+
 	if status != "paid" {
 		common.DB.Model(&order).Updates(map[string]interface{}{
 			"status":      model.PaymentStatusFailed,
@@ -253,7 +262,6 @@ func PaymentNotify(c *gin.Context) {
 		err := common.DB.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Model(&model.PaymentOrder{}).Where("id = ?", order.Id).Updates(map[string]interface{}{
 				"status":      model.PaymentStatusPaid,
-				"paid_at":     time.Now().Unix(),
 				"notify_data": toJSON(payload),
 			}).Error; err != nil {
 				return err
@@ -373,7 +381,6 @@ func handleEpayNotify(c *gin.Context) {
 		err := common.DB.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Model(&model.PaymentOrder{}).Where("id = ?", order.Id).Updates(map[string]interface{}{
 				"status":      model.PaymentStatusPaid,
-				"paid_at":     time.Now().Unix(),
 				"notify_data": toJSON(params),
 			}).Error; err != nil {
 				return err

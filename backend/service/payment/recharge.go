@@ -7,6 +7,7 @@ import (
 	"STfreApi/service"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"time"
 
@@ -39,7 +40,7 @@ func RechargeOrder(orderId int, notifyData string) error {
 		return nil
 	}
 
-	quotaAdd := int64(order.Amount * common.QuotaPerUnit)
+	quotaAdd := int64(math.Round(order.Amount * common.QuotaPerUnit))
 
 	err := common.DB.Transaction(func(tx *gorm.DB) error {
 		updates := map[string]interface{}{
@@ -48,11 +49,17 @@ func RechargeOrder(orderId int, notifyData string) error {
 			"quota_added":  quotaAdd,
 			"notify_data":  notifyData,
 		}
-		// 兼容旧字段 paid_at
-		updates["paid_at"] = time.Now().Unix()
 
-		if err := tx.Model(&model.PaymentOrder{}).Where("id = ?", order.Id).Updates(updates).Error; err != nil {
-			return err
+		// ～WHERE 里带上 status=pending 做数据库层的防重复兜底，和上面的进程内锁形成双保险喵～
+		result := tx.Model(&model.PaymentOrder{}).
+			Where("id = ? AND status = ?", order.Id, model.PaymentStatusPending).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			// 已经被其他并发请求处理过了，当作幂等成功，不重复加账
+			return nil
 		}
 
 		if order.OrderType == "subscription" {
@@ -105,7 +112,17 @@ func MarkOrderFailed(orderId int, reason string) {
 		})
 }
 
-// MarkOrderExpired ～把 pending 的订单标记为已过期（Stripe session expired）～
+// MarkOrderExpired ～按订单 Id 把 pending 的订单标记为已过期（Stripe session expired）～
+func MarkOrderExpired(orderId int) {
+	common.DB.Model(&model.PaymentOrder{}).
+		Where("id = ? AND status = ?", orderId, model.PaymentStatusPending).
+		Updates(map[string]interface{}{
+			"status":       model.PaymentStatusExpired,
+			"completed_at": time.Now().Unix(),
+		})
+}
+
+// MarkOrderExpiredByTradeNo ～按交易号把 pending 的订单标记为已过期（Stripe session expired）～
 func MarkOrderExpiredByTradeNo(tradeNo string) {
 	common.DB.Model(&model.PaymentOrder{}).
 		Where("trade_no = ? AND status = ?", tradeNo, model.PaymentStatusPending).

@@ -124,6 +124,8 @@ func CreateSubscriptionOrder(c *gin.Context) {
 		Provider:  provider,
 		OrderType: "subscription",
 		RefId:     sub.Id,
+		// ～同 payment.go：trade_no 有唯一索引，建单时必须先给个占位值喵～
+		TradeNo:   "pending-" + common.GetUUID(),
 		CreatedAt: time.Now().Unix(),
 	}
 	if err := common.DB.Create(&order).Error; err != nil {
