@@ -1,7 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import {
   LayoutDashboard, Key, History, User as UserIcon,
-  Share2, FlaskConical, Tag, Shield, Files, MessageSquare, ListTodo, CreditCard,
+  Share2, FlaskConical, Tag, Shield, Files, MessageSquare, ListTodo, CreditCard, ShieldCheck,
 } from 'lucide-react';
 import { useSystemStore } from '../store/system';
 import SidebarLayout, { type NavGroup, useLayoutCommon } from './SidebarLayout';
@@ -37,6 +37,7 @@ export default function UserLayout() {
       label: '账户',
       items: [
         { key: '/billing', icon: CreditCard, label: '账单中心' },
+        { key: '/realname', icon: ShieldCheck, label: '实名认证' },
         { key: '/invitation', icon: Share2, label: '邀请管理' },
       ],
     },

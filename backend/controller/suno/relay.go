@@ -4,6 +4,7 @@ import (
 	"STfreApi/common"
 	"STfreApi/dto"
 	"STfreApi/model"
+	"STfreApi/service/realname"
 	"STfreApi/service/xuanjian"
 	"bytes"
 	"encoding/json"
@@ -34,6 +35,16 @@ func RelaySuno(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
 			Message: "invalid api key",
 			Type:    "invalid_request_error",
+		}})
+		return
+	}
+
+	// 实名认证检查（模型调用场景）
+	if err := realname.CheckRealnameRequirement(token.UserId, model.RealnameScenarioModelCall); err != nil {
+		c.JSON(http.StatusForbidden, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
+			Message: err.Error(),
+			Type:    "invalid_request_error",
+			Code:    "realname_required",
 		}})
 		return
 	}

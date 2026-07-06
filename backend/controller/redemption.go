@@ -3,6 +3,7 @@ package controller
 import (
 	"STfreApi/common"
 	"STfreApi/model"
+	"STfreApi/service/realname"
 	"fmt"
 	"strconv"
 	"strings"
@@ -225,6 +226,13 @@ func UseRedemptionCode(c *gin.Context) {
 	}
 	userId, _ := c.Get("id")
 	uid := userId.(int)
+
+	// 实名认证检查（充值场景：兑换码也属于充值行为）
+	if err := realname.CheckRealnameRequirement(uid, model.RealnameScenarioRecharge); err != nil {
+		common.Fail(c, common.CodeForbidden, err.Error())
+		return
+	}
+
 	var redemption model.Redemption
 	if err := common.DB.Where("code = ?", req.Code).First(&redemption).Error; err != nil {
 		common.Fail(c, common.CodeNotFound, "兑换码无效")

@@ -26,6 +26,7 @@ import Changelog from './pages/admin/Changelog';
 import FilesPage from './pages/user/Files';
 import TasksPage from './pages/admin/Tasks';
 import UserTasksPage from './pages/user/Tasks';
+import RealnameAuthPage from './pages/user/RealnameAuth';
 import CustomChannelConfig from './pages/admin/CustomChannelConfig';
 import PaymentManagement from './pages/admin/PaymentManagement';
 import ChannelHub from './pages/admin/ChannelHub';
@@ -65,6 +66,7 @@ function App() {
         <Route path="invitation" element={<UserInvitation />} />
         <Route path="subscription" element={<BillingPage />} />
         <Route path="profile" element={<ProfilePage />} />
+        <Route path="realname" element={<RealnameAuthPage />} />
         <Route path="playground" element={<Playground />} />
         <Route path="files" element={<FilesPage />} />
         <Route path="tasks" element={<UserTasksPage />} />

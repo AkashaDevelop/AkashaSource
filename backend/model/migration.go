@@ -154,6 +154,16 @@ func ApplyMigrations() {
 				return nil
 			},
 		},
+		{
+			Version: 15,
+			Name:    "新增实名认证表与用户实名状态字段",
+			Apply: func() error {
+				if err := common.DB.AutoMigrate(&RealnameAuth{}); err != nil {
+					return err
+				}
+				return common.DB.AutoMigrate(&User{})
+			},
+		},
 	}
 
 	for _, step := range steps {

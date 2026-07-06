@@ -97,6 +97,13 @@ func GetOptionSchema(c *gin.Context) {
 		{"key": "hcaptcha_secret_key", "label": "hCaptcha Secret Key", "type": "password", "group": "安全"},
 		{"key": "recaptcha_enabled", "label": "reCAPTCHA 开关", "type": "boolean", "group": "安全"},
 		{"key": "recaptcha_version", "label": "reCAPTCHA 版本", "type": "text", "group": "安全"},
+		{"key": model.OptionKeyRealnameEnabled, "label": "实名认证开关", "type": "boolean", "group": "实名认证"},
+		{"key": model.OptionKeyRealnameScenarios, "label": "需要实名认证的场景 (JSON数组)", "type": "textarea", "group": "实名认证"},
+		{"key": model.OptionKeyRealnameProvider, "label": "认证服务商 (aliyun/tencent)", "type": "text", "group": "实名认证"},
+		{"key": model.OptionKeyRealnameAliyunAccessKeyId, "label": "阿里云 AccessKey ID", "type": "text", "group": "实名认证"},
+		{"key": model.OptionKeyRealnameAliyunAccessKeySecret, "label": "阿里云 AccessKey Secret", "type": "password", "group": "实名认证"},
+		{"key": model.OptionKeyRealnameAliyunRegion, "label": "阿里云地域 (默认 cn-hangzhou)", "type": "text", "group": "实名认证"},
+		{"key": model.OptionKeyRealnameAliyunSceneId, "label": "阿里云认证场景ID", "type": "text", "group": "实名认证"},
 		{"key": "recaptcha_site_key", "label": "reCAPTCHA Site Key", "type": "text", "group": "安全"},
 		{"key": "recaptcha_secret_key", "label": "reCAPTCHA Secret Key", "type": "password", "group": "安全"},
 	}
@@ -146,6 +153,7 @@ func IsSystemInitialized(c *gin.Context) {
 		"password_register_enabled",
 		"passkey_enabled",
 		"quota_display_type", "quota_display_symbol", "quota_display_rate",
+		"realname_enabled", "realname_scenarios",
 	} {
 		options[k] = common.OptionMap[k]
 	}

@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react';
+ import { useState, useEffect, type ReactNode } from 'react';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import {
@@ -10,13 +10,20 @@ import {
 } from '../../components/ui';
 import {
   Save, Plus, Edit, Trash2,
-  Globe, CreditCard, Shield, Link2, Mail, Gift, CalendarCheck, Bell, Settings, BarChart3, Fingerprint, Lock,
+  Globe, CreditCard, Shield, Link2, Mail, Gift, CalendarCheck, Bell, Settings, BarChart3, Fingerprint, Lock, ShieldCheck, Check,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 
 interface Option { key: string; value: string; }
 interface PricingItem { model: string; ratio: number; completion_ratio: number; }
+
+// 实名认证场景选项
+const REALNAME_SCENARIOS = [
+  { key: 'model_call', label: '模型调用', desc: '调用 AI 模型前需完成实名认证' },
+  { key: 'recharge', label: '账户充值', desc: '充值额度前需完成实名认证' },
+  { key: 'double_blind', label: '双盲类型', desc: '仅保留认证结果，不存储任何实名信息' },
+] as const;
 
 // ── 辅助组件 ──────────────────────────────────────────────────────────────
 
@@ -104,6 +111,16 @@ export default function SystemSettings() {
   const get = (key: string, fallback = '') => settings[key] ?? fallback;
   const systemUrl = get('system_url');
 
+  // 解析实名认证场景（JSON 数组字符串）
+  let realnameScenarios: string[] = [];
+  try { realnameScenarios = JSON.parse(get('realname_scenarios', '[]')) || []; } catch { realnameScenarios = []; }
+  const toggleRealnameScenario = (key: string) => {
+    const next = realnameScenarios.includes(key)
+      ? realnameScenarios.filter(s => s !== key)
+      : [...realnameScenarios, key];
+    set('realname_scenarios', JSON.stringify(next));
+  };
+
   const handleSave = async () => {
     setSaving(true);
     const mr: Record<string, number> = {};
@@ -147,6 +164,9 @@ export default function SystemSettings() {
       'passkey_enabled','passkey_rp_id','passkey_display_name','passkey_origins','passkey_allow_insecure','passkey_user_verification','passkey_attachment',
       'about','payment_notify_secret','epay_notify_url','epay_return_url',
       'model_price',
+      'realname_enabled','realname_scenarios','realname_provider',
+      'realname_aliyun_access_key_id','realname_aliyun_access_key_secret',
+      'realname_aliyun_region','realname_aliyun_scene_id',
     ];
     const options = [
       ...keys.map(k => ({ key: k, value: get(k) })),
@@ -655,6 +675,108 @@ export default function SystemSettings() {
                   onValueChange={v => set('log_retention_days', v)}
                   description="《网络安全法》第 21 条要求不少于 6 个月（180 天），低于 180 将被强制按 180 执行"
                 />
+              </CardBody>
+            </Card>
+          </div>
+        </Tab>
+
+        {/* ════════ 实名认证 ════════ */}
+        <Tab key="realname" title={<TabIcon icon={ShieldCheck} label="实名认证" />}>
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>实名认证</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <SettingRow title="启用实名认证" description="开启后用户可进行实名认证，按场景要求强制验证">
+                  <Switch isSelected={get('realname_enabled') === 'true'} onValueChange={v => set('realname_enabled', String(v))} />
+                </SettingRow>
+                <Divider />
+                {/* 认证场景多选 */}
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>认证场景</span>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>勾选需要实名认证的场景，用户在对应操作前需先完成认证</p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-1">
+                    {REALNAME_SCENARIOS.map(sc => {
+                      const active = realnameScenarios.includes(sc.key);
+                      return (
+                        <button key={sc.key} type="button"
+                          onClick={() => toggleRealnameScenario(sc.key)}
+                          className="flex items-start gap-2.5 p-3 text-left rounded-xl border transition-all duration-150"
+                          style={{
+                            borderColor: active ? 'var(--accent-primary)' : 'var(--border-color)',
+                            background: active ? 'var(--nav-active-bg)' : 'var(--bg-elevated)',
+                            cursor: 'pointer',
+                          }}>
+                          <div style={{
+                            width: '16px', height: '16px', borderRadius: '4px', flexShrink: 0, marginTop: '1px',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: active ? 'var(--accent-primary)' : 'transparent',
+                            border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-strong)'}`,
+                          }}>
+                            {active && <Check size={11} className="text-white" strokeWidth={3} />}
+                          </div>
+                          <div className="min-w-0">
+                            <p style={{ fontSize: '13px', fontWeight: 600, color: active ? 'var(--accent-primary)' : 'var(--text-primary)' }}>{sc.label}</p>
+                            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{sc.desc}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {realnameScenarios.includes('double_blind') && (
+                    <p className="text-xs mt-1 px-3 py-2 rounded-lg" style={{
+                      background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.25)',
+                      color: '#c084fc',
+                    }}>
+                      双盲模式已启用：系统只保留认证结果与流水号，不存储用户姓名和身份证号，做信息合规处理。
+                    </p>
+                  )}
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>认证服务商配置</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>服务商</span>
+                  <div className="flex gap-2 flex-wrap">
+                    {([
+                      { key: 'aliyun', label: '阿里云实人认证' },
+                    ] as const).map(item => {
+                      const active = (get('realname_provider') || 'aliyun') === item.key;
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => set('realname_provider', item.key)}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-sm transition-all duration-200
+                            ${active
+                              ? 'border-[var(--accent-primary)] bg-[var(--nav-active-bg)] text-[var(--accent-primary)] font-semibold'
+                              : 'border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] cursor-pointer'
+                            }`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <Divider />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="阿里云 AccessKey ID" value={get('realname_aliyun_access_key_id')} onValueChange={v => set('realname_aliyun_access_key_id', v)} placeholder="LTAI..." description="阿里云 RAM 用户 AccessKey" />
+                  <Input label="阿里云 AccessKey Secret" type="password" value={get('realname_aliyun_access_key_secret')} onValueChange={v => set('realname_aliyun_access_key_secret', v)} description="对应的 AccessKey Secret" />
+                  <Input label="地域" value={get('realname_aliyun_region', 'cn-hangzhou')} onValueChange={v => set('realname_aliyun_region', v)} placeholder="cn-hangzhou" description="默认 cn-hangzhou" />
+                  <Input label="认证场景 ID" value={get('realname_aliyun_scene_id')} onValueChange={v => set('realname_aliyun_scene_id', v)} description="阿里云控制台创建的实人认证场景 ID" />
+                </div>
               </CardBody>
             </Card>
           </div>

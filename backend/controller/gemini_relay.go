@@ -6,6 +6,7 @@ import (
 	"STfreApi/model"
 	"STfreApi/service"
 	"STfreApi/service/qingyuan"
+	"STfreApi/service/realname"
 	"STfreApi/service/xuanjian"
 	"bytes"
 	"encoding/json"
@@ -56,6 +57,12 @@ func RelayGeminiNative(c *gin.Context) {
 	}
 	if err := ValidateToken(token); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 实名认证检查（双盲类型场景）
+	if err := realname.CheckRealnameRequirement(token.UserId, model.RealnameScenarioDoubleBlind); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"code": "realname_required", "message": err.Error()}})
 		return
 	}
 

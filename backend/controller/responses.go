@@ -8,6 +8,7 @@ import (
 	"STfreApi/model"
 	"STfreApi/service"
 	"STfreApi/service/qingyuan"
+	"STfreApi/service/realname"
 	"STfreApi/service/xuanjian"
 	"bufio"
 	"bytes"
@@ -54,6 +55,12 @@ func RelayResponses(c *gin.Context) {
 	}
 	if err := ValidateToken(token); err != nil {
 		sendResponsesError(c, http.StatusUnauthorized, "invalid_api_key", err.Error())
+		return
+	}
+
+	// 实名认证检查（双盲类型场景）
+	if err := realname.CheckRealnameRequirement(token.UserId, model.RealnameScenarioDoubleBlind); err != nil {
+		sendResponsesError(c, http.StatusForbidden, "realname_required", err.Error())
 		return
 	}
 

@@ -153,6 +153,15 @@ const (
 	// 宸汐玄鉴 - 行为风控模块（仅超管可配置）
 	OptionKeyXuanJianEnabled = "xuanjian_enabled" // "true" | "false"
 	OptionKeyXuanJianPolicy  = "xuanjian_policy"  // JSON 策略配置
+
+	// 实名认证扩展模块（仅超管可配置）
+	OptionKeyRealnameEnabled             = "realname_enabled"               // "true" | "false"
+	OptionKeyRealnameScenarios           = "realname_scenarios"             // JSON: ["model_call","recharge","double_blind"]
+	OptionKeyRealnameProvider            = "realname_provider"              // "aliyun" | "tencent"
+	OptionKeyRealnameAliyunAccessKeyId   = "realname_aliyun_access_key_id"
+	OptionKeyRealnameAliyunAccessKeySecret = "realname_aliyun_access_key_secret"
+	OptionKeyRealnameAliyunRegion        = "realname_aliyun_region"         // 默认 cn-hangzhou
+	OptionKeyRealnameAliyunSceneId       = "realname_aliyun_scene_id"       // 认证场景ID（阿里云控制台创建）
 )
 
 func InitOptions() {
@@ -178,6 +187,7 @@ func InitOptions() {
 	common.DB.AutoMigrate(&PrefillGroup{})
 	common.DB.AutoMigrate(&ChannelCheckinLog{})
 	common.DB.AutoMigrate(&ChannelBalanceLog{})
+	common.DB.AutoMigrate(&RealnameAuth{})
 	ApplyMigrations()
 	_ = ApplySQLFileMigrations()
 

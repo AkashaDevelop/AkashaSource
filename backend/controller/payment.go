@@ -4,6 +4,7 @@ import (
 	"STfreApi/common"
 	"STfreApi/model"
 	"STfreApi/service"
+	"STfreApi/service/realname"
 	paymentservice "STfreApi/service/payment"
 	"crypto/md5"
 	"encoding/hex"
@@ -56,6 +57,13 @@ func CreatePayment(c *gin.Context) {
 	}
 
 	userId := c.GetInt("id")
+
+	// 实名认证检查（充值场景）
+	if err := realname.CheckRealnameRequirement(userId, model.RealnameScenarioRecharge); err != nil {
+		common.Fail(c, common.CodeForbidden, err.Error())
+		return
+	}
+
 	provider := common.OptionMap[model.OptionKeyPaymentProvider]
 	// ～/user/stripe/pay 或 /user/creem/pay 路由会通过 force_provider 强制指定渠道～
 	if fp, ok := c.Get("force_provider"); ok {

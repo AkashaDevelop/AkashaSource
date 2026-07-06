@@ -39,6 +39,9 @@ type User struct {
 
 	// User Settings
 	Setting string `json:"setting" gorm:"type:text"`
+
+	// 实名认证状态: 0=未认证 1=已认证 2=认证失败
+	RealnameStatus int `json:"realname_status" gorm:"default:0"`
 }
 
 const (

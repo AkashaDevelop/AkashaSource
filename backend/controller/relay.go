@@ -19,6 +19,7 @@ import (
 	"STfreApi/service"
 	"STfreApi/service/moderation"
 	"STfreApi/service/qingyuan"
+	"STfreApi/service/realname"
 	"STfreApi/service/xuanjian"
 
 	"github.com/gin-gonic/gin"
@@ -61,6 +62,16 @@ func Relay(c *gin.Context) {
 		c.JSON(http.StatusForbidden, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
 			Message: "令牌不允许的IP",
 			Type:    "invalid_request_error",
+		}})
+		return
+	}
+
+	// 实名认证检查（模型调用场景）
+	if err := realname.CheckRealnameRequirement(token.UserId, model.RealnameScenarioModelCall); err != nil {
+		c.JSON(http.StatusForbidden, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
+			Message: err.Error(),
+			Type:    "invalid_request_error",
+			Code:    "realname_required",
 		}})
 		return
 	}

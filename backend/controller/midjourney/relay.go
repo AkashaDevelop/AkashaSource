@@ -3,6 +3,7 @@ package midjourney
 import (
 	"STfreApi/common"
 	"STfreApi/model"
+	"STfreApi/service/realname"
 	"STfreApi/service/xuanjian"
 	"bytes"
 	"encoding/json"
@@ -36,6 +37,12 @@ func RelayMidjourney(c *gin.Context) {
 	var user model.User
 	if err := common.DB.First(&user, userId).Error; err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+		return
+	}
+
+	// 实名认证检查（模型调用场景）
+	if err := realname.CheckRealnameRequirement(userId, model.RealnameScenarioModelCall); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
 

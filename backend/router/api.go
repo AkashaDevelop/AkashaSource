@@ -256,6 +256,11 @@ func SetApiRouter(router *gin.Engine) {
 			authGroup.GET("/user/files", controller.UserFilesList)
 			authGroup.DELETE("/user/files/:id", controller.UserFilesDelete)
 
+			// 实名认证（用户）
+			authGroup.GET("/user/realname/status", controller.GetRealnameStatus)
+			authGroup.POST("/user/realname/init", controller.InitRealnameVerify)
+			authGroup.POST("/user/realname/query", controller.QueryRealnameResult)
+
 			// 绘图/音乐任务
 			authGroup.GET("/user/tasks/mj", controller.UserGetMJTasks)
 			authGroup.GET("/user/tasks/suno", controller.UserGetSunoTasks)
@@ -344,6 +349,11 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.GET("/user/2fa/stats", controller.Admin2FAStats)
 			adminGroup.DELETE("/user/:id/2fa", controller.AdminDisable2FA)
 			adminGroup.DELETE("/user/:id/passkey", controller.AdminResetPasskey)
+
+			// 实名认证管理（管理员）
+			adminGroup.GET("/admin/realname/records", controller.AdminGetRealnameRecords)
+			adminGroup.GET("/admin/realname/stats", controller.AdminGetRealnameStats)
+			adminGroup.DELETE("/admin/realname/:user_id", controller.AdminResetRealname)
 
 			// 兑换码管理
 			adminGroup.GET("/redemption", controller.GetAllRedemptions)
