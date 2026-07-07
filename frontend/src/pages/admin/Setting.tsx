@@ -141,6 +141,7 @@ export default function SystemSettings() {
       'redis_addr','redis_password','redis_db',
       'github_client_id','github_client_secret',
       'linuxdo_client_id','linuxdo_client_secret',
+      'linuxdo_min_trust_level',
       'linuxdo_quota_level_0','linuxdo_quota_level_1','linuxdo_quota_level_2',
       'linuxdo_quota_level_3','linuxdo_quota_level_4','linuxdo_quota_level_5',
       'discord_client_id','discord_client_secret',
@@ -793,6 +794,7 @@ export default function SystemSettings() {
               { key: 'linuxdo', label: 'LinuxDO', icon: '🐧', fields: [
                 { k: 'linuxdo_client_id', l: '客户端 ID' },
                 { k: 'linuxdo_client_secret', l: '客户端密钥', pw: true },
+                { k: 'linuxdo_min_trust_level', l: '最低信任等级', ph: '0 = 不限制' },
               ], extra: (
                 <>
                   <Divider />

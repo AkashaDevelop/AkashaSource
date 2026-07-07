@@ -74,6 +74,7 @@ func GetOptionSchema(c *gin.Context) {
 		{"key": "github_client_secret", "label": "GitHub Client Secret", "type": "password", "group": "OAuth"},
 		{"key": "linuxdo_client_id", "label": "LinuxDO Client ID", "type": "text", "group": "OAuth"},
 		{"key": "linuxdo_client_secret", "label": "LinuxDO Client Secret", "type": "password", "group": "OAuth"},
+		{"key": model.OptionKeyLinuxDOMinTrustLevel, "label": "LinuxDO 最低信任等级 (0=不限制)", "type": "number", "group": "OAuth"},
 		{"key": model.OptionKeyDiscordClientId, "label": "Discord Client ID", "type": "text", "group": "OAuth"},
 		{"key": model.OptionKeyDiscordClientSecret, "label": "Discord Client Secret", "type": "password", "group": "OAuth"},
 		{"key": model.OptionKeyOIDCClientId, "label": "OIDC Client ID", "type": "text", "group": "OAuth"},
@@ -140,7 +141,7 @@ func IsSystemInitialized(c *gin.Context) {
 	common.OptionLock.RLock()
 	for _, k := range []string{
 		"system_name", "logo_url", "footer_html", "notice", "about",
-		"github_client_id", "linuxdo_client_id", "discord_client_id",
+		"github_client_id", "linuxdo_client_id", "linuxdo_min_trust_level", "discord_client_id",
 		"oidc_client_id", "telegram_bot_token", "wechat_app_id",
 		"turnstile_check_enabled", "turnstile_site_key",
 		"captcha_provider", "geetest_enabled", "geetest_id", "checkin_captcha",

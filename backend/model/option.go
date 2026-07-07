@@ -116,6 +116,9 @@ const (
 	// Thinking-to-Content
 	OptionKeyThinkingToContent = "thinking_to_content"
 
+	// LinuxDO
+	OptionKeyLinuxDOMinTrustLevel = "linuxdo_min_trust_level"
+
 	// OAuth - Discord
 	OptionKeyDiscordClientId     = "discord_client_id"
 	OptionKeyDiscordClientSecret = "discord_client_secret"

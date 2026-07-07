@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
+import OAuthPending from './pages/OAuthPending';
 import Register from './pages/Register';
 import Setup from './pages/Setup';
 import UserDashboard from './pages/Dashboard';
@@ -52,6 +53,7 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/oauth/pending" element={<OAuthPending />} />
       <Route path="/register" element={<Register />} />
       <Route path="/setup" element={<Setup />} />
       <Route path="/pricing" element={<Pricing />} />

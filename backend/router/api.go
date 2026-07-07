@@ -139,6 +139,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/privacy-policy", controller.GetPrivacyPolicy)
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
 		apiRouter.GET("/oauth/state", middleware.CriticalRateLimitMiddleware(), controller.GenerateOAuthCode)
+		apiRouter.GET("/oauth/pending", middleware.CriticalRateLimitMiddleware(), oauth.CheckOAuthPending)
+		apiRouter.POST("/oauth/complete", middleware.CriticalRateLimitMiddleware(), oauth.CompleteOAuthRegistration)
 		apiRouter.GET("/oauth/:provider", middleware.CriticalRateLimitMiddleware(), controller.HandleOAuth)
 		apiRouter.POST("/verify", middleware.AuthMiddleware(), middleware.CriticalRateLimitMiddleware(), controller.UniversalVerify)
 		apiRouter.GET("/uptime/status", controller.GetUptimeStatus)

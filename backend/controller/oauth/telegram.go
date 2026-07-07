@@ -59,7 +59,7 @@ func TelegramCallback(c *gin.Context) {
 		displayName = username
 	}
 
-	user, err := createOAuthUser("telegram_id", telegramId, func() model.User {
+	user, pendingSessionID, err := createOAuthUser("telegram_id", telegramId, func() model.User {
 		return model.User{
 			Username:    fmt.Sprintf("tg_%s", telegramId),
 			DisplayName: displayName,
@@ -67,9 +67,13 @@ func TelegramCallback(c *gin.Context) {
 			Role:        model.RoleUser,
 			Status:      model.UserStatusActive,
 		}
-	}, c.Query("aff"))
+	}, "telegram")
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if pendingSessionID != "" {
+		c.Redirect(http.StatusFound, fmt.Sprintf("/oauth/pending?oauth_pending=%s", pendingSessionID))
 		return
 	}
 	oauthRedirect(c, user)

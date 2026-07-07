@@ -5,7 +5,9 @@ import (
 	"STfreApi/model"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -61,13 +63,18 @@ func GitHubCallback(c *gin.Context) {
 	req.URL.RawQuery = q.Encode()
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to get access token: " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Token endpoint returned %d: %s", resp.StatusCode, string(body))})
+		return
+	}
 
 	var oauthResp GitHubOAuthResponse
 	if err := json.NewDecoder(resp.Body).Decode(&oauthResp); err != nil {
@@ -84,10 +91,15 @@ func GitHubCallback(c *gin.Context) {
 	userReq.Header.Set("Authorization", "Bearer "+oauthResp.AccessToken)
 	userResp, err := client.Do(userReq)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to get user info: " + err.Error()})
 		return
 	}
 	defer userResp.Body.Close()
+	if userResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(userResp.Body)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("User info endpoint returned %d: %s", userResp.StatusCode, string(body))})
+		return
+	}
 
 	var githubUser GitHubUser
 	if err := json.NewDecoder(userResp.Body).Decode(&githubUser); err != nil {
@@ -96,7 +108,7 @@ func GitHubCallback(c *gin.Context) {
 	}
 
 	idValue := fmt.Sprintf("%d", githubUser.Id)
-	user, err := createOAuthUser("github_id", idValue, func() model.User {
+	user, pendingSessionID, err := createOAuthUser("github_id", idValue, func() model.User {
 		displayName := githubUser.Name
 		if displayName == "" {
 			displayName = githubUser.Login
@@ -109,9 +121,13 @@ func GitHubCallback(c *gin.Context) {
 			Role:        model.RoleUser,
 			Status:      model.UserStatusActive,
 		}
-	}, c.Query("aff"))
+	}, "github")
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if pendingSessionID != "" {
+		c.Redirect(http.StatusFound, fmt.Sprintf("/oauth/pending?oauth_pending=%s", pendingSessionID))
 		return
 	}
 	oauthRedirect(c, user)

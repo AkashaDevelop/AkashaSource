@@ -45,6 +45,9 @@ func UpdateOptionMap(key string, value string) {
 	if key == "linuxdo_client_secret" {
 		LinuxDOClientSecret = value
 	}
+	if key == "linuxdo_min_trust_level" {
+		LinuxDOMinTrustLevel, _ = strconv.Atoi(value)
+	}
 
 	if key == "smtp_server" {
 		SMTPServer = value

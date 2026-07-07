@@ -15,8 +15,9 @@ var (
 	// OAuth
 	GitHubClientId      = ""
 	GitHubClientSecret  = ""
-	LinuxDOClientId     = ""
-	LinuxDOClientSecret = ""
+	LinuxDOClientId      = ""
+	LinuxDOClientSecret  = ""
+	LinuxDOMinTrustLevel = 0 // 0 = no check
 
 	// Email
 	SMTPServer     = ""

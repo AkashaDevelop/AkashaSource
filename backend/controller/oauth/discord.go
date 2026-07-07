@@ -5,9 +5,11 @@ import (
 	"STfreApi/model"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -65,13 +67,18 @@ func DiscordCallback(c *gin.Context) {
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to get access token: " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Token endpoint returned %d: %s", resp.StatusCode, string(body))})
+		return
+	}
 
 	var oauthResp DiscordOAuthResponse
 	if err := json.NewDecoder(resp.Body).Decode(&oauthResp); err != nil {
@@ -87,10 +94,15 @@ func DiscordCallback(c *gin.Context) {
 	userReq.Header.Set("Authorization", "Bearer "+oauthResp.AccessToken)
 	userResp, err := client.Do(userReq)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to get user info: " + err.Error()})
 		return
 	}
 	defer userResp.Body.Close()
+	if userResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(userResp.Body)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("User info endpoint returned %d: %s", userResp.StatusCode, string(body))})
+		return
+	}
 
 	var discordUser DiscordUser
 	if err := json.NewDecoder(userResp.Body).Decode(&discordUser); err != nil {
@@ -98,7 +110,7 @@ func DiscordCallback(c *gin.Context) {
 		return
 	}
 
-	user, err := createOAuthUser("discord_id", discordUser.Id, func() model.User {
+	user, pendingSessionID, err := createOAuthUser("discord_id", discordUser.Id, func() model.User {
 		displayName := discordUser.GlobalName
 		if displayName == "" {
 			displayName = discordUser.Username
@@ -111,9 +123,13 @@ func DiscordCallback(c *gin.Context) {
 			Role:        model.RoleUser,
 			Status:      model.UserStatusActive,
 		}
-	}, c.Query("aff"))
+	}, "discord")
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if pendingSessionID != "" {
+		c.Redirect(http.StatusFound, fmt.Sprintf("/oauth/pending?oauth_pending=%s", pendingSessionID))
 		return
 	}
 	oauthRedirect(c, user)

@@ -5,9 +5,11 @@ import (
 	"STfreApi/model"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -66,12 +68,18 @@ func WechatCallback(c *gin.Context) {
 		"https://api.weixin.qq.com/sns/oauth2/access_token?appid=%s&secret=%s&code=%s&grant_type=authorization_code",
 		common.WechatAppId, common.WechatAppSecret, code,
 	)
-	resp, err := http.Get(tokenURL)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(tokenURL)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to get access token: " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Token endpoint returned %d: %s", resp.StatusCode, string(body))})
+		return
+	}
 
 	var tokenResp WechatAccessTokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
@@ -92,12 +100,17 @@ func WechatCallback(c *gin.Context) {
 		"https://api.weixin.qq.com/sns/userinfo?access_token=%s&openid=%s&lang=zh_CN",
 		tokenResp.AccessToken, tokenResp.OpenId,
 	)
-	userResp, err := http.Get(userInfoURL)
+	userResp, err := client.Get(userInfoURL)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to get user info: " + err.Error()})
 		return
 	}
 	defer userResp.Body.Close()
+	if userResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(userResp.Body)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("User info endpoint returned %d: %s", userResp.StatusCode, string(body))})
+		return
+	}
 
 	var wechatUser WechatUserInfo
 	if err := json.NewDecoder(userResp.Body).Decode(&wechatUser); err != nil {
@@ -115,21 +128,27 @@ func WechatCallback(c *gin.Context) {
 		wechatId = wechatUser.OpenId
 	}
 
-	user, err := createOAuthUser("wechat_id", wechatId, func() model.User {
+	var maxID int64
+	common.DB.Model(&model.User{}).Select("COALESCE(MAX(id), 0)").Scan(&maxID)
+	user, pendingSessionID, err := createOAuthUser("wechat_id", wechatId, func() model.User {
 		displayName := wechatUser.Nickname
 		if displayName == "" {
 			displayName = "微信用户"
 		}
 		return model.User{
-			Username:    fmt.Sprintf("wx_%s", strings.ToLower(wechatId[:min(8, len(wechatId))])),
+			Username:    fmt.Sprintf("wx_%d", maxID+1),
 			DisplayName: displayName,
 			WechatId:    wechatId,
 			Role:        model.RoleUser,
 			Status:      model.UserStatusActive,
 		}
-	}, c.Query("aff"))
+	}, "wechat")
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if pendingSessionID != "" {
+		c.Redirect(http.StatusFound, fmt.Sprintf("/oauth/pending?oauth_pending=%s", pendingSessionID))
 		return
 	}
 	oauthRedirect(c, user)
