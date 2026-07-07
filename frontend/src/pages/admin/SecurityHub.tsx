@@ -1,9 +1,10 @@
 import { Tabs, Tab } from '../../components/ui';
-import { ShieldCheck, Eye, ScrollText } from 'lucide-react';
+import { ShieldCheck, Eye, ScrollText, KeyRound } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import ContextSanitization from './ContextSanitization';
 import XuanJian from './XuanJian';
 import AdminAuditLog from './AdminAuditLog';
+import SystemLicense from './SystemLicense'; // ⚠️ REMOVABLE MODULE 依赖
 
 // ～安全中心：宸汐清源看内容、宸汐玄鉴看行为、操作审计看管理员自己～
 // 后两个 Tab 只有超级管理员才看得到，普通管理员进来只有宸汐清源一个入口哦
@@ -52,6 +53,21 @@ export default function SecurityHub() {
             <AdminAuditLog />
           </Tab>
         )}
+        {/* ↓↓↓ REMOVABLE：系统授权门禁的入口 Tab，整体移除时删掉这一块即可 ↓↓↓ */}
+        {isRoot && (
+          <Tab
+            key="license"
+            title={
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-4 h-4" />
+                <span>系统授权</span>
+              </div>
+            }
+          >
+            <SystemLicense />
+          </Tab>
+        )}
+        {/* ↑↑↑ REMOVABLE ↑↑↑ */}
       </Tabs>
     </div>
   );
