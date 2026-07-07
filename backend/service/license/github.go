@@ -1,5 +1,5 @@
 // ⚠️ REMOVABLE MODULE — 系统授权门禁
-// GitHub OAuth 换 token / 查用户名 / 查组织成员身份，写法照抄 controller/oauth/github.go 的风格
+// GitHub Device Flow（RFC 8628）—— 无需回调地址，用户在 github.com/login/device 输入设备码完成授权
 package license
 
 import (
@@ -7,51 +7,101 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
-
-type githubOAuthResponse struct {
-	AccessToken string `json:"access_token"`
-}
 
 type githubUser struct {
 	Login string `json:"login"`
 }
 
-// exchangeCode 用授权码换用户自己的 access token —— 这次要带 read:org 权限，
-// 因为组织成员校验（首次授权时）要用这个 token 查"我自己"是不是组织成员，
-// 用的是这个模块自己独立注册的 GitHub OAuth App，不是站点登录用的那个～
-func exchangeCode(code string) (string, error) {
-	req, err := http.NewRequest("POST", "https://github.com/login/oauth/access_token", nil)
-	if err != nil {
-		return "", err
-	}
-	q := req.URL.Query()
-	q.Add("client_id", licenseGithubClientId)
-	q.Add("client_secret", licenseGithubClientSecret)
-	q.Add("code", code)
-	req.URL.RawQuery = q.Encode()
+// DeviceCodeResponse Device Flow 第一步返回的设备码信息
+type DeviceCodeResponse struct {
+	DeviceCode      string `json:"device_code"`
+	UserCode        string `json:"user_code"`         // 用户需要输入的短码，如 "WDJB-MJHT"
+	VerificationURI string `json:"verification_uri"`   // 用户打开的页面，如 https://github.com/login/device
+	ExpiresIn       int    `json:"expires_in"`          // 设备码有效期（秒）
+	Interval        int    `json:"interval"`            // 轮询最小间隔（秒）
+}
+
+// devicePollResponse 轮询换 token 时的响应
+type devicePollResponse struct {
+	AccessToken string `json:"access_token"`
+	Error       string `json:"error"` // authorization_pending / slow_down / expired_token / access_denied
+}
+
+// requestDeviceCode 向 GitHub 请求设备码，返回给前端展示
+func requestDeviceCode() (*DeviceCodeResponse, error) {
+	body := fmt.Sprintf(
+		"client_id=%s&scope=read:org",
+		licenseGithubClientId,
+	)
+	req, _ := http.NewRequest("POST", "https://github.com/login/device/code", strings.NewReader(body))
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("换取 access token 失败: %w", err)
+		return nil, fmt.Errorf("请求设备码失败: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("token 接口返回 %d: %s", resp.StatusCode, string(body))
+		raw, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("设备码接口返回 %d: %s", resp.StatusCode, string(raw))
 	}
 
-	var oauthResp githubOAuthResponse
-	if err := json.NewDecoder(resp.Body).Decode(&oauthResp); err != nil {
-		return "", err
+	var result DeviceCodeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
 	}
-	if oauthResp.AccessToken == "" {
-		return "", fmt.Errorf("未能获取 access token")
+	if result.DeviceCode == "" || result.UserCode == "" {
+		return nil, fmt.Errorf("GitHub 返回的设备码不完整")
 	}
-	return oauthResp.AccessToken, nil
+	return &result, nil
+}
+
+// pollForToken 轮询 GitHub 换取 access_token
+// 返回 (token, pending, error)：
+//   - pending=true 表示用户还没完成授权，调用方应等待 interval 秒后重试
+//   - token 非空表示授权成功
+//   - error 表示不可恢复的错误（过期/拒绝/网络异常等）
+func pollForToken(deviceCode string) (token string, pending bool, err error) {
+	body := fmt.Sprintf(
+		"client_id=%s&device_code=%s&grant_type=urn:ietf:params:oauth:grant-type:device_code",
+		licenseGithubClientId, deviceCode,
+	)
+	req, _ := http.NewRequest("POST", "https://github.com/login/oauth/access_token", strings.NewReader(body))
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false, fmt.Errorf("轮询 token 失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result devicePollResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", false, err
+	}
+
+	switch {
+	case result.AccessToken != "":
+		return result.AccessToken, false, nil
+	case result.Error == "authorization_pending":
+		return "", true, nil
+	case result.Error == "slow_down":
+		// GitHub 要求放慢轮询，调用方自行处理
+		return "", true, nil
+	case result.Error == "expired_token":
+		return "", false, fmt.Errorf("设备码已过期，请重新发起授权")
+	case result.Error == "access_denied":
+		return "", false, fmt.Errorf("用户拒绝了授权请求")
+	default:
+		return "", false, fmt.Errorf("未知的授权状态: %s", result.Error)
+	}
 }
 
 // fetchGitHubLogin 用刚换到的 access token 查一下"这次登录的到底是谁"
@@ -99,7 +149,6 @@ func checkOwnOrgMembership(accessToken, org string) (bool, error) {
 		return false, nil
 	}
 	if resp.StatusCode == http.StatusForbidden {
-		// ～组织开了 "OAuth App access restrictions"，得去 GitHub 组织设置里手动批准这个 App～
 		return false, fmt.Errorf(
 			"%s 组织开启了 OAuth App 访问限制，需要先手动批准这个 App：打开 "+
 				"https://github.com/organizations/%s/settings/oauth_application_policy，"+
@@ -121,11 +170,10 @@ func checkOwnOrgMembership(accessToken, org string) (bool, error) {
 	return membership.State == "active", nil
 }
 
-// checkOrgMembership 用内置的 gistToken（不是部署方自己的 token）去查目标账号是否为组织成员，
+// checkOrgMembership 用内置的 gisttoken（不是部署方自己的 token）去查目标账号是否为组织成员，
 // 只给 7 天周期复核用（复核时手头没有那个人当初登录的 token 了，只能退而求其次）。
 // ⚠️ 这个检查依赖 gistToken 所属账号本身也是该组织成员，否则 GitHub 会把请求重定向到
-// "公开成员列表"接口，查不到"隐藏成员身份"的人（哪怕对方是所有者）。如果发现复核老是
-// 误判成员已离开组织，去 GitHub 把 gistToken 对应的账号也拉进组织里就好了喵。
+// "公开成员列表"接口，查不到"隐藏成员身份"的人（哪怕对方是所有者）。
 // 204 = 是成员，404 = 不是成员/对该 token 不可见
 func checkOrgMembership(username string) (bool, error) {
 	url := fmt.Sprintf("https://api.github.com/orgs/%s/members/%s", targetOrg, username)

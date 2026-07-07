@@ -5,8 +5,6 @@ package license
 import (
 	"fmt"
 	"log"
-	"net/url"
-	"strings"
 	"time"
 
 	"STfreApi/common"
@@ -93,41 +91,59 @@ func parseInt64(s string) (int64, error) {
 	return n, err
 }
 
-// BuildAuthorizeURL 生成一次性 state 并拼好 GitHub 授权跳转链接（用这个模块自己独立的 OAuth App）
-func BuildAuthorizeURL() (string, error) {
-	if !FeatureEnabled() {
-		return "", fmt.Errorf("本部署未启用系统授权功能")
-	}
-	state := generateState()
-	// ～必须显式带上 redirect_uri，且要和 GitHub OAuth App 里注册的回调地址一致，
-	// 否则 GitHub 会直接拒绝或跳错地方喵～
-	systemUrl := strings.TrimRight(common.OptionMap[model.OptionKeySystemUrl], "/")
-	redirectUri := systemUrl + "/api/system-license/github/callback"
-	return "https://github.com/login/oauth/authorize?client_id=" + licenseGithubClientId +
-		"&scope=read:org&state=" + state + "&redirect_uri=" + url.QueryEscape(redirectUri), nil
+// DeviceCodeInfo 返回给前端的设备码信息
+type DeviceCodeInfo struct {
+	DeviceCode      string `json:"device_code"`       // 设备码（轮询时回传，一次性、15分钟过期）
+	UserCode        string `json:"user_code"`         // 用户需要输入的短码
+	VerificationURI string `json:"verification_uri"`   // 用户打开的页面
+	ExpiresIn       int    `json:"expires_in"`          // 设备码有效期（秒）
+	Interval        int    `json:"interval"`            // 轮询间隔（秒）
 }
 
-// HandleCallback 校验 state 后完成授权绑定流程
-func HandleCallback(state, code string) error {
-	if !verifyState(state) {
-		return fmt.Errorf("授权请求已过期或无效，请重新发起")
-	}
-	if code == "" {
-		return fmt.Errorf("缺少授权码")
-	}
-	return Authorize(code)
-}
-
-// Authorize 完整的授权流程：换 token → 查用户名 → 查组织成员 → 读/写 Gist → 落本地状态
-func Authorize(code string) error {
+// RequestDeviceFlow 发起 Device Flow，返回设备码信息供前端展示
+func RequestDeviceFlow() (*DeviceCodeInfo, error) {
 	if !FeatureEnabled() {
-		return fmt.Errorf("本部署未启用系统授权功能")
+		return nil, fmt.Errorf("本部署未启用系统授权功能")
 	}
-
-	accessToken, err := exchangeCode(code)
+	resp, err := requestDeviceCode()
 	if err != nil {
-		return err
+		return nil, err
 	}
+	return &DeviceCodeInfo{
+		DeviceCode:      resp.DeviceCode,
+		UserCode:        resp.UserCode,
+		VerificationURI: resp.VerificationURI,
+		ExpiresIn:       resp.ExpiresIn,
+		Interval:        resp.Interval,
+	}, nil
+}
+
+// PollDeviceFlow 轮询 GitHub 换取 token，成功后自动完成授权绑定
+// 返回 (completed, error)：completed=true 表示授权成功，error 非空表示失败
+func PollDeviceFlow(deviceCode string) (bool, error) {
+	if !FeatureEnabled() {
+		return false, fmt.Errorf("本部署未启用系统授权功能")
+	}
+
+	accessToken, pending, err := pollForToken(deviceCode)
+	if err != nil {
+		return false, err
+	}
+	if pending {
+		// 用户还没完成授权，前端应继续轮询
+		return false, nil
+	}
+
+	// 拿到 token，完成授权绑定
+	if err := authorizeWithToken(accessToken); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// authorizeWithToken 用 access token 完成完整授权流程：
+// 查用户名 → 查组织成员 → 读/写 Gist → 落本地状态
+func authorizeWithToken(accessToken string) error {
 	login, err := fetchGitHubLogin(accessToken)
 	if err != nil {
 		return err
@@ -208,8 +224,7 @@ func Revalidate() error {
 	login := getOption(optKeyGithubLogin)
 	fp := getOption(optKeyFingerprint)
 	if login == "" {
-		// 正常走完 Authorize() 的状态不可能出现 login 为空，这是明显的异常/篡改状态，
-		// 之前这里直接 return nil 什么都不做是个 bug——会让篡改后的状态永远得不到纠正
+		// 正常走完授权的状态不可能出现 login 为空，这是明显的异常/篡改状态
 		log.Printf("[license] 复核发现绑定账号为空（异常状态），取消本机授权")
 		setOption(optKeyAuthorized, "false")
 		return nil

@@ -116,9 +116,8 @@ func SetApiRouter(router *gin.Engine) {
 	router.GET("/oauth/telegram/callback", oauth.TelegramCallback)
 	router.GET("/oauth/wechat", oauth.WechatLogin)
 	router.GET("/oauth/wechat/callback", oauth.WechatCallback)
-	// ↓↓↓ REMOVABLE：系统授权门禁的匿名可达路由，整体移除时删掉这两行即可 ↓↓↓
-	router.GET("/api/system-license/github/start", controller.StartGitHubAuth)
-	router.GET("/api/system-license/github/callback", controller.GitHubAuthCallback)
+	// ↓↓↓ REMOVABLE：系统授权门禁的 Device Flow 路由，整体移除时删掉这块即可 ↓↓↓
+	// Device Flow 无需回调地址，发起和轮询都在 rootGroup 下（需登录态）
 	// ↑↑↑ REMOVABLE ↑↑↑
 	router.POST("/api/payment/notify", controller.PaymentNotify)
 	router.GET("/api/payment/notify", controller.PaymentNotify)
@@ -534,6 +533,8 @@ func SetApiRouter(router *gin.Engine) {
 			// ↓↓↓ REMOVABLE：系统授权门禁的登录态接口，整体移除时删掉这两行即可 ↓↓↓
 			rootGroup.GET("/system-license/status", controller.GetLicenseStatus)
 			rootGroup.POST("/system-license/unbind", controller.UnbindLicense)
+			rootGroup.POST("/system-license/device-code", controller.StartDeviceFlow)
+			rootGroup.POST("/system-license/poll", controller.PollDeviceFlow)
 			// ↑↑↑ REMOVABLE ↑↑↑
 			rootGroup.GET("/option/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			rootGroup.DELETE("/option/channel_affinity_cache", controller.ClearChannelAffinityCache)

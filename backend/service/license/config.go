@@ -12,11 +12,12 @@ import "encoding/base64"
 //  4. hmacSecretB64 —— 纯内部使用的签名密钥，不对应任何外部账号，随机生成一次即可，
 //     用来防止有人直接改数据库里的 authorized 字段绕过授权（见 signature.go）
 //  5. licenseGithubClientIdB64 / licenseGithubClientSecretB64 —— 单独给这个授权模块注册的
-//     GitHub OAuth App（不要复用站点登录用的那个 OAuth App，两者用途不同、回调地址也不同）。
+//     GitHub OAuth App（不要复用站点登录用的那个 OAuth App，两者用途不同）。
 //     去 GitHub → 头像 → Settings → Developer settings → OAuth Apps → New OAuth App 创建：
 //     Homepage URL：随便填你的站点地址
-//     Authorization callback URL：填 https://你的域名/api/system-license/github/callback
-//     创建后把它的 Client ID / Client Secret 分别 base64 编码填进下面
+//     Authorization callback URL：随便填（Device Flow 不需要回调地址）
+//     创建后进入 App 详情页 → 勾选 "Enable Device Flow"（必须启用，否则 Device Flow 接口会报 403）
+//     然后把 Client ID / Client Secret 分别 base64 编码填进下面
 //
 // 生成方式：echo -n "真实值" | base64
 //

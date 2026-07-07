@@ -1,11 +1,8 @@
 // ⚠️ REMOVABLE MODULE — 系统授权门禁
-// 瘦 controller，只做参数解析和跳转，具体逻辑都在 service/license 包里
+// 瘦 controller，只做参数解析，具体逻辑都在 service/license 包里
 package controller
 
 import (
-	"net/http"
-	"net/url"
-
 	"STfreApi/common"
 	"STfreApi/service/license"
 
@@ -17,26 +14,35 @@ func GetLicenseStatus(c *gin.Context) {
 	common.OK(c, license.GetStatus())
 }
 
-// StartGitHubAuth 跳转去 GitHub 授权页（匿名可达——前端是纯 Bearer Token 鉴权，
-// 整页跳转天然带不上 Authorization 头；这个接口本身只是拼链接重定向，不涉及任何
-// 本地敏感操作，真正的权限判断在拿到 GitHub 身份后的 callback 阶段完成）
-func StartGitHubAuth(c *gin.Context) {
-	url, err := license.BuildAuthorizeURL()
+// StartDeviceFlow 发起 Device Flow，返回设备码供前端展示（rootGroup）
+func StartDeviceFlow(c *gin.Context) {
+	info, err := license.RequestDeviceFlow()
 	if err != nil {
 		common.Fail(c, common.CodeForbidden, err.Error())
 		return
 	}
-	c.Redirect(http.StatusFound, url)
+	common.OK(c, info)
 }
 
-// GitHubAuthCallback GitHub 授权回调（匿名可达，靠 state 防 CSRF）
-func GitHubAuthCallback(c *gin.Context) {
-	err := license.HandleCallback(c.Query("state"), c.Query("code"))
-	if err != nil {
-		c.Redirect(http.StatusFound, "/admin/security?license=error&reason="+url.QueryEscape(err.Error()))
+// PollDeviceFlow 轮询 GitHub 换取 token 并完成授权绑定（rootGroup）
+func PollDeviceFlow(c *gin.Context) {
+	var req struct {
+		DeviceCode string `json:"device_code" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, common.CodeParamError, "缺少 device_code 参数")
 		return
 	}
-	c.Redirect(http.StatusFound, "/admin/security?license=success")
+
+	completed, err := license.PollDeviceFlow(req.DeviceCode)
+	if err != nil {
+		common.Fail(c, common.CodeServerError, err.Error())
+		return
+	}
+	common.OK(c, gin.H{
+		"completed": completed,
+		"message":   ternary(completed, "授权成功", "等待用户完成授权..."),
+	})
 }
 
 // UnbindLicense 解绑当前实例的授权（rootGroup，需要登录态）
@@ -46,4 +52,12 @@ func UnbindLicense(c *gin.Context) {
 		return
 	}
 	common.OKMsg(c, "已解绑", nil)
+}
+
+// ternary Go 没有三元运算符，写个小工具函数
+func ternary(cond bool, a, b string) string {
+	if cond {
+		return a
+	}
+	return b
 }
