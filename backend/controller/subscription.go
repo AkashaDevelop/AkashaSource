@@ -3,6 +3,7 @@ package controller
 import (
 	"STfreApi/common"
 	"STfreApi/model"
+	paymentservice "STfreApi/service/payment"
 	"fmt"
 	"strconv"
 	"strings"
@@ -105,6 +106,13 @@ func CreateSubscriptionOrder(c *gin.Context) {
 
 	userId := c.GetInt("id")
 
+	provider := common.OptionMap[model.OptionKeyPaymentProvider]
+	// ～provider 没配置，或者填了奇怪的值，拒绝掉，免得创建一堆永远 pending 的僵尸订阅喵～
+	if provider != "epay" && provider != "stripe" && provider != "creem" {
+		common.Fail(c, common.CodeNotImplemented, "当前未配置有效的支付渠道，请联系管理员")
+		return
+	}
+
 	sub := model.UserSubscription{
 		UserId:    userId,
 		PlanId:    plan.Id,
@@ -116,7 +124,61 @@ func CreateSubscriptionOrder(c *gin.Context) {
 		return
 	}
 
-	provider := common.OptionMap[model.OptionKeyPaymentProvider]
+	tradeNo := paymentservice.NewTradeNo()
+	var payUrl string
+	var err error
+
+	switch provider {
+	case "epay":
+		payUrl, err = buildSubscriptionEpayUrl(tradeNo, plan, req.PayType)
+
+	case "stripe":
+		if plan.StripePriceId == "" {
+			common.DB.Delete(&sub)
+			common.Fail(c, common.CodeParamError, "该套餐未配置 Stripe 定价ID，请联系管理员")
+			return
+		}
+		secretKey := common.OptionMap[model.OptionKeyStripeSecretKey]
+		successUrl := common.OptionMap[model.OptionKeyStripeSuccessUrl]
+		cancelUrl := common.OptionMap[model.OptionKeyStripeCancelUrl]
+		systemUrl := common.OptionMap[model.OptionKeySystemUrl]
+		if successUrl == "" {
+			successUrl = systemUrl + "/billing?stripe_success=1"
+		}
+		if cancelUrl == "" {
+			cancelUrl = systemUrl + "/billing"
+		}
+		var result *paymentservice.StripeCheckoutResult
+		result, err = paymentservice.CreateStripeSubscriptionCheckout(secretKey, successUrl, cancelUrl, plan.StripePriceId, tradeNo)
+		if err == nil {
+			payUrl = result.PayUrl
+		}
+
+	case "creem":
+		if plan.CreemProductId == "" {
+			common.DB.Delete(&sub)
+			common.Fail(c, common.CodeParamError, "该套餐未配置 Creem 产品ID，请联系管理员")
+			return
+		}
+		apiKey := common.OptionMap[model.OptionKeyCreemApiKey]
+		successUrl := common.OptionMap[model.OptionKeyCreemSuccessUrl]
+		testMode := common.OptionMap[model.OptionKeyCreemTestMode] == "true"
+		if successUrl == "" {
+			successUrl = common.OptionMap[model.OptionKeySystemUrl] + "/billing?creem_success=1"
+		}
+		var result *paymentservice.CreemCheckoutResult
+		result, err = paymentservice.CreateCreemCheckout(apiKey, plan.CreemProductId, successUrl, tradeNo, testMode)
+		if err == nil {
+			payUrl = result.PayUrl
+		}
+	}
+
+	if err != nil {
+		common.DB.Delete(&sub)
+		common.Fail(c, common.CodeParamError, err.Error())
+		return
+	}
+
 	order := model.PaymentOrder{
 		UserId:    userId,
 		Amount:    plan.Price,
@@ -124,29 +186,20 @@ func CreateSubscriptionOrder(c *gin.Context) {
 		Provider:  provider,
 		OrderType: "subscription",
 		RefId:     sub.Id,
-		// ～同 payment.go：trade_no 有唯一索引，建单时必须先给个占位值喵～
-		TradeNo:   "pending-" + common.GetUUID(),
+		TradeNo:   tradeNo,
+		PayUrl:    payUrl,
 		CreatedAt: time.Now().Unix(),
 	}
 	if err := common.DB.Create(&order).Error; err != nil {
+		common.DB.Delete(&sub)
 		common.Fail(c, common.CodeServerError, "创建订单失败")
 		return
-	}
-
-	if provider == "epay" {
-		payUrl, err := buildSubscriptionEpayUrl(order, plan, req.PayType)
-		if err != nil {
-			common.Fail(c, common.CodeParamError, err.Error())
-			return
-		}
-		order.PayUrl = payUrl
-		common.DB.Model(&order).Update("pay_url", payUrl)
 	}
 
 	common.OK(c, gin.H{"order": order, "subscription": sub})
 }
 
-func buildSubscriptionEpayUrl(order model.PaymentOrder, plan model.SubscriptionPlan, payType string) (string, error) {
+func buildSubscriptionEpayUrl(tradeNo string, plan model.SubscriptionPlan, payType string) (string, error) {
 	api := strings.TrimSpace(common.OptionMap[model.OptionKeyEpayApiUrl])
 	pid := strings.TrimSpace(common.OptionMap[model.OptionKeyEpayPid])
 	key := strings.TrimSpace(common.OptionMap[model.OptionKeyEpayKey])
@@ -168,7 +221,7 @@ func buildSubscriptionEpayUrl(order model.PaymentOrder, plan model.SubscriptionP
 
 	params := map[string]string{
 		"pid":          pid,
-		"out_trade_no": fmt.Sprintf("%d", order.Id),
+		"out_trade_no": tradeNo,
 		"notify_url":   notifyUrl,
 		"return_url":   returnUrl,
 		"name":         "订阅：" + plan.Name,
@@ -265,54 +318,8 @@ func UpdateSubscriptionPreference(c *gin.Context) {
 }
 
 // ─── Internal: Activate subscription ────────────────────────────────────────
-
-func ActivateSubscription(tx *gorm.DB, subId int) error {
-	var sub model.UserSubscription
-	if err := tx.Preload("Plan").First(&sub, subId).Error; err != nil {
-		return err
-	}
-	if sub.Status == model.SubStatusActive {
-		return nil
-	}
-
-	plan := sub.Plan
-	if plan == nil {
-		return fmt.Errorf("套餐不存在")
-	}
-
-	now := time.Now().Unix()
-	var expiredAt int64
-	if plan.DurationDays > 0 {
-		expiredAt = now + int64(plan.DurationDays)*86400
-	}
-
-	updates := map[string]interface{}{
-		"status":     model.SubStatusActive,
-		"started_at": now,
-		"expired_at": expiredAt,
-	}
-
-	if plan.Type == model.PlanTypeGroup || plan.Type == model.PlanTypeCombo {
-		if plan.GroupName != "" {
-			var user model.User
-			tx.Select("group").First(&user, sub.UserId)
-			updates["original_group"] = user.Group
-			if err := tx.Model(&model.User{}).Where("id = ?", sub.UserId).
-				Update("group", plan.GroupName).Error; err != nil {
-				return err
-			}
-		}
-	}
-
-	if plan.Type == model.PlanTypeQuota || plan.Type == model.PlanTypeCombo {
-		if plan.Quota > 0 {
-			// 订阅额度作为独立资金池记录在订阅上，不直接充值到用户钱包
-			updates["quota"] = plan.Quota
-		}
-	}
-
-	return tx.Model(&model.UserSubscription{}).Where("id = ?", subId).Updates(updates).Error
-}
+// ～真正的激活逻辑搬到 model.ActivateSubscription 去了（CAS 版，防并发重复执行），
+// 这里只是给管理员绑定场景保留一个薄薄的调用入口喵～
 
 // ─── Admin: Subscription APIs (new-api compatibility) ────────────────────────
 
@@ -448,7 +455,7 @@ func adminBindSubscriptionTx(tx *gorm.DB, userId, planId int) error {
 	if err := tx.Create(&sub).Error; err != nil {
 		return err
 	}
-	return ActivateSubscription(tx, sub.Id)
+	return model.ActivateSubscription(tx, sub.Id)
 }
 
 func AdminBindSubscription(c *gin.Context) {

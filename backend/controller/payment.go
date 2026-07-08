@@ -76,30 +76,15 @@ func CreatePayment(c *gin.Context) {
 		return
 	}
 
-	order := model.PaymentOrder{
-		UserId:    userId,
-		Amount:    req.Amount,
-		Status:    model.PaymentStatusPending,
-		Provider:  provider,
-		// ～trade_no 有唯一索引，建单时必须先给个占位值，不然空字符串会和之前的订单撞车导致后续下单全部失败喵～
-		TradeNo:   "pending-" + common.GetUUID(),
-		CreatedAt: time.Now().Unix(),
-	}
-	if err := common.DB.Create(&order).Error; err != nil {
-		common.Fail(c, common.CodeServerError, "创建订单失败")
-		return
-	}
+	// ～先把交易号算好、拿到网关的支付链接，成功了才落库，一次性 Create 不需要占位符+事后 Update 啦～
+	tradeNo := paymentservice.NewTradeNo()
+	var payUrl string
+	var quotaAdded int64
+	var err error
 
 	switch provider {
 	case "epay":
-		payUrl, err := buildEpayUrl(order, req.Amount)
-		if err != nil {
-			common.DB.Delete(&order)
-			common.Fail(c, common.CodeParamError, err.Error())
-			return
-		}
-		order.PayUrl = payUrl
-		common.DB.Model(&order).Update("pay_url", payUrl)
+		payUrl, err = buildEpayUrl(tradeNo, req.Amount)
 
 	case "stripe":
 		// ～美元/分换算：1 USD = 100 cents；OptionMap 里存的 amount 是美元小数～
@@ -115,21 +100,14 @@ func CreatePayment(c *gin.Context) {
 			cancelUrl = systemUrl + "/topup"
 		}
 		amountCents := int64(math.Round(req.Amount * 100))
-		result, err := paymentservice.CreateStripeCheckout(
+		var result *paymentservice.StripeCheckoutResult
+		result, err = paymentservice.CreateStripeCheckout(
 			secretKey, currency, successUrl, cancelUrl,
-			amountCents, order.Id, fmt.Sprintf("Akasha 账户充值 %.2f", req.Amount),
+			amountCents, tradeNo, fmt.Sprintf("Akasha 账户充值 %.2f", req.Amount),
 		)
-		if err != nil {
-			common.DB.Delete(&order)
-			common.Fail(c, common.CodeParamError, err.Error())
-			return
+		if err == nil {
+			payUrl = result.PayUrl
 		}
-		order.PayUrl = result.PayUrl
-		order.TradeNo = result.SessionId
-		common.DB.Model(&order).Updates(map[string]interface{}{
-			"pay_url":  result.PayUrl,
-			"trade_no": result.SessionId,
-		})
 
 	case "creem":
 		apiKey := common.OptionMap[model.OptionKeyCreemApiKey]
@@ -145,17 +123,16 @@ func CreatePayment(c *gin.Context) {
 			productId = common.OptionMap[model.OptionKeyCreemProductId]
 		}
 		if productsJSON := common.OptionMap[model.OptionKeyCreemProducts]; productsJSON != "" && req.ProductId != "" {
-			// 从产品列表里找对应的产品，更新订单金额
+			// 从产品列表里找对应的产品，记下 quota，等下单成功后一起落库
 			var products []struct {
 				ProductId string  `json:"product_id"`
 				Price     float64 `json:"price"`
 				Quota     int64   `json:"quota"`
 			}
-			if err := json.Unmarshal([]byte(productsJSON), &products); err == nil {
+			if jsonErr := json.Unmarshal([]byte(productsJSON), &products); jsonErr == nil {
 				for _, p := range products {
 					if p.ProductId == req.ProductId {
-						// 用产品定义的 quota 直接更新订单
-						common.DB.Model(&order).Update("quota_added", p.Quota)
+						quotaAdded = p.Quota
 						break
 					}
 				}
@@ -163,26 +140,34 @@ func CreatePayment(c *gin.Context) {
 			productId = req.ProductId
 		}
 		if productId == "" {
-			common.DB.Delete(&order)
 			common.Fail(c, common.CodeParamError, "未指定 Creem 产品 ID，请在设置中配置 creem_products 或 creem_product_id")
 			return
 		}
-		result, err := paymentservice.CreateCreemCheckout(
-			apiKey, productId, successUrl,
-			fmt.Sprintf("order_%d", order.Id),
-			testMode,
-		)
-		if err != nil {
-			common.DB.Delete(&order)
-			common.Fail(c, common.CodeParamError, err.Error())
-			return
+		var result *paymentservice.CreemCheckoutResult
+		result, err = paymentservice.CreateCreemCheckout(apiKey, productId, successUrl, tradeNo, testMode)
+		if err == nil {
+			payUrl = result.PayUrl
 		}
-		order.PayUrl = result.PayUrl
-		order.TradeNo = result.CheckoutId
-		common.DB.Model(&order).Updates(map[string]interface{}{
-			"pay_url":  result.PayUrl,
-			"trade_no": result.CheckoutId,
-		})
+	}
+
+	if err != nil {
+		common.Fail(c, common.CodeParamError, err.Error())
+		return
+	}
+
+	order := model.PaymentOrder{
+		UserId:     userId,
+		Amount:     req.Amount,
+		QuotaAdded: quotaAdded,
+		Status:     model.PaymentStatusPending,
+		Provider:   provider,
+		TradeNo:    tradeNo,
+		PayUrl:     payUrl,
+		CreatedAt:  time.Now().Unix(),
+	}
+	if err := common.DB.Create(&order).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "创建订单失败")
+		return
 	}
 
 	common.OK(c, order)
@@ -265,34 +250,16 @@ func PaymentNotify(c *gin.Context) {
 		return
 	}
 
-	if order.OrderType == "subscription" {
-		// 订阅订单走原有事务逻辑
-		err := common.DB.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Model(&model.PaymentOrder{}).Where("id = ?", order.Id).Updates(map[string]interface{}{
-				"status":      model.PaymentStatusPaid,
-				"notify_data": toJSON(payload),
-			}).Error; err != nil {
-				return err
-			}
-			return ActivateSubscription(tx, order.RefId)
-		})
-		if err != nil {
-			common.Fail(c, common.CodeServerError, "订阅激活失败")
-			return
-		}
-		common.OKMsg(c, "处理成功", nil)
-		return
-	}
-
-	// ～改用统一入账函数，金额从数据库读取，带幂等锁保护～
-	if err := paymentservice.RechargeOrder(order.Id, toJSON(payload)); err != nil {
+	// ～统一入账函数，充值/订阅两种订单类型内部自动分流，带幂等锁+渠道校验双保险～
+	// 通用 JSON 回调走的是共享密钥而非渠道签名，不对应具体支付渠道，跳过渠道校验
+	if err := paymentservice.RechargeOrder(order.Id, "", toJSON(payload)); err != nil {
 		common.Fail(c, common.CodeServerError, "订单更新失败")
 		return
 	}
 	common.OKMsg(c, "处理成功", nil)
 }
 
-func buildEpayUrl(order model.PaymentOrder, amount float64) (string, error) {
+func buildEpayUrl(tradeNo string, amount float64) (string, error) {
 	api := strings.TrimSpace(common.OptionMap[model.OptionKeyEpayApiUrl])
 	pid := strings.TrimSpace(common.OptionMap[model.OptionKeyEpayPid])
 	key := strings.TrimSpace(common.OptionMap[model.OptionKeyEpayKey])
@@ -312,7 +279,7 @@ func buildEpayUrl(order model.PaymentOrder, amount float64) (string, error) {
 
 	params := map[string]string{
 		"pid":          pid,
-		"out_trade_no": strconv.Itoa(order.Id),
+		"out_trade_no": tradeNo,
 		"notify_url":   notifyUrl,
 		"return_url":   returnUrl,
 		"name":         "Akasha 账户充值",
@@ -356,19 +323,19 @@ func handleEpayNotify(c *gin.Context) {
 	delete(params, "sign")
 	delete(params, "sign_type")
 
-	orderId, _ := strconv.Atoi(params["out_trade_no"])
+	tradeNo := params["out_trade_no"]
 	amount, _ := strconv.ParseFloat(params["money"], 64)
 	status := strings.ToLower(params["trade_status"])
 	if status == "" {
 		status = strings.ToLower(params["status"])
 	}
-	if orderId == 0 || amount <= 0 {
+	if tradeNo == "" || amount <= 0 {
 		c.String(400, "fail")
 		return
 	}
 
-	var order model.PaymentOrder
-	if err := common.DB.First(&order, orderId).Error; err != nil {
+	order, err := model.GetOrderByTradeNo(tradeNo)
+	if err != nil {
 		c.String(200, "success")
 		return
 	}
@@ -377,7 +344,7 @@ func handleEpayNotify(c *gin.Context) {
 		return
 	}
 	if status != "trade_success" && status != "success" && status != "paid" {
-		common.DB.Model(&order).Updates(map[string]interface{}{
+		common.DB.Model(&model.PaymentOrder{}).Where("id = ?", order.Id).Updates(map[string]interface{}{
 			"status":      model.PaymentStatusFailed,
 			"notify_data": toJSON(params),
 		})
@@ -385,25 +352,8 @@ func handleEpayNotify(c *gin.Context) {
 		return
 	}
 
-	if order.OrderType == "subscription" {
-		err := common.DB.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Model(&model.PaymentOrder{}).Where("id = ?", order.Id).Updates(map[string]interface{}{
-				"status":      model.PaymentStatusPaid,
-				"notify_data": toJSON(params),
-			}).Error; err != nil {
-				return err
-			}
-			return ActivateSubscription(tx, order.RefId)
-		})
-		if err != nil {
-			log.Printf("[handleEpayNotify] 订阅激活失败 orderId=%d: %v", order.Id, err)
-		}
-		c.String(200, "success")
-		return
-	}
-
-	// ～改用统一入账函数，金额从数据库读取，自带幂等锁保护～
-	if err := paymentservice.RechargeOrder(order.Id, toJSON(params)); err != nil {
+	// ～统一入账函数，充值/订阅两种订单类型内部自动分流，带幂等锁+渠道校验双保险～
+	if err := paymentservice.RechargeOrder(order.Id, "epay", toJSON(params)); err != nil {
 		log.Printf("[handleEpayNotify] 入账失败 orderId=%d: %v", order.Id, err)
 	}
 	c.String(200, "success")
@@ -480,7 +430,7 @@ func AdminManualCompleteOrder(c *gin.Context) {
 		common.Fail(c, common.CodeNotFound, "订单不存在")
 		return
 	}
-	if err := paymentservice.RechargeOrder(order.Id, `{"source":"admin_manual"}`); err != nil {
+	if err := paymentservice.RechargeOrder(order.Id, "", `{"source":"admin_manual"}`); err != nil {
 		common.Fail(c, common.CodeServerError, "补单失败: "+err.Error())
 		return
 	}

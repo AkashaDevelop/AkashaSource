@@ -14,8 +14,15 @@ import (
 	"gorm.io/gorm"
 )
 
+// NewTradeNo ～下单前就把交易号算好，不依赖任何网关的返回值，
+// 一次性 Create 订单，彻底不需要"占位符+事后 Update"这种两阶段写入啦～
+func NewTradeNo() string {
+	return "AK" + common.GetUUID()
+}
+
 // RechargeOrder ～统一入账函数，带订单级锁保证幂等安全，任何渠道的支付成功都走这里～
-func RechargeOrder(orderId int, notifyData string) error {
+// expectedProvider 不为空时会校验订单归属渠道，防止伪造某渠道回调却指向另一渠道订单的攻击；传空字符串跳过校验。
+func RechargeOrder(orderId int, expectedProvider string, notifyData string) error {
 	// 先从数据库读最新状态（不能信 controller 层传来的缓存对象）
 	var order model.PaymentOrder
 	if err := common.DB.First(&order, orderId).Error; err != nil {
@@ -38,6 +45,11 @@ func RechargeOrder(orderId int, notifyData string) error {
 	// 幂等：已入账直接返回，不重复操作
 	if order.Status == model.PaymentStatusPaid {
 		return nil
+	}
+
+	// ～渠道来源校验：伪造的 Stripe 签名不该能让 Creem 订单入账，反之亦然喵～
+	if expectedProvider != "" && order.Provider != expectedProvider {
+		return fmt.Errorf("订单 #%d 归属渠道 %q 与回调渠道 %q 不符，拒绝入账", orderId, order.Provider, expectedProvider)
 	}
 
 	quotaAdd := int64(math.Round(order.Amount * common.QuotaPerUnit))
@@ -63,8 +75,8 @@ func RechargeOrder(orderId int, notifyData string) error {
 		}
 
 		if order.OrderType == "subscription" {
-			// 订阅订单由 controller 层的 ActivateSubscription 处理
-			return nil
+			// ～订阅订单：给对应的 UserSubscription 做同样的 CAS 激活，不直接充值到钱包～
+			return model.ActivateSubscription(tx, order.RefId)
 		}
 
 		if err := tx.Model(&model.User{}).Where("id = ?", order.UserId).
@@ -89,18 +101,20 @@ func RechargeOrder(orderId int, notifyData string) error {
 	}
 
 	log.Printf("[RechargeOrder] 入账成功 orderId=%d tradeNo=%s quotaAdd=%d", orderId, tradeNo, quotaAdd)
-	// ～入账成功后悄悄检查一下余额，不够的话给用户发个小提醒～
-	go checkAndNotifyLowBalance(order.UserId)
+	// ～充值订单入账成功后悄悄检查一下余额，不够的话给用户发个小提醒；订阅订单不涉及钱包余额，跳过～
+	if order.OrderType != "subscription" {
+		go checkAndNotifyLowBalance(order.UserId)
+	}
 	return nil
 }
 
 // RechargeOrderByTradeNo ～按交易号入账，Webhook 收到 tradeNo 时直接调用～
-func RechargeOrderByTradeNo(tradeNo, notifyData string) error {
+func RechargeOrderByTradeNo(tradeNo, expectedProvider, notifyData string) error {
 	order, err := model.GetOrderByTradeNo(tradeNo)
 	if err != nil {
 		return fmt.Errorf("交易号 %s 对应的订单不存在: %w", tradeNo, err)
 	}
-	return RechargeOrder(order.Id, notifyData)
+	return RechargeOrder(order.Id, expectedProvider, notifyData)
 }
 
 // MarkOrderFailed ～把订单标记为失败，并记录原因～
@@ -109,16 +123,6 @@ func MarkOrderFailed(orderId int, reason string) {
 		Updates(map[string]interface{}{
 			"status":      model.PaymentStatusFailed,
 			"notify_data": reason,
-		})
-}
-
-// MarkOrderExpired ～按订单 Id 把 pending 的订单标记为已过期（Stripe session expired）～
-func MarkOrderExpired(orderId int) {
-	common.DB.Model(&model.PaymentOrder{}).
-		Where("id = ? AND status = ?", orderId, model.PaymentStatusPending).
-		Updates(map[string]interface{}{
-			"status":       model.PaymentStatusExpired,
-			"completed_at": time.Now().Unix(),
 		})
 }
 

@@ -7,7 +7,6 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"STfreApi/common"
@@ -54,40 +53,36 @@ func StripeWebhook(c *gin.Context) {
 			return
 		}
 		if sess.PaymentStatus == stripe.CheckoutSessionPaymentStatusPaid {
-			if err := paymentservice.RechargeOrderByTradeNo(sess.ID, notifyData); err != nil {
+			// ～client_reference_id 就是咱们下单时算好的 trade_no，和其他事件分支保持同一套查找方式喵～
+			tradeNo := sess.ClientReferenceID
+			if tradeNo == "" {
+				tradeNo = sess.ID
+			}
+			if err := paymentservice.RechargeOrderByTradeNo(tradeNo, "stripe", notifyData); err != nil {
 				log.Printf("[StripeWebhook] checkout.completed 入账失败: %v", err)
 			}
 		}
 
 	case stripe.EventTypeCheckoutSessionAsyncPaymentSucceeded:
-		// ～client_reference_id 存的是下单时的订单自增 Id（见 service/payment/stripe.go），
-		// 不是 trade_no（trade_no 存的是 Stripe SessionId），两者不能混用查询喵～
 		if refId := event.GetObjectValue("client_reference_id"); refId != "" {
-			orderId, err := strconv.Atoi(refId)
-			if err != nil {
-				log.Printf("[StripeWebhook] async_payment_succeeded client_reference_id 非法: %s", refId)
-				break
-			}
-			if err := paymentservice.RechargeOrder(orderId, notifyData); err != nil {
-				log.Printf("[StripeWebhook] async_payment_succeeded 入账失败 orderId=%d: %v", orderId, err)
+			if err := paymentservice.RechargeOrderByTradeNo(refId, "stripe", notifyData); err != nil {
+				log.Printf("[StripeWebhook] async_payment_succeeded 入账失败 tradeNo=%s: %v", refId, err)
 			}
 			break
 		}
 		if sessionId := event.GetObjectValue("id"); sessionId != "" {
-			if err := paymentservice.RechargeOrderByTradeNo(sessionId, notifyData); err != nil {
+			if err := paymentservice.RechargeOrderByTradeNo(sessionId, "stripe", notifyData); err != nil {
 				log.Printf("[StripeWebhook] async_payment_succeeded 入账失败 sessionId=%s: %v", sessionId, err)
 			}
 		}
 
 	case stripe.EventTypeCheckoutSessionAsyncPaymentFailed:
 		if refId := event.GetObjectValue("client_reference_id"); refId != "" {
-			orderId, err := strconv.Atoi(refId)
-			if err != nil {
-				log.Printf("[StripeWebhook] async_payment_failed client_reference_id 非法: %s", refId)
-				break
+			log.Printf("[StripeWebhook] 异步支付失败 tradeNo=%s", refId)
+			order, _ := model.GetOrderByTradeNo(refId)
+			if order != nil {
+				paymentservice.MarkOrderFailed(order.Id, notifyData)
 			}
-			log.Printf("[StripeWebhook] 异步支付失败 orderId=%d", orderId)
-			paymentservice.MarkOrderFailed(orderId, notifyData)
 			break
 		}
 		if sessionId := event.GetObjectValue("id"); sessionId != "" {
@@ -100,13 +95,8 @@ func StripeWebhook(c *gin.Context) {
 
 	case stripe.EventTypeCheckoutSessionExpired:
 		if refId := event.GetObjectValue("client_reference_id"); refId != "" {
-			orderId, err := strconv.Atoi(refId)
-			if err != nil {
-				log.Printf("[StripeWebhook] session expired client_reference_id 非法: %s", refId)
-				break
-			}
-			paymentservice.MarkOrderExpired(orderId)
-			log.Printf("[StripeWebhook] checkout 过期 orderId=%d", orderId)
+			paymentservice.MarkOrderExpiredByTradeNo(refId)
+			log.Printf("[StripeWebhook] checkout 过期 tradeNo=%s", refId)
 			break
 		}
 		if sessionId := event.GetObjectValue("id"); sessionId != "" {
@@ -161,21 +151,20 @@ func CreemWebhook(c *gin.Context) {
 	}
 	json.Unmarshal(payload.Object, &obj)
 
-	var order model.PaymentOrder
-	// ～我们把 order ID 藏在 request_id 里，格式是 "order_123"～
-	orderId := strings.TrimPrefix(obj.RequestId, "order_")
-	if err := common.DB.Where("id = ? AND provider = 'creem'", orderId).First(&order).Error; err != nil {
-		if obj.Id != "" {
-			common.DB.Where("trade_no = ?", obj.Id).First(&order)
-		}
-		if order.Id == 0 {
-			log.Printf("[CreemWebhook] 订单未找到: request_id=%s checkout_id=%s", obj.RequestId, obj.Id)
-			c.String(http.StatusOK, "ok")
-			return
-		}
+	// ～request_id 就是咱们下单时算好的 trade_no，一次查询直接命中，不用再靠 "order_" 前缀猜订单 ID 啦～
+	tradeNo := obj.RequestId
+	if tradeNo == "" {
+		tradeNo = obj.Id
+	}
+	if tradeNo == "" {
+		log.Printf("[CreemWebhook] 事件缺少 request_id/id，无法定位订单")
+		c.String(http.StatusOK, "ok")
+		return
 	}
 
-	handleOrderPaid(&order, string(rawBody))
+	if err := paymentservice.RechargeOrderByTradeNo(tradeNo, "creem", string(rawBody)); err != nil {
+		log.Printf("[CreemWebhook] 入账失败 tradeNo=%s: %v", tradeNo, err)
+	}
 	c.String(http.StatusOK, "ok")
 }
 
@@ -186,13 +175,6 @@ func SubscriptionEpayNotify(c *gin.Context) {
 
 func SubscriptionEpayReturn(c *gin.Context) {
 	PaymentNotify(c)
-}
-
-// handleOrderPaid ～旧版入账，已迁移到 service/payment/recharge.go，这里仅保留用于 epay 订阅回调兼容，待彻底清理～
-func handleOrderPaid(order *model.PaymentOrder, notifyData string) {
-	if err := paymentservice.RechargeOrder(order.Id, notifyData); err != nil {
-		log.Printf("[handleOrderPaid] 入账失败 orderId=%d: %v", order.Id, err)
-	}
 }
 
 // GetTopUpInfo ～告诉前端当前哪些支付方式可用，顺手返回产品列表和待支付订单提示～

@@ -9,13 +9,12 @@ import (
 
 // StripeCheckoutResult ～Stripe 发回来的付款跳转小票～
 type StripeCheckoutResult struct {
-	SessionId  string
-	PayUrl     string
-	OrderRefId string
+	SessionId string
+	PayUrl    string
 }
 
-// CreateStripeCheckout ～让 Stripe 开一个付款会话，返回跳转链接～
-func CreateStripeCheckout(secretKey, currency, successUrl, cancelUrl string, amountCents int64, orderId int, description string) (*StripeCheckoutResult, error) {
+// CreateStripeCheckout ～让 Stripe 开一个一次性付款会话，返回跳转链接～
+func CreateStripeCheckout(secretKey, currency, successUrl, cancelUrl string, amountCents int64, tradeNo string, description string) (*StripeCheckoutResult, error) {
 	if secretKey == "" {
 		return nil, fmt.Errorf("Stripe Secret Key 未配置")
 	}
@@ -50,8 +49,9 @@ func CreateStripeCheckout(secretKey, currency, successUrl, cancelUrl string, amo
 				},
 			},
 		},
-		// ～把订单 ID 藏在 ClientReferenceID 里，Webhook 收到后能对上号～
-		ClientReferenceID: stripe.String(fmt.Sprintf("%d", orderId)),
+		// ～把咱们自己算好的交易号藏在 ClientReferenceID 里，Webhook 收到后能对上号，
+		// 和 trade_no 语义完全统一，不用再靠 SessionId/OrderId 两套键值混着查啦～
+		ClientReferenceID: stripe.String(tradeNo),
 	}
 
 	sess, err := sc.CheckoutSessions.New(params)
@@ -60,8 +60,50 @@ func CreateStripeCheckout(secretKey, currency, successUrl, cancelUrl string, amo
 	}
 
 	return &StripeCheckoutResult{
-		SessionId:  sess.ID,
-		PayUrl:     sess.URL,
-		OrderRefId: fmt.Sprintf("%d", orderId),
+		SessionId: sess.ID,
+		PayUrl:    sess.URL,
+	}, nil
+}
+
+// CreateStripeSubscriptionCheckout ～让 Stripe 开一个订阅制付款会话，引用后台预配置好的 recurring Price ID～
+func CreateStripeSubscriptionCheckout(secretKey, successUrl, cancelUrl, priceId, tradeNo string) (*StripeCheckoutResult, error) {
+	if secretKey == "" {
+		return nil, fmt.Errorf("Stripe Secret Key 未配置")
+	}
+	if priceId == "" {
+		return nil, fmt.Errorf("Stripe Price ID 未配置")
+	}
+
+	sc := &client.API{}
+	sc.Init(secretKey, nil)
+
+	if successUrl == "" {
+		return nil, fmt.Errorf("Stripe 成功跳转地址未配置")
+	}
+	if cancelUrl == "" {
+		cancelUrl = successUrl
+	}
+
+	params := &stripe.CheckoutSessionParams{
+		Mode:       stripe.String(string(stripe.CheckoutSessionModeSubscription)),
+		SuccessURL: stripe.String(successUrl),
+		CancelURL:  stripe.String(cancelUrl),
+		LineItems: []*stripe.CheckoutSessionLineItemParams{
+			{
+				Price:    stripe.String(priceId),
+				Quantity: stripe.Int64(1),
+			},
+		},
+		ClientReferenceID: stripe.String(tradeNo),
+	}
+
+	sess, err := sc.CheckoutSessions.New(params)
+	if err != nil {
+		return nil, fmt.Errorf("创建 Stripe 订阅 Checkout Session 失败: %w", err)
+	}
+
+	return &StripeCheckoutResult{
+		SessionId: sess.ID,
+		PayUrl:    sess.URL,
 	}, nil
 }

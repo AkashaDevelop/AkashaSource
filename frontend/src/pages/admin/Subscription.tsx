@@ -40,6 +40,8 @@ interface Plan {
   rpm: number;
   enabled: boolean;
   sort_order: number;
+  stripe_price_id: string;
+  creem_product_id: string;
 }
 
 interface PlanResponseItem {
@@ -55,6 +57,8 @@ interface PlanResponseItem {
   rpm?: number;
   enabled?: boolean;
   sort_order?: number;
+  stripe_price_id?: string;
+  creem_product_id?: string;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -82,6 +86,8 @@ const emptyPlan: Omit<Plan, 'id'> = {
   rpm: 0,
   enabled: true,
   sort_order: 0,
+  stripe_price_id: '',
+  creem_product_id: '',
 };
 
 const normalizePlan = (item: PlanResponseItem): Plan => {
@@ -98,6 +104,8 @@ const normalizePlan = (item: PlanResponseItem): Plan => {
     rpm: Number(p.rpm || 0),
     enabled: Boolean(p.enabled),
     sort_order: Number(p.sort_order || 0),
+    stripe_price_id: p.stripe_price_id || '',
+    creem_product_id: p.creem_product_id || '',
   };
 };
 
@@ -193,6 +201,8 @@ export default function SubscriptionManagement() {
       sort_order: Number(editing.sort_order || 0),
       enabled: Boolean(editing.enabled),
       type: editing.type || 'quota',
+      stripe_price_id: (editing.stripe_price_id || '').trim(),
+      creem_product_id: (editing.creem_product_id || '').trim(),
     };
 
     setSaving(true);
@@ -506,6 +516,22 @@ export default function SubscriptionManagement() {
                     <SelectItem key="1">启用</SelectItem>
                     <SelectItem key="0">禁用</SelectItem>
                   </Select>
+
+                  <Input
+                    label="Stripe 定价ID（可选）"
+                    placeholder="price_..."
+                    value={editing?.stripe_price_id || ''}
+                    onValueChange={(v) => updateField('stripe_price_id', v)}
+                    description="仅当系统支付渠道为 Stripe 时需要配置"
+                  />
+
+                  <Input
+                    label="Creem 产品ID（可选）"
+                    placeholder="prod_..."
+                    value={editing?.creem_product_id || ''}
+                    onValueChange={(v) => updateField('creem_product_id', v)}
+                    description="仅当系统支付渠道为 Creem 时需要配置"
+                  />
                 </div>
 
                 <Input

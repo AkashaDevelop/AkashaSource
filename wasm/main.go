@@ -9,12 +9,13 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math/bits"
 	"sync"
 	"syscall/js"
 
@@ -394,45 +395,19 @@ func nowMS() int64 {
 // ～deriveRequestKey / deriveHMACKey / deriveWhiteningKey 已搬去 kdf.go 啦，这里不再重复啦～
 
 func sign(hmacKey [32]byte, body []byte) [32]byte {
-	// HMAC-SHA3-256
-	mac := sha3.New256()
-	// 内填充
-	ipad := make([]byte, 32)
-	opad := make([]byte, 32)
-	for i := 0; i < 32; i++ {
-		ipad[i] = hmacKey[i] ^ 0x36
-		opad[i] = hmacKey[i] ^ 0x5c
-	}
-	mac.Write(ipad)
+	// ～改用标准库 crypto/hmac，和后端 backend/service/cxsec/hmac.go 保持完全一致的算法实现，
+	// 之前手写的 ipad/opad 用了固定 32 字节而不是 SHA3-256 标准的 136 字节 block size，
+	// 签名永远和后端对不上，是个协议级的大 bug 喵，现在改用标准库彻底修好啦～
+	mac := hmac.New(sha3.New256, hmacKey[:])
 	mac.Write(body)
-	inner := mac.Sum(nil)
-
-	mac2 := sha3.New256()
-	mac2.Write(opad)
-	mac2.Write(inner)
 	var sig [32]byte
-	copy(sig[:], mac2.Sum(nil))
+	copy(sig[:], mac.Sum(nil))
 	return sig
 }
 
 func verify(hmacKey [32]byte, body []byte, sig [32]byte) bool {
 	expected := sign(hmacKey, body)
-	return bits.OnesCount64(uint64(expected[0]^sig[0])|
-		uint64(expected[1]^sig[1])<<8|
-		uint64(expected[2]^sig[2])<<16|
-		uint64(expected[3]^sig[3])<<24) == 0 &&
-		constTimeEqual(expected[:], sig[:])
-}
-
-func constTimeEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	var v byte
-	for i := range a {
-		v |= a[i] ^ b[i]
-	}
-	return v == 0
+	return subtle.ConstantTimeCompare(expected[:], sig[:]) == 1
 }
 
 func xorWithKey(data, key []byte) []byte {

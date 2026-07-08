@@ -98,14 +98,29 @@ func QueryRealnameResult(c *gin.Context) {
 	var req struct {
 		CertifyId string `json:"certify_id"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.CertifyId == "" {
-		// 没传 certify_id 就查最新的
-		record, err := model.GetRealnameAuthByUserId(userId)
+	_ = c.ShouldBindJSON(&req)
+
+	// ～不管前端传没传 certify_id，都要先落到本地记录上核实归属，
+	// 不然随便改个别人的流水号就能查到别人的实名认证结果，这可是隐私数据喵！～
+	var record *model.RealnameAuth
+	var err error
+	if req.CertifyId == "" {
+		record, err = model.GetRealnameAuthByUserId(userId)
 		if err != nil {
 			common.Fail(c, common.CodeNotFound, "未找到认证记录")
 			return
 		}
 		req.CertifyId = record.CertifyId
+	} else {
+		record, err = realname.GetRecordByCertifyId(req.CertifyId)
+		if err != nil {
+			common.Fail(c, common.CodeNotFound, "未找到认证记录")
+			return
+		}
+		if record.UserId != userId {
+			common.Fail(c, common.CodeForbidden, "无权查询该认证记录")
+			return
+		}
 	}
 
 	// 调用阿里云查询
@@ -121,33 +136,30 @@ func QueryRealnameResult(c *gin.Context) {
 		return
 	}
 
-	// 更新数据库记录
-	record, err := realname.GetRecordByCertifyId(req.CertifyId)
-	if err == nil {
-		now := time.Now().Unix()
-		if result.Passed == "T" {
-			record.Status = model.RealnameStatusPassed
-			record.VerifiedAt = now
-		} else if result.Passed == "F" {
-			record.Status = model.RealnameStatusFailed
-			record.Reason = result.Reason
-		}
-		record.Update()
+	// 更新数据库记录（record 此时一定归属当前用户，上面已校验过）
+	now := time.Now().Unix()
+	if result.Passed == "T" {
+		record.Status = model.RealnameStatusPassed
+		record.VerifiedAt = now
+	} else if result.Passed == "F" {
+		record.Status = model.RealnameStatusFailed
+		record.Reason = result.Reason
+	}
+	record.Update()
 
-		// 同步用户状态
-		if record.Status == model.RealnameStatusPassed {
-			common.DB.Model(&model.User{}).Where("id = ?", record.UserId).
-				Update("realname_status", model.RealnameStatusPassed)
-		} else if record.Status == model.RealnameStatusFailed {
-			common.DB.Model(&model.User{}).Where("id = ?", record.UserId).
-				Update("realname_status", model.RealnameStatusFailed)
-		}
+	// 同步用户状态
+	if record.Status == model.RealnameStatusPassed {
+		common.DB.Model(&model.User{}).Where("id = ?", record.UserId).
+			Update("realname_status", model.RealnameStatusPassed)
+	} else if record.Status == model.RealnameStatusFailed {
+		common.DB.Model(&model.User{}).Where("id = ?", record.UserId).
+			Update("realname_status", model.RealnameStatusFailed)
 	}
 
 	passed := result.Passed == "T"
 	common.OK(c, gin.H{
-		"passed":  passed,
-		"reason":  result.Reason,
+		"passed":   passed,
+		"reason":   result.Reason,
 		"sub_code": result.SubCode,
 	})
 }
