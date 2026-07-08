@@ -1,62 +1,35 @@
-// ⚠️ REMOVABLE MODULE — 系统授权门禁
-// 对外的门面函数：绑定/解绑/查状态/周期复核，controller 层只调这几个
+// 系统授权门禁 — 对外门面函数
+// 授权状态存储在签名后的 license.dat 文件中，不写数据库，防止直接改库绕过
 package license
 
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"STfreApi/common"
-	"STfreApi/model"
 )
 
-// 本地状态用的 Option key，特意不放进 model/option.go 的常量表里——
-// 保持这个模块自成一体，以后要整体移除的话，model/option.go 完全不用动喵
-const (
-	optKeyAuthorized  = "system_license_authorized"
-	optKeyGithubLogin = "system_license_github_login"
-	optKeyFingerprint = "system_license_fingerprint"
-	optKeyBoundAt     = "system_license_bound_at"
-	optKeyLastCheck   = "system_license_last_check"
-	optKeySignature   = "system_license_signature" // HMAC 签名，防止直接改库伪造授权状态
-)
-
-func getOption(key string) string {
-	common.OptionLock.RLock()
-	defer common.OptionLock.RUnlock()
-	return common.OptionMap[key]
-}
-
-func setOption(key, value string) {
-	var opt model.Option
-	common.DB.Where(model.Option{Key: key}).Assign(model.Option{Value: value}).FirstOrCreate(&opt)
-	common.UpdateOptionMap(key, value)
-}
-
-// GetLocalFingerprint 拿本实例的设备指纹，第一次用到时生成并持久化，之后终身复用
+// GetLocalFingerprint 拿本实例的设备指纹
+// 授权文件存在时从文件读取，不存在时生成新的
 func GetLocalFingerprint() string {
-	fp := getOption(optKeyFingerprint)
-	if fp != "" {
-		return fp
+	if ld := readLicenseFile(); ld != nil && ld.Fingerprint != "" {
+		return ld.Fingerprint
 	}
-	fp = common.GetUUID()
-	setOption(optKeyFingerprint, fp)
-	return fp
+	return common.GetUUID()
 }
 
-// IsAuthorized 本地是否已标记为授权通过——光有 authorized=="true" 还不够，
-// 必须连带的 HMAC 签名也对得上，否则就是有人直接改库/裸调 PUT /api/option
-// 伪造出来的假状态，一律当作未授权喵（签名密钥只在编译进二进制的常量里，不落库）
+// IsAuthorized 授权文件存在且签名有效才算已授权
 func IsAuthorized() bool {
-	if getOption(optKeyAuthorized) != "true" {
+	if FeatureEnabled() && decryptedSecrets.decryptFailed {
+		return false // 解密失败(fail-closed)
+	}
+	ld := readLicenseFile()
+	if ld == nil || ld.GithubLogin == "" || ld.BoundAt == 0 {
 		return false
 	}
-	login := getOption(optKeyGithubLogin)
-	fp := getOption(optKeyFingerprint)
-	boundAt, _ := parseInt64(getOption(optKeyBoundAt))
-	sig := getOption(optKeySignature)
-	return verifySignature(login, fp, boundAt, sig)
+	return verifySignature(ld.GithubLogin, ld.Fingerprint, ld.BoundAt, ld.Signature)
 }
 
 // Status 给前端展示用的状态快照
@@ -73,34 +46,29 @@ func GetStatus() Status {
 	if !FeatureEnabled() {
 		return Status{FeatureEnabled: false}
 	}
-	boundAt, _ := parseInt64(getOption(optKeyBoundAt))
-	lastCheck, _ := parseInt64(getOption(optKeyLastCheck))
+	ld := readLicenseFile()
+	if ld == nil {
+		return Status{FeatureEnabled: true, Authorized: false, Org: getSecretTargetOrg()}
+	}
 	return Status{
 		FeatureEnabled: true,
 		Authorized:     IsAuthorized(),
-		GithubLogin:    getOption(optKeyGithubLogin),
-		BoundAt:        boundAt,
-		LastCheck:      lastCheck,
-		Org:            targetOrg,
+		GithubLogin:    ld.GithubLogin,
+		BoundAt:        ld.BoundAt,
+		LastCheck:      ld.LastCheck,
+		Org:            getSecretTargetOrg(),
 	}
-}
-
-func parseInt64(s string) (int64, error) {
-	var n int64
-	_, err := fmt.Sscanf(s, "%d", &n)
-	return n, err
 }
 
 // DeviceCodeInfo 返回给前端的设备码信息
 type DeviceCodeInfo struct {
-	DeviceCode      string `json:"device_code"`       // 设备码（轮询时回传，一次性、15分钟过期）
-	UserCode        string `json:"user_code"`         // 用户需要输入的短码
-	VerificationURI string `json:"verification_uri"`   // 用户打开的页面
-	ExpiresIn       int    `json:"expires_in"`          // 设备码有效期（秒）
-	Interval        int    `json:"interval"`            // 轮询间隔（秒）
+	DeviceCode      string `json:"device_code"`
+	UserCode        string `json:"user_code"`
+	VerificationURI string `json:"verification_uri"`
+	ExpiresIn       int    `json:"expires_in"`
+	Interval        int    `json:"interval"`
 }
 
-// RequestDeviceFlow 发起 Device Flow，返回设备码信息供前端展示
 func RequestDeviceFlow() (*DeviceCodeInfo, error) {
 	if !FeatureEnabled() {
 		return nil, fmt.Errorf("本部署未启用系统授权功能")
@@ -118,8 +86,6 @@ func RequestDeviceFlow() (*DeviceCodeInfo, error) {
 	}, nil
 }
 
-// PollDeviceFlow 轮询 GitHub 换取 token，成功后自动完成授权绑定
-// 返回 (completed, error)：completed=true 表示授权成功，error 非空表示失败
 func PollDeviceFlow(deviceCode string) (bool, error) {
 	if !FeatureEnabled() {
 		return false, fmt.Errorf("本部署未启用系统授权功能")
@@ -130,36 +96,34 @@ func PollDeviceFlow(deviceCode string) (bool, error) {
 		return false, err
 	}
 	if pending {
-		// 用户还没完成授权，前端应继续轮询
 		return false, nil
 	}
 
-	// 拿到 token，完成授权绑定
 	if err := authorizeWithToken(accessToken); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-// authorizeWithToken 用 access token 完成完整授权流程：
-// 查用户名 → 查组织成员 → 读/写 Gist → 落本地状态
+// authorizeWithToken 用 access token 完成完整授权流程
 func authorizeWithToken(accessToken string) error {
 	login, err := fetchGitHubLogin(accessToken)
 	if err != nil {
 		return err
 	}
 
-	isMember, err := checkOwnOrgMembership(accessToken, targetOrg)
+	isMember, err := checkOwnOrgMembership(accessToken, getSecretTargetOrg())
 	if err != nil {
 		return err
 	}
 	if !isMember {
-		return fmt.Errorf("您（%s）不是 %s 组织成员，无权限使用本系统", login, targetOrg)
+		return fmt.Errorf("您（%s）不是 %s 组织成员，无权限使用本系统", login, getSecretTargetOrg())
 	}
 
-	// 本实例已经绑定了别的账号，不允许静默换绑，得先解绑
-	if existingLogin := getOption(optKeyGithubLogin); existingLogin != "" && existingLogin != login && IsAuthorized() {
-		return fmt.Errorf("本实例已绑定 GitHub 账号 %s，请先解绑后再用其他账号授权", existingLogin)
+	// 已绑定了别的账号，不允许静默换绑
+	existing := readLicenseFile()
+	if existing != nil && existing.GithubLogin != "" && existing.GithubLogin != login && IsAuthorized() {
+		return fmt.Errorf("本实例已绑定 GitHub 账号 %s，请先解绑后再用其他账号授权", existing.GithubLogin)
 	}
 
 	fp := GetLocalFingerprint()
@@ -169,7 +133,7 @@ func authorizeWithToken(accessToken string) error {
 	}
 
 	now := time.Now().Unix()
-	if existing, ok := bindings[login]; ok && existing.Fingerprint != fp {
+	if e, ok := bindings[login]; ok && e.Fingerprint != fp {
 		return fmt.Errorf("该 GitHub 账号已在其他部署实例授权，请先在原实例解绑后再试")
 	}
 
@@ -178,79 +142,107 @@ func authorizeWithToken(accessToken string) error {
 		return err
 	}
 
-	setOption(optKeyAuthorized, "true")
-	setOption(optKeyGithubLogin, login)
-	setOption(optKeyBoundAt, fmt.Sprintf("%d", now))
-	setOption(optKeyLastCheck, fmt.Sprintf("%d", now))
-	setOption(optKeySignature, computeSignature(login, fp, now))
+	// 写入授权文件
+	if err := writeLicenseFile(&licenseData{
+		GithubLogin:         login,
+		Fingerprint:         fp,
+		BoundAt:             now,
+		LastCheck:           now,
+		RevalidateFailCount: 0,
+	}); err != nil {
+		return fmt.Errorf("写入授权文件失败: %w", err)
+	}
+
 	log.Printf("[license] 授权成功: github=%s", login)
 	return nil
 }
 
-// Unbind 解绑：只删本机指纹对应的那条 Gist 记录，避免误删别的实例的绑定
+// Unbind 解绑：删 Gist 记录 + 删授权文件
 func Unbind() error {
-	login := getOption(optKeyGithubLogin)
-	if login == "" {
+	ld := readLicenseFile()
+	if ld == nil || ld.GithubLogin == "" {
 		return fmt.Errorf("当前未绑定任何账号")
 	}
-	fp := getOption(optKeyFingerprint)
 
 	bindings, err := readBindings()
 	if err != nil {
 		return err
 	}
-	if existing, ok := bindings[login]; ok && existing.Fingerprint == fp {
-		delete(bindings, login)
+	if existing, ok := bindings[ld.GithubLogin]; ok && existing.Fingerprint == ld.Fingerprint {
+		delete(bindings, ld.GithubLogin)
 		if err := writeBindings(bindings); err != nil {
 			return err
 		}
 	}
 
-	setOption(optKeyAuthorized, "false")
-	setOption(optKeyGithubLogin, "")
-	setOption(optKeyBoundAt, "0")
-	setOption(optKeySignature, "")
-	log.Printf("[license] 已解绑: github=%s", login)
+	if err := deleteLicenseFile(); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("删除授权文件失败: %w", err)
+	}
+
+	log.Printf("[license] 已解绑: github=%s", ld.GithubLogin)
 	return nil
 }
 
-// Revalidate 供 7 天周期任务调用：重新确认组织成员身份 + Gist 绑定仍然有效，
-// 任一条件不满足就把本地授权状态打回 false（覆盖"作者去 Gist 里删掉记录来吊销授权"
-// 和"账号被踢出组织"两种场景）
+// Revalidate 周期复核：确认组织成员身份 + Gist 绑定仍然有效
 func Revalidate() error {
 	if !FeatureEnabled() || !IsAuthorized() {
 		return nil
 	}
-	login := getOption(optKeyGithubLogin)
-	fp := getOption(optKeyFingerprint)
-	if login == "" {
-		// 正常走完授权的状态不可能出现 login 为空，这是明显的异常/篡改状态
-		log.Printf("[license] 复核发现绑定账号为空（异常状态），取消本机授权")
-		setOption(optKeyAuthorized, "false")
+
+	ld := readLicenseFile()
+	if ld == nil || ld.GithubLogin == "" {
+		log.Printf("[license] 复核发现授权文件异常，吊销授权")
+		revokeAuthorization()
 		return nil
 	}
 
-	isMember, err := checkOrgMembership(login)
+	isMember, err := checkOrgMembership(ld.GithubLogin)
 	if err != nil {
-		return err
+		return incrementFailCount(ld)
 	}
 	if !isMember {
-		log.Printf("[license] 复核发现 %s 已不在组织内，取消本机授权", login)
-		setOption(optKeyAuthorized, "false")
+		log.Printf("[license] 复核发现 %s 已不在组织内，吊销授权", ld.GithubLogin)
+		revokeAuthorization()
 		return nil
 	}
 
 	bindings, err := readBindings()
 	if err != nil {
-		return err
+		return incrementFailCount(ld)
 	}
-	binding, ok := bindings[login]
-	if !ok || binding.Fingerprint != fp {
-		log.Printf("[license] 复核发现 Gist 绑定记录已变化，取消本机授权")
-		setOption(optKeyAuthorized, "false")
+	binding, ok := bindings[ld.GithubLogin]
+	if !ok || binding.Fingerprint != ld.Fingerprint {
+		log.Printf("[license] 复核发现 Gist 绑定记录已变化，吊销授权")
+		revokeAuthorization()
 		return nil
 	}
 
-	setOption(optKeyLastCheck, fmt.Sprintf("%d", time.Now().Unix()))
+	// 复核通过，更新时间戳
+	ld.LastCheck = time.Now().Unix()
+	ld.RevalidateFailCount = 0
+	if err := writeLicenseFile(ld); err != nil {
+		return fmt.Errorf("更新授权文件失败: %w", err)
+	}
 	return nil
+}
+
+// revokeAuthorization 删除授权文件
+func revokeAuthorization() {
+	if err := deleteLicenseFile(); err != nil && !os.IsNotExist(err) {
+		log.Printf("[license] 删除授权文件失败: %v", err)
+	}
+}
+
+// incrementFailCount 复核网络失败时递增计数器，连续失败3次后吊销
+func incrementFailCount(ld *licenseData) error {
+	ld.RevalidateFailCount++
+	if err := writeLicenseFile(ld); err != nil {
+		return fmt.Errorf("更新失败计数失败: %w", err)
+	}
+	if ld.RevalidateFailCount >= 3 {
+		log.Printf("[license] 复核连续失败 %d 次，强制吊销授权", ld.RevalidateFailCount)
+		revokeAuthorization()
+		return fmt.Errorf("复核连续失败 %d 次，已吊销授权", ld.RevalidateFailCount)
+	}
+	return fmt.Errorf("复核失败（第 %d 次），授权暂时保留", ld.RevalidateFailCount)
 }

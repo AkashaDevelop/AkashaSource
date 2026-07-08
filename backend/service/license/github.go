@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -32,11 +33,10 @@ type devicePollResponse struct {
 
 // requestDeviceCode 向 GitHub 请求设备码，返回给前端展示
 func requestDeviceCode() (*DeviceCodeResponse, error) {
-	body := fmt.Sprintf(
-		"client_id=%s&scope=read:org",
-		licenseGithubClientId,
-	)
-	req, _ := http.NewRequest("POST", "https://github.com/login/device/code", strings.NewReader(body))
+	form := url.Values{}
+	form.Set("client_id", getSecretOauthClientId())
+	form.Set("scope", "read:org")
+	req, _ := http.NewRequest("POST", "https://github.com/login/device/code", strings.NewReader(form.Encode()))
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
@@ -67,11 +67,11 @@ func requestDeviceCode() (*DeviceCodeResponse, error) {
 //   - token 非空表示授权成功
 //   - error 表示不可恢复的错误（过期/拒绝/网络异常等）
 func pollForToken(deviceCode string) (token string, pending bool, err error) {
-	body := fmt.Sprintf(
-		"client_id=%s&device_code=%s&grant_type=urn:ietf:params:oauth:grant-type:device_code",
-		licenseGithubClientId, deviceCode,
-	)
-	req, _ := http.NewRequest("POST", "https://github.com/login/oauth/access_token", strings.NewReader(body))
+	form := url.Values{}
+	form.Set("client_id", getSecretOauthClientId())
+	form.Set("device_code", deviceCode)
+	form.Set("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
+	req, _ := http.NewRequest("POST", "https://github.com/login/oauth/access_token", strings.NewReader(form.Encode()))
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
@@ -176,9 +176,9 @@ func checkOwnOrgMembership(accessToken, org string) (bool, error) {
 // "公开成员列表"接口，查不到"隐藏成员身份"的人（哪怕对方是所有者）。
 // 204 = 是成员，404 = 不是成员/对该 token 不可见
 func checkOrgMembership(username string) (bool, error) {
-	url := fmt.Sprintf("https://api.github.com/orgs/%s/members/%s", targetOrg, username)
+	url := fmt.Sprintf("https://api.github.com/orgs/%s/members/%s", getSecretTargetOrg(), username)
 	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Authorization", "Bearer "+gistToken)
+	req.Header.Set("Authorization", "Bearer "+getSecretGistToken())
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	client := &http.Client{Timeout: 10 * time.Second}

@@ -26,3 +26,19 @@ dist-ssr
 
 # JWT 密钥（首次启动自动生成，不应提交）
 jwt_secret.key
+
+# 授权文件（GitHub 组织授权后生成，不应提交）
+license.dat
+
+# 数据库配置（含明文密码，不应提交）
+dbconfig.json
+
+# SQLite 数据库文件
+*.db
+*.db-shm
+*.db-wal
+
+# 编译产物
+akasha.exe
+akasha
+STfreApi

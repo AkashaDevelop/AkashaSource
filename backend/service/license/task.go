@@ -13,7 +13,7 @@ func StartRevalidateTask() {
 	if !FeatureEnabled() {
 		return
 	}
-	ticker := time.NewTicker(7 * 24 * time.Hour)
+	ticker := time.NewTicker(24 * time.Hour)
 	go func() {
 		for range ticker.C {
 			if err := Revalidate(); err != nil {

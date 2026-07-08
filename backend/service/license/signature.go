@@ -14,7 +14,7 @@ import (
 // computeSignature 对"这次授权到底是谁、绑的哪个设备指纹、什么时候绑的"做一次签名
 func computeSignature(login, fingerprint string, boundAt int64) string {
 	payload := fmt.Sprintf("%s|%s|%d", login, fingerprint, boundAt)
-	mac := hmac.New(sha256.New, hmacSecret)
+	mac := hmac.New(sha256.New, getSecretHmacSecret())
 	mac.Write([]byte(payload))
 	return hex.EncodeToString(mac.Sum(nil))
 }

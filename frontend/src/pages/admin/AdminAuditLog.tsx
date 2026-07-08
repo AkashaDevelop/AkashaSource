@@ -15,9 +15,14 @@ interface AuditLog {
   operator_role: string;
   method: string;
   path: string;
+  route_template: string;
+  action: string;
   target_type: string;
+  target_id: string;
+  success: boolean;
   status_code: number;
   ip: string;
+  auth_method: string;
   request_id: string;
   request_body: string;
   created_at: number;
@@ -35,7 +40,10 @@ const ROLE_COLOR: Record<string, string> = {
   user: 'default', admin: 'primary', root: 'warning',
 };
 
-// ～这个页面专门给超管大人翻看全站用户/管理员/超管的操作足迹哦～
+const AUTH_METHOD_LABEL: Record<string, string> = {
+  session: 'Session', access_token: 'Token', passkey: 'Passkey', oauth: 'OAuth',
+};
+
 export default function AdminAuditLog() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(false);
@@ -45,7 +53,7 @@ export default function AdminAuditLog() {
   const [showFilters, setShowFilters] = useState(false);
   const { token } = useAuthStore();
   const [filters, setFilters] = useState({
-    admin_username: '', role: '', method: '', path: '', target_type: '', ip: '', start_time: '', end_time: '',
+    admin_username: '', role: '', method: '', path: '', action: '', target_type: '', target_id: '', success: '', auth_method: '', ip: '', start_time: '', end_time: '',
   });
 
   const setFilter = (key: string, val: string) => setFilters(prev => ({ ...prev, [key]: val }));
@@ -73,7 +81,7 @@ export default function AdminAuditLog() {
   useEffect(() => { if (token) fetchLogs(); }, [page, pageSize, token]);
 
   const handleReset = () => {
-    setFilters({ admin_username: '', role: '', method: '', path: '', target_type: '', ip: '', start_time: '', end_time: '' });
+    setFilters({ admin_username: '', role: '', method: '', path: '', action: '', target_type: '', target_id: '', success: '', auth_method: '', ip: '', start_time: '', end_time: '' });
     setPage(1);
     setTimeout(fetchLogs, 0);
   };
@@ -107,8 +115,8 @@ export default function AdminAuditLog() {
         <Card>
           <CardBody className="p-4">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              <Input label="管理员用户名" size="sm" value={filters.admin_username} onValueChange={v => setFilter('admin_username', v)} />
-              <Select label="操作人角色" size="sm" selectedKeys={filters.role ? [filters.role] : []}
+              <Input label="操作人" size="sm" value={filters.admin_username} onValueChange={v => setFilter('admin_username', v)} />
+              <Select label="角色" size="sm" selectedKeys={filters.role ? [filters.role] : []}
                 onSelectionChange={keys => setFilter('role', [...keys][0] as string || '')}>
                 <SelectItem key="user">普通用户</SelectItem>
                 <SelectItem key="admin">管理员</SelectItem>
@@ -118,8 +126,22 @@ export default function AdminAuditLog() {
                 onSelectionChange={keys => setFilter('method', [...keys][0] as string || '')}>
                 {['POST', 'PUT', 'PATCH', 'DELETE'].map(m => <SelectItem key={m}>{m}</SelectItem>)}
               </Select>
-              <Input label="路径关键字" size="sm" value={filters.path} onValueChange={v => setFilter('path', v)} placeholder="例如 /api/user" />
-              <Input label="目标类型" size="sm" value={filters.target_type} onValueChange={v => setFilter('target_type', v)} placeholder="例如 user / channel" />
+              <Input label="操作动作" size="sm" value={filters.action} onValueChange={v => setFilter('action', v)} placeholder="user.create" />
+              <Input label="路径关键字" size="sm" value={filters.path} onValueChange={v => setFilter('path', v)} placeholder="/api/user" />
+              <Input label="目标类型" size="sm" value={filters.target_type} onValueChange={v => setFilter('target_type', v)} placeholder="user / channel" />
+              <Input label="目标 ID" size="sm" value={filters.target_id} onValueChange={v => setFilter('target_id', v)} />
+              <Select label="业务结果" size="sm" selectedKeys={filters.success ? [filters.success] : []}
+                onSelectionChange={keys => setFilter('success', [...keys][0] as string || '')}>
+                <SelectItem key="true">成功</SelectItem>
+                <SelectItem key="false">失败</SelectItem>
+              </Select>
+              <Select label="鉴权方式" size="sm" selectedKeys={filters.auth_method ? [filters.auth_method] : []}
+                onSelectionChange={keys => setFilter('auth_method', [...keys][0] as string || '')}>
+                <SelectItem key="session">Session</SelectItem>
+                <SelectItem key="access_token">Token</SelectItem>
+                <SelectItem key="passkey">Passkey</SelectItem>
+                <SelectItem key="oauth">OAuth</SelectItem>
+              </Select>
               <Input label="IP" size="sm" value={filters.ip} onValueChange={v => setFilter('ip', v)} />
               <Input label="开始日期" size="sm" type="date" value={filters.start_time} onValueChange={v => setFilter('start_time', v)} />
               <Input label="结束日期" size="sm" type="date" value={filters.end_time} onValueChange={v => setFilter('end_time', v)} />
@@ -138,20 +160,22 @@ export default function AdminAuditLog() {
             <tr>
               <th>时间</th>
               <th>操作人</th>
+              <th>动作</th>
               <th>方法</th>
               <th>路径</th>
-              <th>目标类型</th>
-              <th>状态码</th>
+              <th>目标</th>
+              <th>结果</th>
+              <th>鉴权</th>
               <th>IP</th>
               <th>详情</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <LoadingRows cols={8} rows={8} />
+              <LoadingRows cols={10} rows={8} />
             ) : logs.length === 0 ? (
-              <tr><td colSpan={8}>
-                <EmptyState icon="🛡️" title="暂无审计记录" description={activeFilterCount > 0 ? '当前筛选条件下没有记录' : '还没有管理员写操作记录'} />
+              <tr><td colSpan={10}>
+                <EmptyState icon="🛡️" title="暂无审计记录" description={activeFilterCount > 0 ? '当前筛选条件下没有记录' : '还没有写操作记录'} />
               </td></tr>
             ) : logs.map(item => (
               <tr key={item.id}>
@@ -166,12 +190,32 @@ export default function AdminAuditLog() {
                     )}
                   </div>
                 </td>
+                <td style={{ fontSize: '12px' }}>
+                  {item.action ? (
+                    <Chip size="sm" variant="flat" color="primary">{item.action}</Chip>
+                  ) : '-'}
+                </td>
                 <td><Chip size="sm" variant="flat" color={(METHOD_COLOR[item.method] as any) || 'default'}>{item.method}</Chip></td>
                 <td style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{item.path}</td>
-                <td>{item.target_type ? <Chip size="sm" variant="dot">{item.target_type}</Chip> : '-'}</td>
-                <td style={{ fontSize: '12px', color: item.status_code >= 400 ? '#f87171' : 'var(--text-secondary)' }}>{item.status_code}</td>
+                <td style={{ fontSize: '12px' }}>
+                  <div className="flex items-center gap-1">
+                    {item.target_type ? <Chip size="sm" variant="dot">{item.target_type}</Chip> : '-'}
+                    {item.target_id && <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>#{item.target_id}</span>}
+                  </div>
+                </td>
+                <td>
+                  <Chip size="sm" variant="flat" color={item.success ? 'success' : 'danger'}>
+                    {item.success ? '成功' : '失败'}
+                  </Chip>
+                  <span style={{ fontSize: '11px', color: item.status_code >= 400 ? '#f87171' : 'var(--text-muted)', marginLeft: 4 }}>
+                    {item.status_code}
+                  </span>
+                </td>
+                <td style={{ fontSize: '11px' }}>
+                  {item.auth_method ? <Chip size="sm" variant="flat">{AUTH_METHOD_LABEL[item.auth_method] || item.auth_method}</Chip> : '-'}
+                </td>
                 <td style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{item.ip || '-'}</td>
-                <td style={{ maxWidth: '220px' }}>
+                <td style={{ maxWidth: '200px' }}>
                   <Tooltip content={item.request_body || '无请求体'}>
                     <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px', color: 'var(--text-muted)', cursor: 'help' }}>
                       {item.request_body || '-'}

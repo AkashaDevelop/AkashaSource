@@ -57,13 +57,13 @@ func InitDB(driver string, dsn string) error {
 	}
 
 	newLogger := logger.New(
-		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
+		log.New(os.Stdout, "\r\n", log.LstdFlags),
 		logger.Config{
-			SlowThreshold:             time.Second, // 慢 SQL 阈值
-			LogLevel:                  logger.Info, // 日志级别
-			IgnoreRecordNotFoundError: true,        // 忽略记录未找到错误
-			ParameterizedQueries:      true,        // 不在 SQL 日志中包含参数
-			Colorful:                  true,        // 启用/禁用彩色打印
+			SlowThreshold:             time.Second,
+			LogLevel:                  logger.Warn, // 生产环境只记录慢查询和错误
+			IgnoreRecordNotFoundError: true,
+			ParameterizedQueries:      true,
+			Colorful:                  true,
 		},
 	)
 

@@ -10,25 +10,47 @@ import (
 	"time"
 )
 
-// sensitiveBodyKeys ～这些字段太隐私啦，记录的时候要蒙上小马甲～
 var sensitiveBodyKeys = []string{"password", "secret", "key", "token", "credential"}
 
-// maxAuditBodyLength ～请求体太长会撑爆数据库肚子，超过就要剪短哦～
 const maxAuditBodyLength = 4000
 
-// RecordAudit ～把操作者（不管是普通用户、管理员还是超管）的这一步操作悄悄记进小本本～
-func RecordAudit(operatorId int, username, operatorRole, method, path, targetType, ip, requestId string, status int, rawBody []byte) {
+// AuditEntry 审计日志入参（中间件 → service 层传递）
+type AuditEntry struct {
+	OperatorId       int
+	OperatorUsername string
+	OperatorRole     string
+	Method           string
+	Path             string
+	Route            string
+	Action           string
+	TargetType       string
+	TargetId         string
+	Success          bool
+	StatusCode       int
+	IP               string
+	AuthMethod       string
+	RequestId        string
+	RawBody          []byte
+}
+
+// RecordAudit 写入审计日志
+func RecordAudit(e AuditEntry) {
 	entry := model.AuditLog{
-		OperatorId:       operatorId,
-		OperatorUsername: username,
-		OperatorRole:     operatorRole,
-		Method:           method,
-		Path:             path,
-		TargetType:       targetType,
-		StatusCode:       status,
-		IP:               ip,
-		RequestId:        requestId,
-		RequestBody:      sanitizeAuditBody(rawBody),
+		OperatorId:       e.OperatorId,
+		OperatorUsername: e.OperatorUsername,
+		OperatorRole:     e.OperatorRole,
+		Method:           e.Method,
+		Path:             e.Path,
+		Route:            e.Route,
+		Action:           e.Action,
+		TargetType:       e.TargetType,
+		TargetId:         e.TargetId,
+		Success:          e.Success,
+		StatusCode:       e.StatusCode,
+		IP:               e.IP,
+		AuthMethod:       e.AuthMethod,
+		RequestId:        e.RequestId,
+		RequestBody:      sanitizeAuditBody(e.RawBody),
 		CreatedAt:        time.Now().Unix(),
 	}
 	if err := common.DB.Create(&entry).Error; err != nil {
@@ -36,7 +58,26 @@ func RecordAudit(operatorId int, username, operatorRole, method, path, targetTyp
 	}
 }
 
-// sanitizeAuditBody ～给请求体做个安全体检：敏感字段打码、超长内容剪裁～
+// RecordAuditManual handler 手动埋点（设置 ContextKeyAuditLogged 防止中间件重复记录）
+func RecordAuditManual(operatorId int, username, operatorRole, action, targetType, targetId, ip string, success bool, detail string) {
+	entry := model.AuditLog{
+		OperatorId:       operatorId,
+		OperatorUsername: username,
+		OperatorRole:     operatorRole,
+		Action:           action,
+		TargetType:       targetType,
+		TargetId:         targetId,
+		Success:          success,
+		IP:               ip,
+		RequestBody:      truncateAuditBody(detail),
+		CreatedAt:        time.Now().Unix(),
+	}
+	if err := common.DB.Create(&entry).Error; err != nil {
+		log.Printf("[操作审计] 手动记录失败: %v", err)
+	}
+}
+
+// sanitizeAuditBody 敏感字段打码 + 超长截断
 func sanitizeAuditBody(rawBody []byte) string {
 	if len(rawBody) == 0 {
 		return ""
@@ -44,7 +85,6 @@ func sanitizeAuditBody(rawBody []byte) string {
 
 	var parsed map[string]interface{}
 	if err := json.Unmarshal(rawBody, &parsed); err != nil {
-		// 不是合法 JSON（比如文件上传），就只留个长度提示，别硬存原文
 		return truncateAuditBody("<非 JSON 请求体，长度: " + strconv.Itoa(len(rawBody)) + " 字节>")
 	}
 

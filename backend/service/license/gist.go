@@ -32,8 +32,8 @@ type gistResponse struct {
 
 // readBindings 读整份绑定表；Gist 里还没有内容（第一次使用）时返回空表，不当错误
 func readBindings() (map[string]gistBinding, error) {
-	req, _ := http.NewRequest("GET", "https://api.github.com/gists/"+gistId, nil)
-	req.Header.Set("Authorization", "Bearer "+gistToken)
+	req, _ := http.NewRequest("GET", "https://api.github.com/gists/"+getSecretGistId(), nil)
+	req.Header.Set("Authorization", "Bearer "+getSecretGistToken())
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -82,11 +82,11 @@ func writeBindings(bindings map[string]gistBinding) error {
 		return err
 	}
 
-	req, err := http.NewRequest("PATCH", "https://api.github.com/gists/"+gistId, bytes.NewReader(body))
+	req, err := http.NewRequest("PATCH", "https://api.github.com/gists/"+getSecretGistId(), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+gistToken)
+	req.Header.Set("Authorization", "Bearer "+getSecretGistToken())
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Content-Type", "application/json")
 

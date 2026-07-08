@@ -45,8 +45,20 @@ func buildAuditLogQuery(c *gin.Context, db *gorm.DB) *gorm.DB {
 	if v := c.Query("path"); v != "" {
 		db = db.Where("path LIKE ?", "%"+v+"%")
 	}
+	if v := c.Query("action"); v != "" {
+		db = db.Where("action = ?", v)
+	}
 	if v := c.Query("target_type"); v != "" {
 		db = db.Where("target_type = ?", v)
+	}
+	if v := c.Query("target_id"); v != "" {
+		db = db.Where("target_id = ?", v)
+	}
+	if v := c.Query("success"); v != "" {
+		db = db.Where("success = ?", v == "true" || v == "1")
+	}
+	if v := c.Query("auth_method"); v != "" {
+		db = db.Where("auth_method = ?", v)
 	}
 	if v := c.Query("ip"); v != "" {
 		db = db.Where("ip = ?", v)
