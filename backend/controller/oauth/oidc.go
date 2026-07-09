@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -33,12 +34,30 @@ type OIDCUserInfo struct {
 	Email            string `json:"email"`
 }
 
-var cachedDiscovery *OIDCDiscovery
+var (
+	cachedDiscovery       *OIDCDiscovery
+	cachedDiscoveryExpiry time.Time
+	discoveryMutex        sync.RWMutex
+)
 
 func fetchOIDCDiscovery() (*OIDCDiscovery, error) {
-	if cachedDiscovery != nil {
+	// ～先用读锁检查缓存，避免每次都抢写锁喵～
+	discoveryMutex.RLock()
+	if cachedDiscovery != nil && time.Now().Before(cachedDiscoveryExpiry) {
+		defer discoveryMutex.RUnlock()
 		return cachedDiscovery, nil
 	}
+	discoveryMutex.RUnlock()
+
+	// 缓存过期或不存在，抢写锁重新拉取
+	discoveryMutex.Lock()
+	defer discoveryMutex.Unlock()
+
+	// Double-check: 可能在等待锁期间已经被其他 goroutine 更新过了
+	if cachedDiscovery != nil && time.Now().Before(cachedDiscoveryExpiry) {
+		return cachedDiscovery, nil
+	}
+
 	issuer := strings.TrimSuffix(common.OIDCIssuerURL, "/")
 	resp, err := http.Get(issuer + "/.well-known/openid-configuration")
 	if err != nil {
@@ -50,6 +69,7 @@ func fetchOIDCDiscovery() (*OIDCDiscovery, error) {
 		return nil, err
 	}
 	cachedDiscovery = &disc
+	cachedDiscoveryExpiry = time.Now().Add(24 * time.Hour) // 24小时过期
 	return cachedDiscovery, nil
 }
 

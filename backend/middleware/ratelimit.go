@@ -13,6 +13,7 @@ import (
 
 	"STfreApi/common"
 	"STfreApi/service"
+	"STfreApi/service/sanction"
 
 	"github.com/gin-gonic/gin"
 )
@@ -95,6 +96,22 @@ func redisCheckLimit(key string, limit int, window time.Duration) bool {
 
 func RateLimitMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// ～最前置：IP 黑名单拦截，恶意流量进门第一道就挡掉，比查库/转发都早～
+		if banned, reason := sanction.IsIPBanned(c.ClientIP()); banned {
+			msg := "访问被拒绝"
+			if reason != "" {
+				msg = "访问被拒绝: " + reason
+			}
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": gin.H{
+					"message": msg,
+					"type":    "forbidden",
+				},
+			})
+			c.Abort()
+			return
+		}
+
 		if GlobalRateLimiter == nil {
 			c.Next()
 			return
@@ -185,6 +202,62 @@ func GroupRateLimitMiddleware(groupName string) bool {
 		return true
 	}
 	return checkLimit("group:"+groupName, qpm)
+}
+
+// CheckTokenSanction 检查 Token 级处置（停用/降速/固定低RPM），命中拦截则写响应并返回 false。
+// 在 relay controller 里 token 解析完成后、转发渠道前调用，与 ModelRateLimitMiddleware 同级。
+func CheckTokenSanction(c *gin.Context, tokenID int) bool {
+	if tokenID <= 0 {
+		return true
+	}
+	ts := sanction.GetTokenSanction(tokenID)
+	if ts == nil {
+		return true
+	}
+
+	// 停用（suspend_token / disable_token）：直接 403
+	if ts.Disabled {
+		msg := "令牌已被停用"
+		if ts.Reason != "" {
+			msg = "令牌已被停用: " + ts.Reason
+		}
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": gin.H{"message": msg, "type": "forbidden"},
+		})
+		c.Abort()
+		return false
+	}
+
+	if GlobalRateLimiter == nil {
+		return true
+	}
+
+	// 固定低 RPM 惩罚优先于降速倍率（rpm_limit 是绝对值，更严格）
+	limit := 0
+	switch {
+	case ts.RPMLimit > 0:
+		limit = ts.RPMLimit
+	case ts.ThrottleFactor > 0 && ts.ThrottleFactor < 1.0:
+		// 在令牌原有限额（rate*3）基础上按倍率降速
+		limit = int(float64(GlobalRateLimiter.rate*3) * ts.ThrottleFactor)
+		if limit < 1 {
+			limit = 1
+		}
+	default:
+		return true
+	}
+
+	if !checkLimit(fmt.Sprintf("sanction_throttle:%d", tokenID), limit) {
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error": gin.H{
+				"message": "请求过于频繁（风控降速处置中）",
+				"type":    "rate_limit_error",
+			},
+		})
+		c.Abort()
+		return false
+	}
+	return true
 }
 
 // CriticalRateLimitMiddleware limits critical operations (login, register, password reset) to 5/min per IP

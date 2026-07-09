@@ -96,6 +96,10 @@ func RelayGeminiNative(c *gin.Context) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": fmt.Sprintf("分组 %s 请求过于频繁", usingGroup)})
 		return
 	}
+	// 风控处置检查（停用/降速/固定低RPM）
+	if !middleware.CheckTokenSanction(c, token.Id) {
+		return
+	}
 	channels, mappedModels, channelGroups, err := SelectChannelWithAffinity(modelName, user.Group, usingGroup, token.CrossGroupRetry, apiKey, defaultChannelAffinityRule)
 	if err != nil || len(channels) == 0 {
 		c.JSON(http.StatusServiceUnavailable, gin.H{

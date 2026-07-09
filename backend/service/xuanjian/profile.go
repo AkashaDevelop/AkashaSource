@@ -14,6 +14,15 @@ import (
 	"time"
 )
 
+// shortPromptMaxTokens 读取全局配置里的短 prompt token 上限，未配置时兜底默认值 20
+func shortPromptMaxTokens() int {
+	cfg, _ := GetConfig()
+	if cfg.ShortPromptMaxTokens > 0 {
+		return cfg.ShortPromptMaxTokens
+	}
+	return 20
+}
+
 // TokenProfile 单个 API Token 的行为画像
 type TokenProfile struct {
 	mu sync.Mutex // 每个 profile 独立锁，避免全局锁争抢
@@ -33,8 +42,8 @@ type TokenProfile struct {
 	ShortPromptCount int
 
 	// 集合计数
-	ModelSet    map[string]int // 模型名 → 请求次数
-	IPCIDRSet   map[string]int // /24 CIDR → 请求次数（修正：按 CIDR 聚合非单 IP）
+	ModelSet  map[string]int // 模型名 → 请求次数
+	IPCIDRSet map[string]int // /24 CIDR → 请求次数（修正：按 CIDR 聚合非单 IP）
 
 	// 时序分析：最近 20 次请求的间隔 ms
 	IntervalBuffer []int64
@@ -68,9 +77,9 @@ type UserProfile struct {
 
 // profileStore 全局画像存储
 type profileStore struct {
-	mu           sync.RWMutex
-	tokens       map[int]*TokenProfile // tokenID → profile
-	users        map[int]*UserProfile  // userID → profile
+	mu     sync.RWMutex
+	tokens map[int]*TokenProfile // tokenID → profile
+	users  map[int]*UserProfile  // userID → profile
 }
 
 var globalStore = &profileStore{
@@ -158,7 +167,7 @@ func (p *TokenProfile) Update(rec RequestRecord, windowMinutes int) {
 	if rec.StatusCode >= 400 {
 		p.ErrorCount++
 	}
-	if rec.PromptTokens > 0 && rec.PromptTokens < 20 {
+	if rec.PromptTokens > 0 && rec.PromptTokens < shortPromptMaxTokens() {
 		p.ShortPromptCount++
 	}
 

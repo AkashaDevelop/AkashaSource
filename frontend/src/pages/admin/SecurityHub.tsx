@@ -1,8 +1,9 @@
 import { Tabs, Tab } from '../../components/ui';
-import { ShieldCheck, Eye, ScrollText, KeyRound } from 'lucide-react';
+import { ShieldCheck, Eye, ScrollText, KeyRound, Gavel } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import ContextSanitization from './ContextSanitization';
 import XuanJian from './XuanJian';
+import Sanctions from './Sanctions';
 import AdminAuditLog from './AdminAuditLog';
 import SystemLicense from './SystemLicense'; // ⚠️ REMOVABLE MODULE 依赖
 
@@ -38,6 +39,19 @@ export default function SecurityHub() {
             }
           >
             <XuanJian />
+          </Tab>
+        )}
+        {isRoot && (
+          <Tab
+            key="sanctions"
+            title={
+              <div className="flex items-center gap-2">
+                <Gavel className="w-4 h-4" />
+                <span>处置登记</span>
+              </div>
+            }
+          >
+            <Sanctions />
           </Tab>
         )}
         {isRoot && (

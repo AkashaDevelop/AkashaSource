@@ -179,6 +179,22 @@ func RelayMidjourney(c *gin.Context) {
 		}()
 	}
 
+	// 宸汐玄鉴：把 MJ 生成请求纳入行为画像，补上此前的画像盲区～
+	// MJ 走 Web 会话认证，没有 API token，用 -userId 作合成 TokenID 保证按用户隔离画像，
+	// 不与真实自增正数 token ID 冲突；MJ 有意义的处置本就是 user 级（ban_user/billing_penalty）。
+	if xuanjian.IsEnabled() && mjReq.Prompt != "" {
+		go xuanjian.RecordRequest(xuanjian.RequestRecord{
+			TokenID:       -userId,
+			TokenName:     fmt.Sprintf("mj_user_%d", userId),
+			UserID:        userId,
+			IP:            c.ClientIP(),
+			UserAgent:     c.GetHeader("User-Agent"),
+			Model:         "midjourney",
+			PromptSnippet: xuanjian.TruncateSnippet(mjReq.Prompt, 2000),
+			StatusCode:    resp.StatusCode,
+		})
+	}
+
 	c.Data(resp.StatusCode, "application/json", body)
 }
 

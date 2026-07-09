@@ -87,6 +87,11 @@ func RelayResponses(c *gin.Context) {
 		return
 	}
 
+	// 风控处置检查（停用/降速/固定低RPM）
+	if !middleware.CheckTokenSanction(c, token.Id) {
+		return
+	}
+
 	// 4. Model rate limit
 	if !middleware.ModelRateLimitMiddleware(req.Model) {
 		sendResponsesError(c, http.StatusTooManyRequests, "rate_limit_error",

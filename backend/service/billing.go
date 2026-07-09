@@ -3,6 +3,7 @@ package service
 import (
 	"STfreApi/common"
 	"STfreApi/model"
+	"STfreApi/service/sanction"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -204,12 +205,16 @@ func RefundQuota(token *model.Token, preConsumedQuota int64) error {
 // 使用 shopspring/decimal 进行高精度计算，避免 float64 累加误差
 // ownerGroup 是用户自己的分组（用来查"用户分组×使用分组"的专属折扣），
 // billingGroup 是这次请求实际按哪个分组算账（令牌分组覆盖后的结果，auto 已经在调用方折算回用户分组）～
-func CalculateQuota(modelName string, promptTokens, completionTokens, cachedTokens, imageTokens, audioTokens, audioCompletionTokens, webSearchCount, fileSearchCount int, ownerGroup string, billingGroup string) (int64, string) {
+func CalculateQuota(modelName string, promptTokens, completionTokens, cachedTokens, imageTokens, audioTokens, audioCompletionTokens, webSearchCount, fileSearchCount int, ownerGroup string, billingGroup string, ownerUserID int, tokenID int) (int64, string) {
 	groupRatio := GetUserGroupRatio(ownerGroup, billingGroup)
 	modelRatioBase := common.GetModelRatio(modelName)
 	if override, ok := GetGroupModelRatioOverride(billingGroup, modelName); ok {
 		modelRatioBase = override
 	}
+
+	// 宸汐处置：账号级 + 令牌级计费惩罚倍率（两级可叠加，无处置时为 1.0）
+	penaltyMult := sanction.GetBillingMultiplier(model.SanctionTargetUser, ownerUserID) *
+		sanction.GetBillingMultiplier(model.SanctionTargetToken, tokenID)
 
 	// 检查是否按次计费
 	if price, ok := common.GetModelPrice(modelName); ok {
@@ -234,7 +239,10 @@ func CalculateQuota(modelName string, promptTokens, completionTokens, cachedToke
 			"group_ratio": groupRatio,
 			"use_price":   true,
 		})
-		return finalQuota, string(otherInfo)
+		if penaltyMult > 1.0 {
+			finalQuota = int64(float64(finalQuota) * penaltyMult)
+		}
+		return finalQuota, appendPenaltyInfo(string(otherInfo), penaltyMult)
 	}
 
 	// 否则走按量计费逻辑
@@ -290,5 +298,25 @@ func CalculateQuota(modelName string, promptTokens, completionTokens, cachedToke
 		"audio_completion_ratio": audioCompletionRatio,
 	})
 
-	return finalQuota, string(otherInfo)
+	if penaltyMult > 1.0 {
+		finalQuota = int64(float64(finalQuota) * penaltyMult)
+	}
+	return finalQuota, appendPenaltyInfo(string(otherInfo), penaltyMult)
+}
+
+// appendPenaltyInfo 把计费惩罚倍率补进 otherInfo JSON 便于日志审计（倍率<=1 时原样返回）
+func appendPenaltyInfo(otherInfo string, penaltyMult float64) string {
+	if penaltyMult <= 1.0 {
+		return otherInfo
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(otherInfo), &m); err != nil || m == nil {
+		m = map[string]interface{}{}
+	}
+	m["billing_penalty"] = penaltyMult
+	b, err := json.Marshal(m)
+	if err != nil {
+		return otherInfo
+	}
+	return string(b)
 }

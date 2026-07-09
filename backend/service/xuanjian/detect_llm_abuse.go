@@ -12,7 +12,9 @@ func DetectLLMAbuse(rec RequestRecord, cfg XJConfig) []Finding {
 		return nil
 	}
 
-	rules := GetActiveRules()
+	// ～函数语义覆盖"写恶意代码/生成钓鱼话术"(malware_gen) + "帮逆向分析"(reverse_eng) 两个分组，
+	// 两者共用同一个 EnableLLMAbuse 开关，见 policy.go 里没有为 reverse_eng 单独开关喵～
+	rules := append(GetActiveRulesByGroup(GroupMalwareGen), GetActiveRulesByGroup(GroupReverseEng)...)
 
 	// prompt 侧扫描（恶意请求词）
 	promptFindings := MatchRules(rec.PromptSnippet, true, rec.CompletionTokens, rules)

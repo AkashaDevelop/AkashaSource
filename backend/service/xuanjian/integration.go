@@ -63,6 +63,7 @@ func RecordRequest(rec RequestRecord) {
 	findings = append(findings, DetectJailbreak(rec, tp, cfg)...)
 	findings = append(findings, DetectLLMAbuse(rec, cfg)...)
 	findings = append(findings, DetectAgent(rec, tp, cfg)...)
+	findings = append(findings, DetectDuplicate(rec, tp, cfg)...)
 
 	if len(findings) == 0 {
 		return

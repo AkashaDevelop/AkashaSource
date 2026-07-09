@@ -25,24 +25,24 @@ import (
 type RuleGroup string
 
 const (
-	GroupLLMJacking  RuleGroup = "llmjacking"
-	GroupJailbreak   RuleGroup = "jailbreak"
-	GroupMalwareGen  RuleGroup = "malware_gen"
-	GroupReverseEng  RuleGroup = "reverse_eng"
-	GroupAgentAbuse  RuleGroup = "agent_abuse"
+	GroupLLMJacking RuleGroup = "llmjacking"
+	GroupJailbreak  RuleGroup = "jailbreak"
+	GroupMalwareGen RuleGroup = "malware_gen"
+	GroupReverseEng RuleGroup = "reverse_eng"
+	GroupAgentAbuse RuleGroup = "agent_abuse"
 )
 
 // KeywordRule 关键词规则定义
 type KeywordRule struct {
-	ID                 string
-	FindingType        string
-	Group              RuleGroup
-	BaseScore          int
-	Keywords           []string // 中英文关键词，命中任意一条即触发
-	RequireContext     []string // 可选：需要同时出现的上下文词（AND关系）
-	PromptOnly         bool     // true=只扫 prompt；false=prompt+completion 都扫
-	MinCompletionTokens int     // completion 需超过该值才触发（过滤误报）
-	Action             string   // warn/notify/throttle/disable_token/ban_user
+	ID                  string
+	FindingType         string
+	Group               RuleGroup
+	BaseScore           int
+	Keywords            []string // 中英文关键词，命中任意一条即触发
+	RequireContext      []string // 可选：需要同时出现的上下文词（AND关系）
+	PromptOnly          bool     // true=只扫 prompt；false=prompt+completion 都扫
+	MinCompletionTokens int      // completion 需超过该值才触发（过滤误报）
+	Action              string   // warn/notify/throttle/disable_token/ban_user
 }
 
 // DefaultRules 返回内置的关键词规则列表
@@ -205,7 +205,7 @@ func DefaultRules() []KeywordRule {
 			ID: "R2", FindingType: "code_reverse_assist", Group: GroupReverseEng, BaseScore: 60,
 			PromptOnly: true, Action: "warn",
 			Keywords: []string{
-				"mov eax", "push ebp", "jmp esp",   // 汇编指令特征
+				"mov eax", "push ebp", "jmp esp", // 汇编指令特征
 				"IDA Pro", "Ghidra", "Binary Ninja", // 逆向工具
 				"decompile this binary", "disassemble this",
 				"反编译这段代码", "分析这段汇编",
@@ -237,7 +237,7 @@ func DefaultRules() []KeywordRule {
 			ID: "A1", FindingType: "agent_cmd_injection", Group: GroupAgentAbuse, BaseScore: 80,
 			PromptOnly: true, Action: "notify",
 			Keywords: []string{
-				"; id", "$(id)", "`id`", "&&id",  // shell 注入
+				"; id", "$(id)", "`id`", "&&id", // shell 注入
 				"cat /etc/passwd", "ls -la /", "whoami",
 				"; cat /", "&& ls", "| nc ", // 管道命令
 				"system(\"", "exec(\"", "os.popen(",
@@ -355,6 +355,20 @@ func GetActiveRules() []KeywordRule {
 	return rules
 }
 
+// GetActiveRulesByGroup 按分组过滤当前生效的规则集～
+// 之前三个 Detect* 函数都直接拿全部规则去匹配，导致管理员单独关闭某个检测分组开关时，
+// 该分组的关键词规则其实还是在别的分组开关下悄悄生效，现在按 group 精确过滤喵～
+func GetActiveRulesByGroup(group RuleGroup) []KeywordRule {
+	all := GetActiveRules()
+	filtered := make([]KeywordRule, 0, len(all))
+	for _, r := range all {
+		if r.Group == group {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
+}
+
 // ReloadRuleCache 从数据库重新加载规则集到内存缓存（管理员增删改规则后调用）
 func ReloadRuleCache() error {
 	if common.DB == nil {
@@ -448,4 +462,3 @@ func FindBuiltinDefault(ruleKey string) (KeywordRule, bool) {
 	}
 	return KeywordRule{}, false
 }
-

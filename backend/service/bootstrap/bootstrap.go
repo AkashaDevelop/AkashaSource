@@ -14,6 +14,7 @@ import (
 	"STfreApi/service/cxsec"
 	"STfreApi/service/license"
 	"STfreApi/service/qingyuan"
+	"STfreApi/service/sanction"
 	"STfreApi/service/xuanjian"
 )
 
@@ -36,6 +37,9 @@ func RunPostDBInit() {
 
 		// 启动订阅过期检查
 		service.InitSubscriptionExpiry()
+
+		// 初始化宸汐处置登记表（制裁缓存 + 定时刷新/清理）
+		sanction.Init()
 
 		// 启动渠道签到和余额监控调度器
 		log.Printf("启动渠道签到和余额监控调度器...")

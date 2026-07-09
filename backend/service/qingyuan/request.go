@@ -66,6 +66,15 @@ func ApplyRequest(ctx context.Context, req *dto.OpenAIRequest, rc RequestContext
 		return result, nil
 	}
 
+	// ～宸汐清源 2026.7.9 新增：AI 预审，赶在一切规则检测之前先过一道 AI 审核喵～
+	if blocked, msg := aiPreReview(req, policy.Config.AIReview); blocked {
+		result.Blocked = true
+		result.Message = msg
+		result.RiskScore = policy.Config.AIReview.BlockScore
+		RecordEventAsync(buildRequestEvent(rc, policy, "ai_pre_review", "block", result, collectSnippet(req), time.Since(start).Milliseconds(), GetCircuitState(policy)))
+		return result, nil
+	}
+
 	circuitState := GetCircuitState(policy)
 	degraded := circuitState == CircuitOpen
 	result.Degraded = degraded
@@ -98,9 +107,57 @@ func ApplyRequest(ctx context.Context, req *dto.OpenAIRequest, rc RequestContext
 	findings, timedOut := detectWithTimeout(req, policy)
 	result.Findings = append(result.Findings, findings...)
 
+	// ～宸汐清源 2026.7.8 新增：分段注入检测（跨消息分析）喵～
+	if len(req.Messages) > 1 {
+		// 构建消息快照
+		snapshots := make([]MessageSnapshot, 0, len(req.Messages))
+		for _, msg := range req.Messages {
+			// Messages 是 []interface{}，需要类型断言
+			if msgMap, ok := msg.(map[string]interface{}); ok {
+				role := getString(msgMap["role"])
+				content := getString(msgMap["content"])
+				snapshots = append(snapshots, MessageSnapshot{
+					Role:    role,
+					Content: content,
+				})
+			}
+		}
+		// 应用消息序列检测
+		if len(snapshots) > 1 {
+			seqFindings := ApplyMessageSequenceDetection(snapshots, policy)
+			result.Findings = append(result.Findings, seqFindings...)
+		}
+	}
+
 	// 应用 token 级风险基线
 	riskFloor := GetTokenRiskFloor(rc.TokenId)
 	result.RiskScore = maxScore(result.Findings) + riskFloor
+
+	// ～宸汐清源 2026.7.8 修复：之前只算风险分不做拦截决策，现在补上阈值判断喵～
+	// BlockThreshold 和 AnnotateThreshold 在 policy.go 里声明并有默认值（85/40），但之前从未被实际使用
+	if result.RiskScore >= policy.Config.Risk.BlockThreshold && policy.Policy.Mode != ModeMonitor {
+		result.Blocked = true
+		result.Message = "请求内容风险过高，已被安全策略拒绝"
+		RecordEventAsync(buildRequestEvent(rc, policy, "risk_block", "block", result, collectSnippet(req), time.Since(start).Milliseconds(), circuitState))
+		return result, nil
+	}
+	if result.RiskScore >= policy.Config.Risk.AnnotateThreshold {
+		// 达到标注阈值但未达到拦截阈值，继续放行但记录告警
+		result.Findings = append(result.Findings, Finding{
+			Type:     "risk_annotate",
+			Severity: "medium",
+			Score:    0,
+			Path:     "meta",
+			Evidence: "风险分数达到标注阈值但未超过拦截阈值",
+			Action:   "annotate",
+		})
+	}
+
+	// ～宸汐清源 2026.7.9 新增：AI 复审，规则引擎已经决定放行的请求丢一份给 AI 异步旁路审计，
+	// 不阻塞、不追溯拦截，仅记录事件供管理员事后复盘喵～
+	if len(result.Findings) > 0 {
+		aiReReview(req, rc, policy, result.Findings)
+	}
 
 	// 检测规则探测行为
 	if IsTokenProbing(rc.TokenId) {
@@ -354,36 +411,54 @@ func detectionViews(text string, cfg PolicyConfig) []string {
 }
 
 func detectText(text string, seg textSegment, obfuscated bool) []Finding {
-	lower := normalizeForMatch(text)
-	patterns := []struct {
-		typ   string
-		score int
-		words []string
-	}{
-		{"instruction_override", 30, []string{"ignore previous", "disregard above", "忽略之前", "无视之前", "忽略所有指令"}},
-		{"system_leak", 40, []string{"system prompt", "hidden prompt", "api key", "系统提示词", "隐藏提示", "密钥"}},
-		{"role_forgery", 30, []string{"role: system", "developer:", "<system>", "assistant to="}},
-		{"tool_forgery_text", 50, []string{"tool_calls", "function_call", "<tool_use", "functioncall", "assistant to=functions"}},
-		{"anti_sanitization", 40, []string{"bypass sanitizer", "disable security", "ignore security", "绕过净化", "忽略安全边界", "禁用安全"}},
-	}
+	// ～宸汐清源 2026.7.8 重构：从动态规则缓存读取，不再硬编码喵～
 	findings := []Finding{}
-	for _, p := range patterns {
-		for _, w := range p.words {
-			if strings.Contains(lower, strings.ToLower(w)) {
-				typ := p.typ
-				score := p.score
-				if seg.Role == "tool" {
-					typ = "tool_role_poisoning"
-					score += 20
-				}
-				if obfuscated {
-					score += 20
-				}
-				findings = append(findings, Finding{Type: typ, Severity: severity(score), Score: score, Path: seg.Path, Evidence: BuildSnippet(w, 80), Action: "monitor"})
-				break
+
+	// 检测所有主要类别的规则
+	categories := []string{
+		"prompt_injection_direct",
+		"prompt_injection_indirect",
+		"prompt_injection_delimiter",
+		"prompt_injection_multilingual",
+		"prompt_injection_delayed",
+		"jailbreak_dan",
+		"jailbreak_roleplay",
+		"jailbreak_hypothetical",
+		"jailbreak_ethical_dilemma",
+		"jailbreak_prompt_override",
+		"tool_poisoning_priority_hijack",
+		"tool_poisoning_param_injection",
+		"tool_poisoning_bypass_confirm",
+		"tool_poisoning_stealth",
+		"privilege_escalation",
+		"data_exfiltration",
+		"obfuscation",
+		"memory_poison",
+	}
+
+	for _, category := range categories {
+		dynamicFindings := detectWithDynamicRules(text, category)
+		for _, f := range dynamicFindings {
+			// 根据上下文调整分数
+			score := f.Score
+			if seg.Role == "tool" {
+				score += 20
 			}
+			if obfuscated {
+				score += 20
+			}
+
+			findings = append(findings, Finding{
+				Type:     f.Type,
+				Severity: severity(score),
+				Score:    score,
+				Path:     seg.Path,
+				Evidence: f.Evidence,
+				Action:   "monitor",
+			})
 		}
 	}
+
 	return findings
 }
 
@@ -395,6 +470,9 @@ func validateToolsAndMessages(req *dto.OpenAIRequest, policy ResolvedPolicy) ([]
 	blocked := false
 	toolNames := map[string]bool{}
 	nameRe, _ := regexp.Compile(policy.Config.Tools.ToolNameRegex)
+	// ～工具白/黑名单：空切片视为不限制，完全向后兼容～
+	allowedSet := toolNameSet(policy.Config.Tools.AllowedToolNames)
+	blockedSet := toolNameSet(policy.Config.Tools.BlockedToolNames)
 	if len(req.Tools) > policy.Config.Tools.MaxTools {
 		findings = append(findings, structuralFinding("tools", "工具数量超过限制"))
 		blocked = true
@@ -411,6 +489,14 @@ func validateToolsAndMessages(req *dto.OpenAIRequest, policy ResolvedPolicy) ([]
 		name := getString(fn["name"])
 		if name == "" || (nameRe != nil && !nameRe.MatchString(name)) {
 			findings = append(findings, structuralFinding("tools.name", "工具名称无效"))
+			blocked = true
+		}
+		if len(blockedSet) > 0 && blockedSet[name] {
+			findings = append(findings, structuralFinding("tools.name", "工具名称命中黑名单"))
+			blocked = true
+		}
+		if len(allowedSet) > 0 && !allowedSet[name] {
+			findings = append(findings, structuralFinding("tools.name", "工具名称不在白名单内"))
 			blocked = true
 		}
 		if toolNames[name] {
@@ -572,6 +658,20 @@ func getString(v any) string {
 	return ""
 }
 
+// toolNameSet 把工具名切片转成 set，供白/黑名单 O(1) 查找；空切片返回 nil（视为不限制）
+func toolNameSet(names []string) map[string]bool {
+	if len(names) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		if n != "" {
+			set[n] = true
+		}
+	}
+	return set
+}
+
 func removeZeroWidth(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch r {
@@ -594,16 +694,47 @@ func strconvUnquote(s string) (string, error) {
 }
 
 func decodeBase64Candidates(s string) []string {
+	// ～宸汐清源 2026.7.8 修复：支持多层嵌套解码（最多3层），覆盖标准/URL-safe/无padding三种变体喵～
 	fields := strings.FieldsFunc(s, func(r rune) bool {
 		return unicode.IsSpace(r) || strings.ContainsRune("'\"`<>[](){}，。；；,;", r)
 	})
 	out := []string{}
+
 	for _, f := range fields {
 		if len(f) < 16 || len(f) > 2048 {
 			continue
 		}
-		if b, err := base64.StdEncoding.DecodeString(f); err == nil && isMostlyText(string(b)) {
-			out = append(out, string(b))
+
+		// 多层解码循环（最多3层）
+		current := f
+		for layer := 0; layer < 3; layer++ {
+			decoded := ""
+			decodedSuccessfully := false
+
+			// 尝试标准 Base64
+			if b, err := base64.StdEncoding.DecodeString(current); err == nil && isMostlyText(string(b)) {
+				decoded = string(b)
+				decodedSuccessfully = true
+			} else if b, err := base64.URLEncoding.DecodeString(current); err == nil && isMostlyText(string(b)) {
+				// 尝试 URL-safe Base64
+				decoded = string(b)
+				decodedSuccessfully = true
+			} else if b, err := base64.RawStdEncoding.DecodeString(current); err == nil && isMostlyText(string(b)) {
+				// 尝试去掉 padding 的变体
+				decoded = string(b)
+				decodedSuccessfully = true
+			} else if b, err := base64.RawURLEncoding.DecodeString(current); err == nil && isMostlyText(string(b)) {
+				// 尝试 URL-safe 无 padding
+				decoded = string(b)
+				decodedSuccessfully = true
+			}
+
+			if decodedSuccessfully {
+				out = append(out, decoded)
+				current = decoded // 继续解码下一层
+			} else {
+				break // 无法继续解码
+			}
 		}
 	}
 	return out

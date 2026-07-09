@@ -43,6 +43,22 @@ func detectMemoryPoisoning(segments []textSegment, cfg TrustConfig) []Finding {
 		maxMessages = 50
 	}
 
+	// 第一趟：统计符合条件（assistant/tool，且在 maxMessages 截断内）的消息总数，
+	// 用来算"相对早期程度"——对话越长，早期投毒对当前行为的控制力理论上越弱。
+	total := 0
+	for _, seg := range segments {
+		if seg.Role != "assistant" && seg.Role != "tool" {
+			continue
+		}
+		if total >= maxMessages {
+			break
+		}
+		total++
+	}
+	if total == 0 {
+		return nil
+	}
+
 	findings := []Finding{}
 	scanned := 0
 	for _, seg := range segments {
@@ -54,6 +70,11 @@ func detectMemoryPoisoning(segments []textSegment, cfg TrustConfig) []Finding {
 		}
 		scanned++
 
+		// 早期衰减系数：最早一条 ≈0.5x，最新一条 =1.0x。
+		// 越靠近对话末尾的历史命中越可能马上被模型"回忆"执行，保留接近原始权重；
+		// 越早的命中潜伏更深、当前一刻实际触发概率相对低，风险分适度衰减（但仍记录）。
+		decayFactor := 0.5 + 0.5*float64(scanned)/float64(total)
+
 		lower := normalizeForMatch(seg.Text)
 		for _, p := range memoryPoisonPatterns {
 			for _, w := range p.words {
@@ -62,10 +83,12 @@ func detectMemoryPoisoning(segments []textSegment, cfg TrustConfig) []Finding {
 					if seg.Role == "tool" {
 						level = TrustToolOutput
 					}
+					// 衰减发生在 applyTrustWeighting 之前：基础分先按位置衰减，再按来源可信度加权
+					adjustedScore := int(float64(p.score) * decayFactor)
 					weighted := applyTrustWeighting([]Finding{{
 						Type:     p.typ,
-						Severity: severity(p.score),
-						Score:    p.score,
+						Severity: severity(adjustedScore),
+						Score:    adjustedScore,
 						Path:     seg.Path,
 						Evidence: BuildSnippet(w, 80),
 						Action:   "monitor",

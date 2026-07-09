@@ -26,9 +26,24 @@ type ResponseResult struct {
 
 func ApplyOpenAIResponse(ctx context.Context, body []byte, rc ResponseContext, policy ResolvedPolicy) (*ResponseResult, error) {
 	result := &ResponseResult{Body: body}
-	if !IsEnabled(policy) || !policy.Config.Response.DetectAds || policy.Config.Response.AdPolicy == "off" {
+
+	// ～宸汐清源 2026.7.8 修复：解耦响应侧检测与广告开关，三大功能独立运行喵～
+	// 只有模块完全关闭才跳过，单独关闭广告检测不影响工具校验/注入检测
+	if !IsEnabled(policy) {
 		return result, nil
 	}
+
+	// 检查是否有任何响应侧检测启用
+	shouldCheckAds := policy.Config.Response.DetectAds && policy.Config.Response.AdPolicy != "off"
+	shouldCheckTools := policy.Config.Response.ValidateOutputToolCalls || policy.Config.Response.BlockInvalidToolCalls
+	shouldCheckInjection := policy.Config.Response.DetectPromptInjection
+	shouldCheckThinking := policy.Config.Response.DetectThinkingAttacks
+
+	// 如果所有响应检测都关闭，跳过
+	if !shouldCheckAds && !shouldCheckTools && !shouldCheckInjection && !shouldCheckThinking {
+		return result, nil
+	}
+
 	start := time.Now()
 
 	var chat dto.ChatCompletionResponse

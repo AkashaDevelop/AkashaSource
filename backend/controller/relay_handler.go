@@ -149,6 +149,7 @@ func RecordConsumeLog(c *gin.Context, token *model.Token, modelName string, prom
 		modelName, promptTokens, completionTokens, cached,
 		d.ImageTokens, d.AudioTokens, d.AudioCompletionTokens,
 		d.WebSearchCount, d.FileSearchCount, userGroup, billingGroup,
+		token.UserId, token.Id,
 	)
 
 	// 从 context 获取额外信息（由调用者设置）
@@ -216,6 +217,7 @@ func RecordConsumeWithBilling(c *gin.Context, token *model.Token, modelName stri
 		modelName, usage.PromptTokens, usage.CompletionTokens, cached,
 		usage.ImageTokens, usage.AudioTokens, usage.AudioCompletionTokens,
 		usage.WebSearchCount, usage.FileSearchCount, userGroup, billingGroup,
+		token.UserId, token.Id,
 	)
 
 	var username string

@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,6 +26,19 @@ func TelegramCallback(c *gin.Context) {
 	if hash == "" {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid request"})
 		return
+	}
+
+	// ～防重放攻击：验证 auth_date 时间戳，超过 24 小时的登录链接拒绝喵～
+	authDateStr := c.Query("auth_date")
+	if authDateStr != "" {
+		authDate, err := strconv.ParseInt(authDateStr, 10, 64)
+		if err == nil {
+			age := time.Now().Unix() - authDate
+			if age > 86400 || age < -300 { // 24小时过期，允许 5 分钟时钟偏移
+				c.JSON(http.StatusOK, gin.H{"success": false, "message": "Login link expired or invalid timestamp"})
+				return
+			}
+		}
 	}
 
 	// Verify HMAC-SHA256 hash

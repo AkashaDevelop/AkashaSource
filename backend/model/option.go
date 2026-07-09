@@ -158,13 +158,13 @@ const (
 	OptionKeyXuanJianPolicy  = "xuanjian_policy"  // JSON 策略配置
 
 	// 实名认证扩展模块（仅超管可配置）
-	OptionKeyRealnameEnabled             = "realname_enabled"               // "true" | "false"
-	OptionKeyRealnameScenarios           = "realname_scenarios"             // JSON: ["model_call","recharge","double_blind"]
-	OptionKeyRealnameProvider            = "realname_provider"              // "aliyun" | "tencent"
-	OptionKeyRealnameAliyunAccessKeyId   = "realname_aliyun_access_key_id"
+	OptionKeyRealnameEnabled               = "realname_enabled"   // "true" | "false"
+	OptionKeyRealnameScenarios             = "realname_scenarios" // JSON: ["model_call","recharge","double_blind"]
+	OptionKeyRealnameProvider              = "realname_provider"  // "aliyun" | "tencent"
+	OptionKeyRealnameAliyunAccessKeyId     = "realname_aliyun_access_key_id"
 	OptionKeyRealnameAliyunAccessKeySecret = "realname_aliyun_access_key_secret"
-	OptionKeyRealnameAliyunRegion        = "realname_aliyun_region"         // 默认 cn-hangzhou
-	OptionKeyRealnameAliyunSceneId       = "realname_aliyun_scene_id"       // 认证场景ID（阿里云控制台创建）
+	OptionKeyRealnameAliyunRegion          = "realname_aliyun_region"   // 默认 cn-hangzhou
+	OptionKeyRealnameAliyunSceneId         = "realname_aliyun_scene_id" // 认证场景ID（阿里云控制台创建）
 )
 
 func InitOptions() {
@@ -191,8 +191,25 @@ func InitOptions() {
 	common.DB.AutoMigrate(&ChannelCheckinLog{})
 	common.DB.AutoMigrate(&ChannelBalanceLog{})
 	common.DB.AutoMigrate(&RealnameAuth{})
-	ApplyMigrations()
-	_ = ApplySQLFileMigrations()
+	common.DB.AutoMigrate(&NotificationLimit{})
+	common.DB.AutoMigrate(&QingyuanRule{})
+	common.DB.AutoMigrate(&QingyuanRuleCategory{})
+	common.DB.AutoMigrate(&Sanction{})
+	common.DB.AutoMigrate(&AuditLog{})
+	// ～这几张表之前只在 ApplyMigrations() 的一次性版本迁移里出现过，
+	// 老数据库跑完那一次版本号就不会再重新迁移了，后续给它们加字段会跟 AuditLog 一样报错，
+	// 挪到这里保证每次启动都跟 model 定义对齐喵～
+	common.DB.AutoMigrate(&Group{})
+	common.DB.AutoMigrate(&CheckIn{})
+	common.DB.AutoMigrate(&ModelConfig{})
+	common.DB.AutoMigrate(&ContextSanitizationPolicy{})
+	common.DB.AutoMigrate(&ContextSanitizationPolicyRevision{})
+	common.DB.AutoMigrate(&ContextSanitizationEvent{})
+	common.DB.AutoMigrate(&CustomChannelConfig{})
+	common.DB.AutoMigrate(&XuanJianEvent{})
+	common.DB.AutoMigrate(&XuanJianRule{})
+	common.DB.AutoMigrate(&Ability{})
+	SeedQingyuanRules()
 
 	// Load options from DB
 	var options []Option

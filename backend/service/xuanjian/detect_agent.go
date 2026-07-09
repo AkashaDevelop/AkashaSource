@@ -15,7 +15,7 @@ func DetectAgent(rec RequestRecord, p *TokenProfile, cfg XJConfig) []Finding {
 	var findings []Finding
 
 	// ── 规则引擎扫描（agent 相关关键词）──────────────────────────────────
-	rules := GetActiveRules()
+	rules := GetActiveRulesByGroup(GroupAgentAbuse)
 	kw := MatchRules(rec.PromptSnippet, true, rec.CompletionTokens, rules)
 	findings = append(findings, kw...)
 
@@ -49,22 +49,6 @@ func DetectAgent(rec RequestRecord, p *TokenProfile, cfg XJConfig) []Finding {
 		}
 	}
 
-	// ── 近似重复探测（宽松版：最近50条里相似 hash > 15 才触发）────────────
-	if cfg.EnableDuplicateDetection && !rec.PromptHash.IsZero() {
-		p.mu.Lock()
-		dupCount := countSimilarPrompts(p.PromptHashes, rec.PromptHash, minHashSim)
-		p.mu.Unlock()
-		if dupCount >= 15 {
-			findings = append(findings, Finding{
-				Type:     "duplicate_probing",
-				Group:    string(GroupReverseEng),
-				Score:    60,
-				Evidence: "prompt hash repeated " + intStr(dupCount) + " times in last 50 requests",
-				Action:   "warn",
-			})
-		}
-	}
-
 	// ── 自动化机器人：interval 标准差 < 100ms（没有人类的停顿节奏）─────────
 	p.mu.Lock()
 	stddev := p.StdDev()
@@ -75,6 +59,34 @@ func DetectAgent(rec RequestRecord, p *TokenProfile, cfg XJConfig) []Finding {
 			Group:    string(GroupAgentAbuse),
 			Score:    65,
 			Evidence: "request interval std_dev=" + floatStr(stddev) + "ms (<100ms threshold)",
+			Action:   "warn",
+		})
+	}
+
+	return findings
+}
+
+// DetectDuplicate 近似重复探测检测，由 EnableDuplicateDetection 独立控制。
+// 从 DetectAgent 里拆出来：重复探测（reverse_eng 维度）和 AI 代理滥用（agent_abuse 维度）
+// 是两类不同的威胁，此前被绑在同一个 DetectAgent 函数体内、共用 EnableAgentDetection
+// 开关把守，导致默认 EnableAgentDetection=false 时这块检测从未运行过。
+func DetectDuplicate(rec RequestRecord, p *TokenProfile, cfg XJConfig) []Finding {
+	if !cfg.EnableDuplicateDetection || rec.PromptHash.IsZero() {
+		return nil
+	}
+
+	var findings []Finding
+
+	// 近似重复探测（宽松版：最近50条里相似 hash > 15 才触发）
+	p.mu.Lock()
+	dupCount := countSimilarPrompts(p.PromptHashes, rec.PromptHash, minHashSim)
+	p.mu.Unlock()
+	if dupCount >= 15 {
+		findings = append(findings, Finding{
+			Type:     "duplicate_probing",
+			Group:    string(GroupReverseEng),
+			Score:    60,
+			Evidence: "prompt hash repeated " + intStr(dupCount) + " times in last 50 requests",
 			Action:   "warn",
 		})
 	}

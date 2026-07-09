@@ -20,7 +20,7 @@ func DetectJailbreak(rec RequestRecord, p *TokenProfile, cfg XJConfig) []Finding
 	var findings []Finding
 
 	// ── 关键词规则匹配（规则引擎）──────────────────────────────────────────
-	rules := GetActiveRules()
+	rules := GetActiveRulesByGroup(GroupJailbreak)
 	kw := MatchRules(rec.PromptSnippet, true, rec.CompletionTokens, rules)
 	findings = append(findings, kw...)
 

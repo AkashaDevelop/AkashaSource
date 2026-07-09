@@ -27,7 +27,29 @@ type PolicyConfig struct {
 	Logging        LoggingConfig        `json:"logging"`
 	CircuitBreaker CircuitBreakerConfig `json:"circuit_breaker"`
 	Degradation    DegradationConfig    `json:"degradation"`
+	AIReview       AIReviewConfig       `json:"ai_review"`
 }
+
+// AIReviewConfig 宸汐清源 · AI 审核配置～对齐宸汐玄鉴的 pre/re/both 三模式设计，
+// 因为清源策略本来就按 scope（全局/渠道/模型）分别存库，AI 审核天然获得按渠道/模型
+// 粒度精细配置的能力，不需要像玄鉴那样单独开一张全局配置表喵～
+type AIReviewConfig struct {
+	Mode         string `json:"mode"`           // off / pre / re / both
+	ChannelID    int    `json:"channel_id"`     // 审核用的渠道 ID（从系统渠道列表里选一条现成的）
+	Model        string `json:"model"`          // 审核用的模型名
+	TimeoutSec   int    `json:"timeout_sec"`    // 审核请求超时（秒）
+	BlockScore   int    `json:"block_score"`    // AI 返回的 risk_score 达到此值即拦截
+	MaxTextChars int    `json:"max_text_chars"` // 送审文本最大字符数
+	PrePrompt    string `json:"pre_prompt"`     // 预审自定义提示词，留空用内置默认
+	RePrompt     string `json:"re_prompt"`      // 复审自定义提示词，留空用内置默认
+}
+
+const (
+	AIReviewOff  = "off"
+	AIReviewPre  = "pre"
+	AIReviewRe   = "re"
+	AIReviewBoth = "both"
+)
 
 // TrustConfig 宸汐清源 · 信任边界配置～
 // 对应 2026 年"默认不信任非运营者内容"的架构原则：
@@ -78,18 +100,18 @@ type ToolsConfig struct {
 }
 
 type ResponseConfig struct {
-	DetectAds                bool     `json:"detect_ads"`
-	AdPolicy                 string   `json:"ad_policy"`
-	AdConfidenceThreshold    int      `json:"ad_confidence_threshold"`
-	KnownAdPatterns          []string `json:"known_ad_patterns"`
-	PreserveCodeBlocks       bool     `json:"preserve_code_blocks"`
-	PreserveJSONOutput       bool     `json:"preserve_json_output"`
-	ValidateOutputToolCalls  bool     `json:"validate_output_tool_calls"`
-	BlockInvalidToolCalls    bool     `json:"block_invalid_output_tool_calls"`
-	StreamTailBufferSize     int      `json:"stream_tail_buffer_size"`
-	DetectPromptInjection    bool     `json:"detect_prompt_injection"`
-	DetectMultimodal         bool     `json:"detect_multimodal"`
-	DetectThinkingAttacks    bool     `json:"detect_thinking_attacks"`
+	DetectAds               bool     `json:"detect_ads"`
+	AdPolicy                string   `json:"ad_policy"`
+	AdConfidenceThreshold   int      `json:"ad_confidence_threshold"`
+	KnownAdPatterns         []string `json:"known_ad_patterns"`
+	PreserveCodeBlocks      bool     `json:"preserve_code_blocks"`
+	PreserveJSONOutput      bool     `json:"preserve_json_output"`
+	ValidateOutputToolCalls bool     `json:"validate_output_tool_calls"`
+	BlockInvalidToolCalls   bool     `json:"block_invalid_output_tool_calls"`
+	StreamTailBufferSize    int      `json:"stream_tail_buffer_size"`
+	DetectPromptInjection   bool     `json:"detect_prompt_injection"`
+	DetectMultimodal        bool     `json:"detect_multimodal"`
+	DetectThinkingAttacks   bool     `json:"detect_thinking_attacks"`
 }
 
 type LoggingConfig struct {
@@ -169,6 +191,7 @@ func DefaultConfig() PolicyConfig {
 		Logging:        LoggingConfig{LogEvents: true, LogSnippetChars: 160, HashContent: true},
 		CircuitBreaker: CircuitBreakerConfig{Enabled: true, FailureThreshold: 5, TimeoutPerReqMs: 500, CooldownSeconds: 30},
 		Degradation:    DegradationConfig{MonitorTimeoutAction: "skip", ProtectTimeoutAction: "fallback_to_guard"},
+		AIReview:       AIReviewConfig{Mode: AIReviewOff, TimeoutSec: 10, BlockScore: 70, MaxTextChars: 2000},
 	}
 }
 
@@ -224,6 +247,18 @@ func MergeConfig(raw string) (PolicyConfig, error) {
 	}
 	if cfg.Trust.MemoryScanMaxMessages <= 0 {
 		cfg.Trust.MemoryScanMaxMessages = 50
+	}
+	if cfg.AIReview.Mode == "" {
+		cfg.AIReview.Mode = AIReviewOff
+	}
+	if cfg.AIReview.TimeoutSec <= 0 {
+		cfg.AIReview.TimeoutSec = 10
+	}
+	if cfg.AIReview.BlockScore <= 0 {
+		cfg.AIReview.BlockScore = 70
+	}
+	if cfg.AIReview.MaxTextChars <= 0 {
+		cfg.AIReview.MaxTextChars = 2000
 	}
 	return cfg, nil
 }

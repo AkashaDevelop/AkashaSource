@@ -20,7 +20,6 @@ interface XJConfig {
   max_ip_cidrs_per_win: number;
   max_tokens_per_user: number;
   short_prompt_max_tokens: number;
-  short_prompt_ratio: number;
   enable_abuse_detection: boolean;
   enable_jailbreak_detection: boolean;
   enable_llm_abuse: boolean;
@@ -29,6 +28,14 @@ interface XJConfig {
   notify_admin: boolean;
   auto_disable_score: number;
   auto_ban_score: number;
+  // 处置力度
+  throttle_factor: number;
+  throttle_duration_minutes: number;
+  penalty_rpm: number;
+  suspend_duration_minutes: number;
+  billing_penalty_factor: number;
+  billing_penalty_duration_minutes: number;
+  ban_ip_duration_minutes: number;
   exempt_token_ids: number[];
   exempt_user_ids: number[];
   llmjacking_new_token_hours: number;
@@ -94,7 +101,6 @@ const defaultConfig: XJConfig = {
   max_ip_cidrs_per_win: 15,
   max_tokens_per_user: 8,
   short_prompt_max_tokens: 20,
-  short_prompt_ratio: 0.7,
   enable_abuse_detection: true,
   enable_jailbreak_detection: true,
   enable_llm_abuse: true,
@@ -107,6 +113,13 @@ const defaultConfig: XJConfig = {
   exempt_user_ids: [],
   llmjacking_new_token_hours: 24,
   llmjacking_quota_multiple: 10,
+  throttle_factor: 0.3,
+  throttle_duration_minutes: 15,
+  penalty_rpm: 5,
+  suspend_duration_minutes: 30,
+  billing_penalty_factor: 3,
+  billing_penalty_duration_minutes: 60,
+  ban_ip_duration_minutes: 1440,
   ai_review_mode: 'off',
   ai_review_channel_id: 0,
   ai_review_model: '',
@@ -129,7 +142,11 @@ const actionLabel = (a: string) => ({
   warn: '记录',
   notify: '告警',
   throttle: '限速',
+  rpm_limit: '固定低RPM',
+  suspend_token: '短暂停用',
+  billing_penalty: '高倍率计费',
   disable_token: '封Token',
+  ban_ip: '封IP',
   ban_user: '封用户',
 }[a] || a);
 
@@ -137,7 +154,11 @@ const actionColor = (a: string): 'default' | 'warning' | 'danger' => ({
   warn: 'default',
   notify: 'warning',
   throttle: 'warning',
+  rpm_limit: 'warning',
+  suspend_token: 'warning',
+  billing_penalty: 'warning',
   disable_token: 'danger',
+  ban_ip: 'danger',
   ban_user: 'danger',
 }[a] as any || 'default');
 
@@ -362,7 +383,7 @@ export default function XuanJian() {
               <Input type="number" label="最大模型种数/窗口" value={String(config.max_models_per_win)} onValueChange={v => setConfig({ ...config, max_models_per_win: parseInt(v) || 8 })} />
               <Input type="number" label="最大 IP 段(/24)/窗口" value={String(config.max_ip_cidrs_per_win)} onValueChange={v => setConfig({ ...config, max_ip_cidrs_per_win: parseInt(v) || 15 })} />
               <Input type="number" label="同用户最多 Token 数/窗口" value={String(config.max_tokens_per_user)} onValueChange={v => setConfig({ ...config, max_tokens_per_user: parseInt(v) || 8 })} />
-              <Input type="number" label="短 prompt 占比阈值" value={String(config.short_prompt_ratio)} onValueChange={v => setConfig({ ...config, short_prompt_ratio: parseFloat(v) || 0.7 })} />
+              <Input type="number" label="短 prompt 判定阈值（token 数）" value={String(config.short_prompt_max_tokens)} onValueChange={v => setConfig({ ...config, short_prompt_max_tokens: parseInt(v) || 20 })} />
             </div>
           </div>
 
@@ -408,6 +429,22 @@ export default function XuanJian() {
             <div className="grid grid-cols-2 gap-4">
               <Input type="number" label="自动封 Token 分数阈值" value={String(config.auto_disable_score)} onValueChange={v => setConfig({ ...config, auto_disable_score: parseInt(v) || 90 })} />
               <Input type="number" label="自动封用户分数阈值" value={String(config.auto_ban_score)} onValueChange={v => setConfig({ ...config, auto_ban_score: parseInt(v) || 95 })} />
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl space-y-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
+            <div className="text-sm font-semibold">处置力度配置（规则 Action 命中时的参数）</div>
+            <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              规则的处置动作（限速/低RPM/停用/计费惩罚/封IP）命中时按这里的参数执行。时长填 0 表示永久。
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input type="number" step="0.1" label="限速降速倍率（0~1，如 0.3=降到30%）" value={String(config.throttle_factor)} onValueChange={v => setConfig({ ...config, throttle_factor: parseFloat(v) || 0.3 })} />
+              <Input type="number" label="限速/低RPM 持续（分钟）" value={String(config.throttle_duration_minutes)} onValueChange={v => setConfig({ ...config, throttle_duration_minutes: parseInt(v) || 15 })} />
+              <Input type="number" label="固定低 RPM 惩罚值" value={String(config.penalty_rpm)} onValueChange={v => setConfig({ ...config, penalty_rpm: parseInt(v) || 5 })} />
+              <Input type="number" label="短暂停用 Token 时长（分钟）" value={String(config.suspend_duration_minutes)} onValueChange={v => setConfig({ ...config, suspend_duration_minutes: parseInt(v) || 30 })} />
+              <Input type="number" step="0.5" label="计费惩罚倍率（如 3=3倍收费）" value={String(config.billing_penalty_factor)} onValueChange={v => setConfig({ ...config, billing_penalty_factor: parseFloat(v) || 3 })} />
+              <Input type="number" label="计费惩罚持续（分钟，0=永久）" value={String(config.billing_penalty_duration_minutes)} onValueChange={v => setConfig({ ...config, billing_penalty_duration_minutes: parseInt(v) || 0 })} />
+              <Input type="number" label="封禁 IP 时长（分钟，0=永久）" value={String(config.ban_ip_duration_minutes)} onValueChange={v => setConfig({ ...config, ban_ip_duration_minutes: parseInt(v) || 0 })} />
             </div>
           </div>
         </div>
@@ -671,8 +708,12 @@ export default function XuanJian() {
                 onSelectionChange={keys => setRuleForm({ ...ruleForm, action: [...keys][0] as string || 'warn' })}>
                 <SelectItem key="warn">warn（仅记录）</SelectItem>
                 <SelectItem key="notify">notify（通知管理员）</SelectItem>
-                <SelectItem key="throttle">throttle（限速）</SelectItem>
-                <SelectItem key="disable_token">disable_token（封Token）</SelectItem>
+                <SelectItem key="throttle">throttle（高倍率限速）</SelectItem>
+                <SelectItem key="rpm_limit">rpm_limit（固定低 RPM）</SelectItem>
+                <SelectItem key="suspend_token">suspend_token（短暂停用，自动恢复）</SelectItem>
+                <SelectItem key="billing_penalty">billing_penalty（账号高倍率计费）</SelectItem>
+                <SelectItem key="disable_token">disable_token（永久封 Token）</SelectItem>
+                <SelectItem key="ban_ip">ban_ip（封禁来源 IP）</SelectItem>
                 <SelectItem key="ban_user">ban_user（封用户）</SelectItem>
               </Select>
             </div>

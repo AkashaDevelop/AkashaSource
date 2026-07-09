@@ -553,11 +553,6 @@ func SetApiRouter(router *gin.Engine) {
 			rootGroup.PUT("/custom-oauth-provider/:id", controller.UpdateCustomOAuthProvider)
 			rootGroup.DELETE("/custom-oauth-provider/:id", controller.DeleteCustomOAuthProvider)
 
-			// SQL 迁移（高风险，需超管权限）
-			rootGroup.GET("/migration/sql", controller.GetSQLMigrations)
-			rootGroup.POST("/migration/sql/apply", controller.ApplySQLMigrations)
-			rootGroup.POST("/migration/sql/rollback", controller.RollbackSQLMigrations)
-
 			// 渠道敏感操作
 			rootGroup.POST("/channel/:id/key", controller.GetChannelKey)
 
@@ -584,6 +579,24 @@ func SetApiRouter(router *gin.Engine) {
 			rootGroup.DELETE("/admin/xuanjian/rules/:id", controller.DeleteXJRule)
 			rootGroup.POST("/admin/xuanjian/rules/:id/toggle", controller.PostXJRuleToggle)
 			rootGroup.POST("/admin/xuanjian/rules/:id/reset", controller.PostXJRuleReset)
+
+			// 宸汐清源 - 规则库管理（仅超管可访问）
+			rootGroup.GET("/admin/qingyuan/rules", controller.AdminListQingyuanRules)
+			rootGroup.GET("/admin/qingyuan/rules/:id", controller.AdminGetQingyuanRule)
+			rootGroup.POST("/admin/qingyuan/rules", controller.AdminCreateQingyuanRule)
+			rootGroup.PUT("/admin/qingyuan/rules/:id", controller.AdminUpdateQingyuanRule)
+			rootGroup.DELETE("/admin/qingyuan/rules/:id", controller.AdminDeleteQingyuanRule)
+			rootGroup.POST("/admin/qingyuan/rules/:id/toggle", controller.AdminToggleQingyuanRule)
+			rootGroup.POST("/admin/qingyuan/rules/reload", controller.AdminReloadQingyuanRules)
+			rootGroup.POST("/admin/qingyuan/rules/test", controller.AdminTestQingyuanRule)
+			rootGroup.POST("/admin/qingyuan/rules/import", controller.AdminBatchImportQingyuanRules)
+			rootGroup.GET("/admin/qingyuan/rules/export", controller.AdminExportQingyuanRules)
+			rootGroup.GET("/admin/qingyuan/categories", controller.AdminListQingyuanCategories)
+
+			// 宸汐处置登记表（制裁管理，仅超管）
+			rootGroup.GET("/admin/sanctions", controller.AdminListSanctions)
+			rootGroup.POST("/admin/sanctions", controller.AdminCreateSanction)
+			rootGroup.DELETE("/admin/sanctions/:id", controller.AdminRevokeSanction)
 		}
 	}
 }

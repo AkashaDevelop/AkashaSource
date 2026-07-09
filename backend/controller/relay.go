@@ -189,6 +189,11 @@ func Relay(c *gin.Context) {
 		return
 	}
 
+	// 风控处置检查（停用/降速/固定低RPM），命中则直接返回
+	if !middleware.CheckTokenSanction(c, token.Id) {
+		return
+	}
+
 	// 按模型限流
 	if !middleware.ModelRateLimitMiddleware(openAIReq.Model) {
 		c.JSON(http.StatusTooManyRequests, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
@@ -202,7 +207,7 @@ func Relay(c *gin.Context) {
 	moderationTimeout := common.ContentModerationTimeout
 	common.OptionLock.RUnlock()
 	if moderationEnabled && !whitelisted {
-		allowed, reason := checkTencentModeration(moderationTimeout, buildModerationText(&openAIReq))
+		allowed, reason := checkTencentModeration(moderationTimeout, buildModerationText(&openAIReq), token.Id, keywords)
 		if !allowed {
 			msg := "内容审查未通过"
 			if reason != "" {
@@ -573,7 +578,23 @@ func buildModerationText(req *dto.OpenAIRequest) string {
 }
 
 // checkTencentModeration ～请腾讯云天御大人来给这段文字把把关，判定是否放行～
-func checkTencentModeration(timeout int, text string) (bool, string) {
+//
+// 2026 重构：加入熔断降级 + Review 处理。
+//   - 熔断打开期间：退化为本地关键词审核兜底（而非完全放行），避免云端故障时防线彻底失守
+//   - 连续调用失败达阈值 → 打开熔断；单次失败仍 fail-open 避免误伤
+//   - Suggestion == Review：官方语义是"需人工复核"，不当作 Pass 静默放行，
+//     而是放行 + 把信号计入该 token 风险基线（借清源自适应升级识别高频 Review 的 token）
+//
+// tokenId 用于 Review 信号归集；fallbackKeywords 是熔断兜底用的本地关键词表。
+func checkTencentModeration(timeout int, text string, tokenId int, fallbackKeywords string) (bool, string) {
+	// 熔断打开：本地关键词兜底，不走云端
+	if tmsCircuitState() == tmsCircuitOpen {
+		if blocked, kw := localKeywordBlock(text, fallbackKeywords); blocked {
+			return false, "本地关键词兜底: " + kw
+		}
+		return true, ""
+	}
+
 	common.OptionLock.RLock()
 	cfg := moderation.TMSConfig{
 		SecretId:  common.OptionMap[model.OptionKeyTencentModerationSecretId],
@@ -586,16 +607,49 @@ func checkTencentModeration(timeout int, text string) (bool, string) {
 
 	result, err := moderation.ModerateText(cfg, text)
 	if err != nil {
-		// 调用失败不能拖住正常业务，放行本次请求并把原因打进日志方便排查
-		log.Printf("[内容审查] 腾讯云天御调用失败，本次请求放行: %v", err)
+		// 单次失败仍 fail-open 避免误伤；连续失败累计到阈值由熔断兜底转本地关键词审核
+		tmsRecordFailure()
+		log.Printf("[内容审查] 腾讯云天御调用失败，本次请求放行（熔断状态=%s）: %v", tmsCircuitState(), err)
 		return true, ""
 	}
-	if result.Suggestion != "Block" {
+	tmsRecordSuccess()
+
+	switch result.Suggestion {
+	case "Block":
+		reason := result.Label
+		if result.SubLabel != "" {
+			reason += "/" + result.SubLabel
+		}
+		return false, reason
+	case "Review":
+		// 不确定信号：放行但计入 token 风险基线，让清源自适应升级机制识别高频 Review 的 token
+		if tokenId > 0 {
+			go qingyuan.RecordTokenTrigger(tokenId, qingyuan.HashContent(text), 40)
+		}
+		log.Printf("[内容审查] 天御判定 Review（放行但计入风险基线）token=%d label=%s", tokenId, result.Label)
+		return true, ""
+	default: // Pass
 		return true, ""
 	}
-	reason := result.Label
-	if result.SubLabel != "" {
-		reason += "/" + result.SubLabel
+}
+
+// localKeywordBlock 熔断兜底用的本地关键词匹配（不依赖 *dto.OpenAIRequest，直接扫已拼好的文本）
+func localKeywordBlock(text, keywords string) (bool, string) {
+	if keywords == "" || text == "" {
+		return false, ""
 	}
-	return false, reason
+	parts := strings.FieldsFunc(keywords, func(r rune) bool {
+		return r == ',' || r == '，' || r == ';' || r == '；' || r == '\n' || r == '\t' || r == ' ' || r == '|'
+	})
+	lt := strings.ToLower(text)
+	for _, kw := range parts {
+		kw = strings.TrimSpace(kw)
+		if kw == "" {
+			continue
+		}
+		if strings.Contains(lt, strings.ToLower(kw)) {
+			return true, kw
+		}
+	}
+	return false, ""
 }

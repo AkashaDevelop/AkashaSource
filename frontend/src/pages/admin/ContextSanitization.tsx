@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import LoadingRows from '../../components/LoadingRows';
-import { Button, Input, Select, SelectItem, Switch, Chip } from '../../components/ui';
-import { Plus, RefreshCw, Edit, Trash2, RotateCcw, Shield, ScrollText } from 'lucide-react';
+import { Button, Input, Select, SelectItem, Switch, Chip, Textarea } from '../../components/ui';
+import { Plus, RefreshCw, Edit, Trash2, RotateCcw, Shield, ScrollText, ListFilter } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
+import QingyuanRules from './QingyuanRules';
 
 interface Policy {
   id: number;
@@ -54,13 +55,14 @@ const defaultConfig = {
   logging: { log_events: true, log_raw_content: false, log_snippet_chars: 160, hash_content: true },
   circuit_breaker: { enabled: true, failure_threshold: 5, timeout_per_req_ms: 500, cooldown_seconds: 30 },
   degradation: { monitor_timeout_action: 'skip', protect_timeout_action: 'fallback_to_guard' },
+  ai_review: { mode: 'off', channel_id: 0, model: '', timeout_sec: 10, block_score: 70, max_text_chars: 2000, pre_prompt: '', re_prompt: '' },
 };
 
 const sectionStyle = { background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' };
 
 export default function ContextSanitization() {
   const { token } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<'policies' | 'events' | 'stats' | 'edit'>('policies');
+  const [activeTab, setActiveTab] = useState<'policies' | 'rules' | 'events' | 'stats' | 'edit'>('policies');
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -134,6 +136,7 @@ export default function ContextSanitization() {
         logging: { ...defaultConfig.logging, ...(parsed.logging || {}) },
         circuit_breaker: { ...defaultConfig.circuit_breaker, ...(parsed.circuit_breaker || {}) },
         degradation: { ...defaultConfig.degradation, ...(parsed.degradation || {}) },
+        ai_review: { ...defaultConfig.ai_review, ...(parsed.ai_review || {}) },
       });
     } catch { setConfigForm(defaultConfig); }
     setActiveTab('edit');
@@ -196,9 +199,12 @@ export default function ContextSanitization() {
 
       <div className="flex gap-2 flex-wrap">
         <Button variant={activeTab === 'policies' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('policies')} startContent={<Shield size={16} />}>策略配置</Button>
+        <Button variant={activeTab === 'rules' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('rules')} startContent={<ListFilter size={16} />}>规则库管理</Button>
         <Button variant={activeTab === 'events' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('events')} startContent={<ScrollText size={16} />}>事件日志</Button>
         <Button variant={activeTab === 'stats' ? 'solid' : 'flat'} color="primary" onPress={() => setActiveTab('stats')}>缓存状态</Button>
       </div>
+
+      {activeTab === 'rules' && <QingyuanRules />}
 
       {activeTab === 'policies' && (
         <div className="data-table-wrap"><table className="data-table"><thead><tr><th>名称</th><th>范围</th><th>渠道</th><th>模型</th><th>模式</th><th>状态</th><th>版本</th><th>操作</th></tr></thead><tbody>
@@ -330,6 +336,76 @@ export default function ContextSanitization() {
               <Input type="number" label="检索文档风险倍率" value={String(configForm.trust.retrieved_doc_risk_multiplier)} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, retrieved_doc_risk_multiplier: parseFloat(v) || 1.6 } })} />
               <Input type="number" label="工具输出风险倍率" value={String(configForm.trust.tool_output_risk_multiplier)} onValueChange={v => setConfigForm({ ...configForm, trust: { ...configForm.trust, tool_output_risk_multiplier: parseFloat(v) || 1.4 } })} />
             </div>
+          </div>
+
+          <div className="p-4 rounded-xl space-y-4" style={sectionStyle}>
+            <div className="text-sm font-semibold">AI 审核（宸汐清源 2026）</div>
+            <Select
+              label="审核模式"
+              selectedKeys={[configForm.ai_review.mode]}
+              onSelectionChange={keys => setConfigForm({ ...configForm, ai_review: { ...configForm.ai_review, mode: [...keys][0] as string || 'off' } })}
+            >
+              <SelectItem key="off">关闭</SelectItem>
+              <SelectItem key="pre">AI 预审（用户消息先经 AI 审核，通过才转发）</SelectItem>
+              <SelectItem key="re">规则初审 + AI 复审（规则命中后异步复核，不阻塞请求）</SelectItem>
+              <SelectItem key="both">双重审核（先 AI 预审，再规则初审 + AI 复审）</SelectItem>
+            </Select>
+            <div className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              <span className="font-medium">AI 预审</span>：请求转发前先用 AI 模型审核，未通过直接拦截，会增加请求延迟。
+              <br />
+              <span className="font-medium">规则初审 + AI 复审</span>：规则引擎命中风险后异步交给 AI 复核，不阻塞本次请求，仅用于事件记录和事后复盘。
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Select
+                label="审核渠道"
+                placeholder="选择渠道"
+                selectedKeys={configForm.ai_review.channel_id ? [String(configForm.ai_review.channel_id)] : []}
+                onSelectionChange={keys => setConfigForm({ ...configForm, ai_review: { ...configForm.ai_review, channel_id: parseInt([...keys][0] as string) || 0 } })}
+              >
+                {channels.map(c => <SelectItem key={String(c.id)}>{c.name}</SelectItem>)}
+              </Select>
+              <Input
+                label="审核模型名"
+                placeholder="如 gpt-4o-mini"
+                value={configForm.ai_review.model}
+                onValueChange={v => setConfigForm({ ...configForm, ai_review: { ...configForm.ai_review, model: v } })}
+              />
+              <Input
+                type="number"
+                label="审核超时（秒）"
+                value={String(configForm.ai_review.timeout_sec)}
+                onValueChange={v => setConfigForm({ ...configForm, ai_review: { ...configForm.ai_review, timeout_sec: parseInt(v) || 10 } })}
+              />
+              <Input
+                type="number"
+                label="拦截阈值（风险分 0-100）"
+                value={String(configForm.ai_review.block_score)}
+                onValueChange={v => setConfigForm({ ...configForm, ai_review: { ...configForm.ai_review, block_score: parseInt(v) || 70 } })}
+              />
+              <Input
+                type="number"
+                label="送审文本最大字符数"
+                value={String(configForm.ai_review.max_text_chars)}
+                onValueChange={v => setConfigForm({ ...configForm, ai_review: { ...configForm.ai_review, max_text_chars: parseInt(v) || 2000 } })}
+              />
+            </div>
+            <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              填写一个支持 OpenAI 兼容接口的渠道（在「渠道管理」中查看），建议使用低成本快速模型。审核服务不可用时自动放行（fail-open）。
+            </div>
+            <Textarea
+              label="AI 预审提示词（留空用内置默认）"
+              minRows={4}
+              placeholder="留空使用内置默认提示词，系统会自动追加 JSON 返回格式要求"
+              value={configForm.ai_review.pre_prompt}
+              onValueChange={v => setConfigForm({ ...configForm, ai_review: { ...configForm.ai_review, pre_prompt: v } })}
+            />
+            <Textarea
+              label="AI 复审提示词（留空用内置默认）"
+              minRows={4}
+              placeholder="留空使用内置默认提示词，复审时会把规则引擎命中的风险信号一并传给 AI"
+              value={configForm.ai_review.re_prompt}
+              onValueChange={v => setConfigForm({ ...configForm, ai_review: { ...configForm.ai_review, re_prompt: v } })}
+            />
           </div>
 
           <div className="p-4 rounded-xl space-y-4" style={sectionStyle}>

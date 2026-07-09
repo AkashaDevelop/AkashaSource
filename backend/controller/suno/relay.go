@@ -121,6 +121,29 @@ func RelaySuno(c *gin.Context) {
 
 	respBody, _ := io.ReadAll(resp.Body)
 
+	// 宸汐玄鉴：把 Suno 生成请求也纳入行为画像，补上此前的画像盲区～
+	// Suno 是 token-key 认证，有真实 token.Id，和文本 relay 一致处理。
+	if xuanjian.IsEnabled() {
+		var sunoReq struct {
+			Prompt string `json:"prompt"`
+			Title  string `json:"title"`
+			Tags   string `json:"tags"`
+		}
+		_ = json.Unmarshal(bodyBytes, &sunoReq)
+		snippet := strings.TrimSpace(strings.Join([]string{sunoReq.Prompt, sunoReq.Title, sunoReq.Tags}, " "))
+		go xuanjian.RecordRequest(xuanjian.RequestRecord{
+			TokenID:        token.Id,
+			TokenName:      token.Name,
+			UserID:         token.UserId,
+			TokenCreatedAt: time.Unix(token.CreatedTime, 0),
+			IP:             c.ClientIP(),
+			UserAgent:      c.GetHeader("User-Agent"),
+			Model:          "suno_" + path,
+			PromptSnippet:  xuanjian.TruncateSnippet(snippet, 2000),
+			StatusCode:     resp.StatusCode,
+		})
+	}
+
 	// Record task
 	var result map[string]interface{}
 	if json.Unmarshal(respBody, &result) == nil {

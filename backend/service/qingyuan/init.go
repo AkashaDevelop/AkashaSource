@@ -10,6 +10,9 @@ func Init() error {
 	// 启动 token 风险追踪清理任务
 	InitTokenRiskCleanupJob()
 
+	// ～启动规则缓存自动刷新（30秒周期），支持前端动态修改规则喵～
+	InitRuleCache()
+
 	return nil
 }
 

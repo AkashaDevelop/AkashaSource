@@ -35,13 +35,12 @@ type XJConfig struct {
 	WindowMinutes int `json:"window_minutes"` // 默认 5
 
 	// 行为阈值（误报修正后的默认值）
-	MaxRequestsPerWin    int     `json:"max_requests_per_win"`     // 默认 300
-	MaxQuotaPerWin       int64   `json:"max_quota_per_win"`        // 默认 10_000_000
-	MaxModelsPerWin      int     `json:"max_models_per_win"`       // 默认 8
-	MaxIPCIDRsPerWin     int     `json:"max_ip_cidrs_per_win"`     // 默认 15（/24 CIDR 聚合）
-	MaxTokensPerUser     int     `json:"max_tokens_per_user"`      // 默认 8（5min 内）
-	ShortPromptMaxTokens int     `json:"short_prompt_max_tokens"`  // 默认 20
-	ShortPromptRatio     float64 `json:"short_prompt_ratio"`       // 默认 0.7
+	MaxRequestsPerWin    int   `json:"max_requests_per_win"`    // 默认 300
+	MaxQuotaPerWin       int64 `json:"max_quota_per_win"`       // 默认 10_000_000
+	MaxModelsPerWin      int   `json:"max_models_per_win"`      // 默认 8
+	MaxIPCIDRsPerWin     int   `json:"max_ip_cidrs_per_win"`    // 默认 15（/24 CIDR 聚合）
+	MaxTokensPerUser     int   `json:"max_tokens_per_user"`     // 默认 8（5min 内）
+	ShortPromptMaxTokens int   `json:"short_prompt_max_tokens"` // 默认 20
 
 	// 检测组开关（各自可独立禁用，方便误报期间单组关闭）
 	EnableAbuseDetection     bool `json:"enable_abuse_detection"`
@@ -59,6 +58,15 @@ type XJConfig struct {
 	AutoDisableScore int  `json:"auto_disable_score"` // strict 模式下自动封 token 阈值，默认 90
 	AutoBanScore     int  `json:"auto_ban_score"`     // strict 模式下自动封用户阈值，默认 95
 
+	// 处置力度配置（供规则 Action 落地时取值，全部可热更新）
+	ThrottleFactor                float64 `json:"throttle_factor"`                  // throttle 降速倍率，默认 0.3（降到30%）
+	ThrottleDurationMinutes       int     `json:"throttle_duration_minutes"`        // throttle/rpm_limit 持续分钟，默认 15
+	PenaltyRPM                    int     `json:"penalty_rpm"`                      // rpm_limit 固定 RPM，默认 5
+	SuspendDurationMinutes        int     `json:"suspend_duration_minutes"`         // suspend_token 停用分钟，默认 30
+	BillingPenaltyFactor          float64 `json:"billing_penalty_factor"`           // billing_penalty 计费倍率，默认 3.0
+	BillingPenaltyDurationMinutes int     `json:"billing_penalty_duration_minutes"` // 计费惩罚持续分钟，默认 60；0=永久
+	BanIPDurationMinutes          int     `json:"ban_ip_duration_minutes"`          // ban_ip 封禁分钟，默认 1440（一天）；0=永久
+
 	// 白名单豁免（这些 token/用户不参与任何行为检测）
 	ExemptTokenIDs []int `json:"exempt_token_ids"`
 	ExemptUserIDs  []int `json:"exempt_user_ids"`
@@ -69,11 +77,11 @@ type XJConfig struct {
 	//   "pre"  — AI 预审：用户消息先经 AI 审核，通过才转发给实际模型
 	//   "re"   — 规则引擎初审 + AI 复审：规则命中后再用 AI 复确认
 	//   "both" — 先 AI 预审，通过后规则初审命中再 AI 复审
-	AIReviewMode         string `json:"ai_review_mode"`          // off/pre/re/both
-	AIReviewChannelID    int    `json:"ai_review_channel_id"`    // 审核用渠道 ID（从已有渠道选一个）
-	AIReviewModel        string `json:"ai_review_model"`         // 审核用模型名（如 gpt-4o-mini）
-	AIReviewTimeoutSec   int    `json:"ai_review_timeout_sec"`   // 审核超时秒数，默认 10
-	AIReviewBlockScore   int    `json:"ai_review_block_score"`   // 风险分达到此值则拦截，默认 70
+	AIReviewMode         string `json:"ai_review_mode"`           // off/pre/re/both
+	AIReviewChannelID    int    `json:"ai_review_channel_id"`     // 审核用渠道 ID（从已有渠道选一个）
+	AIReviewModel        string `json:"ai_review_model"`          // 审核用模型名（如 gpt-4o-mini）
+	AIReviewTimeoutSec   int    `json:"ai_review_timeout_sec"`    // 审核超时秒数，默认 10
+	AIReviewBlockScore   int    `json:"ai_review_block_score"`    // 风险分达到此值则拦截，默认 70
 	AIReviewMaxTextChars int    `json:"ai_review_max_text_chars"` // 送审文本最大字符数，默认 2000
 
 	// 自定义审核提示词（留空则使用内置默认提示词）
@@ -101,7 +109,6 @@ func DefaultConfig() XJConfig {
 		MaxIPCIDRsPerWin:         15,
 		MaxTokensPerUser:         8,
 		ShortPromptMaxTokens:     20,
-		ShortPromptRatio:         0.7,
 		EnableAbuseDetection:     true,
 		EnableJailbreakDetection: true,
 		EnableLLMAbuse:           true,
@@ -123,13 +130,20 @@ func DefaultConfig() XJConfig {
 		AIReviewMaxTextChars: 2000,
 		AIReviewPrePrompt:    "",
 		AIReviewRePrompt:     "",
+
+		ThrottleFactor:                0.3,
+		ThrottleDurationMinutes:       15,
+		PenaltyRPM:                    5,
+		SuspendDurationMinutes:        30,
+		BillingPenaltyFactor:          3.0,
+		BillingPenaltyDurationMinutes: 60,
 	}
 }
 
 var (
-	cfgMu      sync.RWMutex
-	globalCfg  XJConfig
-	enabled    bool
+	cfgMu     sync.RWMutex
+	globalCfg XJConfig
+	enabled   bool
 )
 
 // LoadConfig 从 options 表读取配置到内存

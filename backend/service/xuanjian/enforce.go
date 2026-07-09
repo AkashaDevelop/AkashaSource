@@ -9,14 +9,24 @@ package xuanjian
 import (
 	"encoding/json"
 	"log"
+	"strconv"
 
 	"STfreApi/common"
 	"STfreApi/dto"
 	"STfreApi/model"
 	"STfreApi/service"
+	"STfreApi/service/sanction"
 )
 
-// Enforce 根据 findings 和当前模式执行处置动作
+// Enforce 根据 findings、规则的 Action 字段和当前模式执行处置动作。
+//
+// 处置模型（2026 重构）：
+//   - Action 决定"处置什么"（throttle/rpm_limit/suspend/billing_penalty/disable/ban_ip/ban_user/notify/warn）
+//   - mode 是"破坏性动作的阀门"：
+//       monitor — 全部只记录，绝不动手
+//       protect — 放行非破坏性、可自愈的处置（throttle/rpm_limit/suspend/billing_penalty/notify）
+//       strict  — 额外允许破坏性处置（disable_token/ban_ip/ban_user）落地
+//   - M4（bioweapon_chem）无视 mode 直接出大招，这条没商量余地。
 func Enforce(findings []Finding, rec RequestRecord, cfg XJConfig, mode string) {
 	if len(findings) == 0 {
 		return
@@ -27,30 +37,157 @@ func Enforce(findings []Finding, rec RequestRecord, cfg XJConfig, mode string) {
 
 		// M4 bioweapon_chem：无论模式，直接 disable_token + notify
 		if f.Type == "bioweapon_chem" {
-			go executeDisableToken(rec.TokenID)
+			applyDisableToken(rec, f, "CRITICAL: 生化武器/化学武器内容")
 			go notifyAdmin(rec, f, "CRITICAL: bioweapon/chemical weapon content generation detected")
 			continue
 		}
 
-		switch mode {
-		case ModeMonitor:
-			// 只记录，不动手
-		case ModeProtect:
-			if f.Score >= 70 && cfg.NotifyAdmin {
+		action := f.Action
+		if action == "" {
+			action = "warn"
+		}
+
+		switch action {
+		case "warn":
+			// 仅记录（已在上方 RecordEventAsync 完成）
+
+		case "notify":
+			if mode != ModeMonitor && cfg.NotifyAdmin {
 				go notifyAdmin(rec, f, "")
 			}
-		case ModeStrict:
-			if f.Score >= cfg.AutoBanScore && rec.UserID > 0 {
-				go executeBanUser(rec.UserID)
-				go notifyAdmin(rec, f, "auto ban: risk score exceeded threshold")
-			} else if f.Score >= cfg.AutoDisableScore && rec.TokenID > 0 {
-				go executeDisableToken(rec.TokenID)
+
+		case model.SanctionThrottle:
+			// 非破坏性：protect 及以上生效
+			if mode != ModeMonitor && rec.TokenID > 0 {
+				applySanction(rec, f, model.SanctionTargetToken, strconv.Itoa(rec.TokenID),
+					model.SanctionThrottle, throttleFactor(cfg), cfg.ThrottleDurationMinutes)
+			}
+
+		case model.SanctionRPMLimit:
+			if mode != ModeMonitor && rec.TokenID > 0 {
+				applySanction(rec, f, model.SanctionTargetToken, strconv.Itoa(rec.TokenID),
+					model.SanctionRPMLimit, float64(penaltyRPM(cfg)), cfg.ThrottleDurationMinutes)
+			}
+
+		case model.SanctionSuspendToken:
+			if mode != ModeMonitor && rec.TokenID > 0 {
+				applySanction(rec, f, model.SanctionTargetToken, strconv.Itoa(rec.TokenID),
+					model.SanctionSuspendToken, 0, suspendDuration(cfg))
+			}
+
+		case model.SanctionBillingPenalty:
+			// 非破坏性（只是多收费）：protect 及以上生效，默认作用于整个账号
+			if mode != ModeMonitor && rec.UserID > 0 {
+				applySanction(rec, f, model.SanctionTargetUser, strconv.Itoa(rec.UserID),
+					model.SanctionBillingPenalty, billingPenaltyFactor(cfg), cfg.BillingPenaltyDurationMinutes)
+			}
+
+		case model.SanctionDisableToken:
+			// 破坏性：仅 strict，且分数达标
+			if mode == ModeStrict && rec.TokenID > 0 && f.Score >= cfg.AutoDisableScore {
+				applyDisableToken(rec, f, f.Evidence)
 				go notifyAdmin(rec, f, "auto disable token: risk score exceeded threshold")
-			} else if f.Score >= 70 && cfg.NotifyAdmin {
+			} else if mode != ModeMonitor && cfg.NotifyAdmin {
 				go notifyAdmin(rec, f, "")
+			}
+
+		case model.SanctionBanIP:
+			// 破坏性：仅 strict
+			if mode == ModeStrict && rec.IP != "" {
+				applySanction(rec, f, model.SanctionTargetIP, rec.IP,
+					model.SanctionBanIP, 0, cfg.BanIPDurationMinutes)
+				go notifyAdmin(rec, f, "auto ban ip: "+rec.IP)
+			} else if mode != ModeMonitor && cfg.NotifyAdmin {
+				go notifyAdmin(rec, f, "")
+			}
+
+		case model.SanctionBanUser:
+			// 破坏性：仅 strict，且分数达标
+			if mode == ModeStrict && rec.UserID > 0 && f.Score >= cfg.AutoBanScore {
+				applyBanUser(rec, f)
+				go notifyAdmin(rec, f, "auto ban: risk score exceeded threshold")
+			} else if mode != ModeMonitor && cfg.NotifyAdmin {
+				go notifyAdmin(rec, f, "")
+			}
+
+		default:
+			// 未知 Action 回退为仅通知，避免误伤
+			if mode != ModeMonitor && cfg.NotifyAdmin {
+				go notifyAdmin(rec, f, "unknown action: "+action)
 			}
 		}
 	}
+}
+
+// ── 处置力度取值（带默认值兜底，防止配置为 0 时行为异常）─────────────────────
+
+func throttleFactor(cfg XJConfig) float64 {
+	if cfg.ThrottleFactor > 0 && cfg.ThrottleFactor < 1.0 {
+		return cfg.ThrottleFactor
+	}
+	return 0.3
+}
+
+func penaltyRPM(cfg XJConfig) int {
+	if cfg.PenaltyRPM > 0 {
+		return cfg.PenaltyRPM
+	}
+	return 5
+}
+
+func suspendDuration(cfg XJConfig) int {
+	if cfg.SuspendDurationMinutes > 0 {
+		return cfg.SuspendDurationMinutes
+	}
+	return 30
+}
+
+func billingPenaltyFactor(cfg XJConfig) float64 {
+	if cfg.BillingPenaltyFactor > 1.0 {
+		return cfg.BillingPenaltyFactor
+	}
+	return 3.0
+}
+
+// applySanction 落一条制裁记录（玄鉴自动来源），失败只记录日志不影响主流程
+func applySanction(rec RequestRecord, f Finding, targetType, targetKey, action string, factor float64, durationMinutes int) {
+	reason := f.Type
+	if f.Evidence != "" {
+		reason = f.Type + ": " + f.Evidence
+	}
+	reason = truncateForLog(reason, 240)
+	go func() {
+		if err := sanction.Apply(targetType, targetKey, action, factor, reason, "xuanjian_auto", durationMinutes); err != nil {
+			log.Printf("[xuanjian] 施加处置失败 action=%s target=%s/%s: %v", action, targetType, targetKey, err)
+		}
+	}()
+}
+
+// applyDisableToken 停用 Token：同时写制裁表（永久）+ 直接更新 Token 状态（即时生效）
+func applyDisableToken(rec RequestRecord, f Finding, reason string) {
+	if rec.TokenID <= 0 {
+		return
+	}
+	applySanction(rec, f, model.SanctionTargetToken, strconv.Itoa(rec.TokenID), model.SanctionDisableToken, 0, 0)
+	go executeDisableToken(rec.TokenID)
+}
+
+// applyBanUser 封禁用户：同时写制裁表（永久）+ 直接更新用户状态
+func applyBanUser(rec RequestRecord, f Finding) {
+	if rec.UserID <= 0 {
+		return
+	}
+	applySanction(rec, f, model.SanctionTargetUser, strconv.Itoa(rec.UserID), model.SanctionBanUser, 0, 0)
+	go executeBanUser(rec.UserID)
+}
+
+// truncateForLog 截断处置原因，防止超过 Sanction.Reason 字段长度
+func truncateForLog(s string, maxRunes int) string {
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	return string(r[:maxRunes])
 }
 
 func executeDisableToken(tokenID int) {
