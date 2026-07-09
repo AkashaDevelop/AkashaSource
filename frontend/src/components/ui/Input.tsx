@@ -23,6 +23,7 @@ export interface InputProps {
   autoFocus?: boolean
   min?: string | number
   max?: string | number
+  step?: string | number
   onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>
   onBlur?: React.FocusEventHandler<HTMLInputElement>
   isInvalid?: boolean
@@ -52,6 +53,7 @@ export function Input({
   autoFocus,
   min,
   max,
+  step,
   onKeyDown,
   onBlur,
   isInvalid,
@@ -90,6 +92,7 @@ export function Input({
           autoFocus={autoFocus}
           min={min}
           max={max}
+          step={step}
           onKeyDown={onKeyDown}
           onBlur={onBlur}
           className={`flex-1 bg-transparent outline-none text-[var(--text-primary)] placeholder:text-[var(--text-faint)] text-sm ${py} disabled:cursor-not-allowed`}

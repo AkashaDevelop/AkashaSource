@@ -22,6 +22,7 @@ export interface SelectProps {
   onSelectionChange?: (keys: Set<string>) => void
   children: React.ReactNode
   isDisabled?: boolean
+  isRequired?: boolean
   errorMessage?: string
   className?: string
   size?: 'sm' | 'md' | 'lg'
@@ -41,6 +42,7 @@ export function Select({
   onSelectionChange,
   children,
   isDisabled,
+  isRequired,
   errorMessage,
   className = '',
   size = 'md',
@@ -90,7 +92,7 @@ export function Select({
 
   return (
     <div className={`flex flex-col gap-1 ${className}`} ref={ref}>
-      {label && <label className="text-xs font-medium text-[var(--text-secondary)]">{label}</label>}
+      {label && <label className="text-xs font-medium text-[var(--text-secondary)]">{label}{isRequired && <span className="text-red-400 ml-0.5">*</span>}</label>}
       <div className="relative">
         <button
           type="button"

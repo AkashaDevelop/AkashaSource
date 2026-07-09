@@ -1,5 +1,5 @@
 // 统一 API 客户端：自动注入鉴权头、401 自动登出跳转
-import { useAuthStore } from '../../store/auth';
+import { useAuthStore } from '../store/auth';
 
 const TOKEN_EXPIRED_CODES = [401];
 
