@@ -17,6 +17,6 @@ go mod tidy
 # -seed=random  每次构建换一个随机混淆种子，杜绝跨版本比对符号
 # -trimpath  去除本地文件系统路径
 # -ldflags="-s -w"  去除符号表和 DWARF 调试信息
-go tool garble -literals -tiny -seed=random build -trimpath -ldflags="-s -w" -o "$OUT_DIR/akasha" .
+go run mvdan.cc/garble -literals -tiny -seed=random build -trimpath -ldflags="-s -w" -o "$OUT_DIR/akasha" .
 
 echo "[宸汐御安全] 混淆后端二进制已编译到 $OUT_DIR/akasha"
