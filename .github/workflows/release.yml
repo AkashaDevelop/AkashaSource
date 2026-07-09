@@ -165,10 +165,12 @@ jobs:
         run: |
           set -e
           go mod download
+          # 先为 host 平台编译 garble 工具（不能让目标 GOOS/GOARCH 影响 garble 自身编译，
+          # 否则 GOOS=windows 时会产出 garble.exe，在 Linux 上 exec format error）
+          GOOS=$(go env GOHOSTOS) GOARCH=$(go env GOHOSTARCH) go build -o /tmp/garble mvdan.cc/garble
+          # 用 host 原生 garble 交叉编译目标二进制（GOOS/GOARCH 已在 env 中设定）
           # -literals 混淆字面量 / -tiny 去调试信息 / -seed=random 每次换种子 / -trimpath 去路径
-          # 用 go run 而非 go tool：go tool 会复用构建缓存中的 garble 二进制，
-          # 交叉编译矩阵（amd64/arm64）下缓存可能命中其他架构产物导致 exec format error
-          go run mvdan.cc/garble -literals -tiny -seed=random build -trimpath -ldflags="-s -w" \
+          /tmp/garble -literals -tiny -seed=random build -trimpath -ldflags="-s -w" \
             -o "../${{ matrix.binname }}" .
           echo "已编译 ${{ matrix.suffix }} 单文件二进制（含前端）"
 
