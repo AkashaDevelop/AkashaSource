@@ -166,7 +166,9 @@ jobs:
           set -e
           go mod download
           # -literals 混淆字面量 / -tiny 去调试信息 / -seed=random 每次换种子 / -trimpath 去路径
-          go tool garble -literals -tiny -seed=random build -trimpath -ldflags="-s -w" \
+          # 用 go run 而非 go tool：go tool 会复用构建缓存中的 garble 二进制，
+          # 交叉编译矩阵（amd64/arm64）下缓存可能命中其他架构产物导致 exec format error
+          go run mvdan.cc/garble -literals -tiny -seed=random build -trimpath -ldflags="-s -w" \
             -o "../${{ matrix.binname }}" .
           echo "已编译 ${{ matrix.suffix }} 单文件二进制（含前端）"
 
