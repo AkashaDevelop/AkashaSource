@@ -9,6 +9,7 @@ import (
 	"STfreApi/middleware"
 	"STfreApi/router"
 	"STfreApi/service/bootstrap"
+	"STfreApi/web"
 
 	"github.com/gin-gonic/gin"
 )
@@ -67,6 +68,10 @@ func main() {
 			"driver":  effectiveDriver,
 		})
 	})
+
+	// 单文件部署：把嵌入二进制的前端静态产物挂到 NoRoute 兜底，
+	// 所有未命中 API 的请求交给前端（静态资源直出 / SPA 路由回退 index.html）
+	web.RegisterFrontend(r)
 
 	// Start Server
 	addr := fmt.Sprintf(":%d", port)

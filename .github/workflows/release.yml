@@ -1,0 +1,280 @@
+# ～宸汐 AKasha 发布工作流～
+# 构建 前端(含 WASM) + 混淆后端二进制，按平台打包，推送到 AkashaRelease 仓库并创建 Release。
+#
+# 触发方式：
+#   1. 推送 v* 形式的 tag（如 v1.0.0）→ 自动发版，版本号取自 tag
+#   2. Actions 页面手动 Run workflow → 手填版本号
+#
+# 前置条件（必须在 AkashaSource 仓库 Settings → Secrets → Actions 配置）：
+#   RELEASE_TOKEN —— 一个有 AkashaRelease 仓库 contents:write 权限的 PAT（细粒度或经典均可）
+#                    默认 GITHUB_TOKEN 只对当前仓库有效，跨仓库发版必须用 PAT。
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 v1.0.0，手动触发时必填）'
+        required: true
+        type: string
+
+# 发布目标仓库
+env:
+  RELEASE_REPO: AkashaDevelop/AkashaRelease
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 阶段一：确定版本号 ──────────────────────────────────────────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: 解析版本号
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "本次发布版本：${VERSION}"
+
+  # ── 阶段二：前端构建（含 WASM，平台无关，只跑一次）──────────────────
+  build-frontend:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go（编译 WASM 运行时）
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: wasm/go.mod
+          cache-dependency-path: wasm/go.sum
+
+      - name: 编译宸汐御 WASM 运行时
+        run: |
+          set -e
+          # 前端运行时通过 fetch('/lib/cx_runtime.wasm') 加载，所以必须放到 public/lib/，
+          # Vite 构建时会把 public/ 原样拷进 dist/，最终由静态托管在 /lib/ 下提供。
+          OUT_DIR="frontend/public/lib"
+          mkdir -p "$OUT_DIR"
+          cd wasm
+          GOOS=js GOARCH=wasm go build -ldflags="-s -w" -o "../${OUT_DIR}/cx_runtime.wasm" .
+          # wasm_exec.js 在 Go 1.24+ 位于 lib/wasm/，更早在 misc/wasm/，两处都兼容
+          GOROOT=$(go env GOROOT)
+          if [ -f "$GOROOT/lib/wasm/wasm_exec.js" ]; then
+            cp "$GOROOT/lib/wasm/wasm_exec.js" "../${OUT_DIR}/wasm_exec.js"
+          else
+            cp "$GOROOT/misc/wasm/wasm_exec.js" "../${OUT_DIR}/wasm_exec.js"
+          fi
+          echo "WASM 运行时已生成到 public/lib/"
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 构建前端
+        run: |
+          cd frontend
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: 上传前端产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 1
+
+  # ── 阶段三：后端多平台混淆编译（前端已嵌入，产物为单文件二进制）──────
+  build-backend:
+    needs: [prepare, build-frontend]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+            binname: akasha
+          - goos: windows
+            goarch: amd64
+            suffix: windows-amd64
+            binname: akasha.exe
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+            binname: akasha
+          - goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
+            binname: akasha
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: 下载前端产物并嵌入
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend-dist
+
+      - name: 拷贝前端产物到后端嵌入目录
+        run: |
+          set -e
+          # 单文件部署：前端 dist 拷进 backend/web/embedded/ 覆盖占位 index.html，
+          # go:embed 会把整份前端打进二进制。先清掉占位文件避免残留。
+          rm -rf backend/web/embedded
+          mkdir -p backend/web/embedded
+          cp -r frontend-dist/* backend/web/embedded/
+          echo "已嵌入前端产物："
+          ls backend/web/embedded
+
+      - name: garble 混淆交叉编译（单文件）
+        working-directory: backend
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          # SQLite 用纯 Go 驱动（glebarez/sqlite），关闭 CGO 即可干净交叉编译
+          CGO_ENABLED: 0
+        run: |
+          set -e
+          go mod download
+          # -literals 混淆字面量 / -tiny 去调试信息 / -seed=random 每次换种子 / -trimpath 去路径
+          go tool garble -literals -tiny -seed=random build -trimpath -ldflags="-s -w" \
+            -o "../${{ matrix.binname }}" .
+          echo "已编译 ${{ matrix.suffix }} 单文件二进制（含前端）"
+
+      - name: 上传后端二进制
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-${{ matrix.suffix }}
+          path: ${{ matrix.binname }}
+          retention-days: 1
+
+  # ── 阶段四：组装部署包 + 跨仓库发版 ─────────────────────────────────
+  package-and-release:
+    needs: [prepare, build-backend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出源码（取 config.yaml / README 等随包文件）
+        uses: actions/checkout@v4
+
+      - name: 下载全部后端二进制
+        uses: actions/download-artifact@v4
+        with:
+          pattern: backend-*
+          path: backend-bins
+
+      - name: 组装各平台部署包（单文件）
+        run: |
+          set -e
+          VERSION="${{ needs.prepare.outputs.version }}"
+          mkdir -p release-assets
+
+          # 平台 → 目录内二进制文件名
+          declare -A BINNAME=(
+            [linux-amd64]=akasha
+            [windows-amd64]=akasha.exe
+            [linux-arm64]=akasha
+            [darwin-arm64]=akasha
+          )
+
+          for suffix in linux-amd64 windows-amd64 linux-arm64 darwin-arm64; do
+            bin="${BINNAME[$suffix]}"
+            src="backend-bins/backend-${suffix}/${bin}"
+            if [ ! -f "$src" ]; then
+              echo "缺少 ${src}，跳过 ${suffix}"
+              continue
+            fi
+            pkgdir="akasha-${VERSION}-${suffix}"
+            mkdir -p "$pkgdir"
+            # 单文件二进制（前端已嵌入，无需额外 web 目录）
+            cp "$src" "$pkgdir/$bin"
+            chmod +x "$pkgdir/$bin" || true
+            # 随包配置与说明（config.yaml 可选，不带也能跑，SQLite 默认开箱即用）
+            cp config.yaml "$pkgdir/config.yaml"
+            cp README.md "$pkgdir/README.md"
+
+            # 打包：Windows 出 zip，*nix 出 tar.gz
+            if [ "$suffix" = "windows-amd64" ]; then
+              (cd "$pkgdir" && zip -qr "../release-assets/${pkgdir}.zip" .)
+              echo "已打包 ${pkgdir}.zip"
+            else
+              tar -czf "release-assets/${pkgdir}.tar.gz" "$pkgdir"
+              echo "已打包 ${pkgdir}.tar.gz"
+            fi
+          done
+
+          echo "=== 产物清单 ==="
+          ls -lh release-assets
+
+      - name: 生成 SHA256 校验清单
+        run: |
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: 推送到 AkashaRelease 并创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ env.RELEASE_REPO }}
+          token: ${{ secrets.RELEASE_TOKEN }}
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: AKasha ${{ needs.prepare.outputs.version }}
+          body: |
+            ## AKasha ${{ needs.prepare.outputs.version }}
+
+            由 [AkashaSource](https://github.com/AkashaDevelop/AkashaSource) 自动构建发布。
+
+            ### 单文件部署
+            **前端已嵌入后端二进制，开箱即跑，无需额外部署静态资源。**
+            每个平台包内含：
+            - `akasha` / `akasha.exe` —— 混淆编译的单文件二进制（内置前端 + 宸汐御 WASM + SQLite）
+            - `config.yaml` —— 示例配置（可选，不带也能跑，SQLite 默认落地 akasha.db）
+            - `README.md` —— 使用说明
+
+            启动即用：
+            ```
+            ./akasha            # 默认 :8080，浏览器直接访问即是前端
+            ./akasha --port 80  # 指定端口
+            ```
+
+            ### 平台
+            - `linux-amd64` —— 通用 Linux 服务器
+            - `linux-arm64` —— ARM 云服务器（阿里云 g6r / AWS Graviton 等）
+            - `windows-amd64` —— Windows 服务器
+            - `darwin-arm64` —— Apple Silicon Mac
+
+            校验文件完整性见 `SHA256SUMS.txt`。
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.zip
+            release-assets/SHA256SUMS.txt
+          fail_on_unmatched_files: true
+

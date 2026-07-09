@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Akasha</title>
+  </head>
+  <body>
+    <!--
+      ～这是占位文件～
+      构建流水线（.github/workflows/release.yml）会在编译后端前，
+      把 frontend/dist 的内容拷进本目录覆盖它，从而把整份前端打进二进制。
+      本地开发若想单文件自测，可手动 `cp -r frontend/dist/* backend/web/embedded/` 后再编译。
+      切勿把真实构建产物提交进仓库——.gitignore 已配置只追踪本占位文件。
+    -->
+    <div id="root">Akasha 前端资源未嵌入（当前为占位页）。请通过发布流水线构建单文件二进制。</div>
+  </body>
+</html>

@@ -44,3 +44,7 @@ akasha
 STfreApi
 backend/akasha.db
 
+# 单文件部署：嵌入目录里除占位 index.html 外，其余都是构建期拷入的前端产物，不入库
+backend/web/embedded/*
+!backend/web/embedded/index.html
+

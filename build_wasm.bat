@@ -2,7 +2,7 @@
 REM 宸汐御安全 WASM 构建脚本 (Windows batch)
 setlocal
 
-set OUT_DIR=%~dp0frontend\src\lib\cxsec
+set OUT_DIR=%~dp0frontend\public\lib
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 
 cd /d "%~dp0wasm"
@@ -22,7 +22,12 @@ if errorlevel 1 (
 
 echo [宸汐御安全] 拷贝 wasm_exec.js...
 for /f "delims=" %%i in ('go env GOROOT') do set GOROOT=%%i
-copy /y "%GOROOT%\misc\wasm\wasm_exec.js" "%OUT_DIR%\wasm_exec.js"
+REM Go 1.24+ 位于 lib\wasm\，更早在 misc\wasm\，优先新路径
+if exist "%GOROOT%\lib\wasm\wasm_exec.js" (
+    copy /y "%GOROOT%\lib\wasm\wasm_exec.js" "%OUT_DIR%\wasm_exec.js"
+) else (
+    copy /y "%GOROOT%\misc\wasm\wasm_exec.js" "%OUT_DIR%\wasm_exec.js"
+)
 
 echo [宸汐御安全] 完成！输出目录: %OUT_DIR%
 endlocal
