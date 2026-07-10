@@ -240,7 +240,7 @@ jobs:
     needs: [prepare, build-backend]
     runs-on: ubuntu-latest
     steps:
-      - name: 检出源码（取 config.yaml / README 等随包文件）
+      - name: 检出源码（取 README 等随包文件）
         uses: actions/checkout@v4
 
       - name: 下载全部后端二进制
@@ -275,10 +275,9 @@ jobs:
             # 单文件二进制（前端已嵌入，无需额外 web 目录）
             cp "$src" "$pkgdir/$bin"
             chmod +x "$pkgdir/$bin" || true
-            # 随包配置与说明（config.yaml 可选，不带也能跑，SQLite 默认开箱即用）
-            cp config.yaml "$pkgdir/config.yaml"
-            cp README.md "$pkgdir/README.md"
-            cp CHANGELOG.md "$pkgdir/CHANGELOG.md"
+            # 随包说明
+            cp README.md "$pkgdir/README.md" 2>/dev/null || true
+            cp CHANGELOG.md "$pkgdir/CHANGELOG.md" 2>/dev/null || true
 
             # 打包：Windows 出 zip，*nix 出 tar.gz
             if [ "$suffix" = "windows-amd64" ]; then
@@ -318,9 +317,8 @@ jobs:
             ### 单文件部署
             **前端已嵌入后端二进制，开箱即跑，无需额外部署静态资源。**
             每个平台包内含：
-            - `akasha` / `akasha.exe` —— 混淆编译的单文件二进制（内置前端 + 宸汐御 WASM + SQLite）
-            - `config.yaml` —— 示例配置（可选，不带也能跑，SQLite 默认落地 akasha.db）
-            - `README.md` —— 使用说明
+            - `akasha` / `akasha.exe` -- 混淆编译的单文件二进制（内置前端 + 宸汐御 WASM + SQLite）
+            - `README.md` -- 使用说明
 
             启动即用：
             ```
