@@ -21,6 +21,11 @@ on:
         description: '版本号（如 v1.0.0，手动触发时必填）'
         required: true
         type: string
+      changelog:
+        description: '更新日志（多行文本，留空则从 CHANGELOG.md 自动提取该版本）'
+        required: false
+        type: string
+        default: ''
 
 # 发布目标仓库
 env:
@@ -35,7 +40,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
     steps:
+      - name: 检出源码（读取 CHANGELOG.md）
+        uses: actions/checkout@v4
+
       - name: 解析版本号
         id: ver
         run: |
@@ -46,6 +55,51 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "本次发布版本：${VERSION}"
+
+      - name: 提取更新日志
+        id: changelog
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+
+          # 优先使用手动输入的更新日志
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.changelog }}" ]; then
+            echo '${{ github.event.inputs.changelog }}' > /tmp/changelog.md
+            {
+              echo "changelog<<CHANGELOG_EOF"
+              cat /tmp/changelog.md
+              echo ""
+              echo "CHANGELOG_EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "使用手动输入的更新日志"
+            exit 0
+          fi
+
+          # 从 CHANGELOG.md 提取对应版本的日志
+          # 格式: ## [版本号] - 日期 到下一个 ## 或文件末尾
+          if [ ! -f CHANGELOG.md ]; then
+            echo "changelog=（未找到 CHANGELOG.md，跳过更新日志）" >> "$GITHUB_OUTPUT"
+            echo "警告: CHANGELOG.md 不存在"
+            exit 0
+          fi
+
+          # 用 awk 提取指定版本段落到下一个 ## 之前
+          SECTION=$(awk -v ver="${VERSION}" '
+            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md)
+
+          if [ -z "$SECTION" ]; then
+            echo "changelog=（CHANGELOG.md 中未找到版本 ${VERSION} 的更新日志）" >> "$GITHUB_OUTPUT"
+            echo "警告: CHANGELOG.md 中未找到版本 ${VERSION}"
+          else
+            {
+              echo "changelog<<CHANGELOG_EOF"
+              echo "$SECTION"
+              echo "CHANGELOG_EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "已从 CHANGELOG.md 提取版本 ${VERSION} 的更新日志"
+          fi
 
   # ── 阶段二：前端构建（含 WASM，平台无关，只跑一次）──────────────────
   build-frontend:
@@ -224,6 +278,7 @@ jobs:
             # 随包配置与说明（config.yaml 可选，不带也能跑，SQLite 默认开箱即用）
             cp config.yaml "$pkgdir/config.yaml"
             cp README.md "$pkgdir/README.md"
+            cp CHANGELOG.md "$pkgdir/CHANGELOG.md"
 
             # 打包：Windows 出 zip，*nix 出 tar.gz
             if [ "$suffix" = "windows-amd64" ]; then
@@ -255,6 +310,10 @@ jobs:
             ## AKasha ${{ needs.prepare.outputs.version }}
 
             由 [AkashaSource](https://github.com/AkashaDevelop/AkashaSource) 自动构建发布。
+
+            ### 更新日志
+
+            ${{ needs.prepare.outputs.changelog }}
 
             ### 单文件部署
             **前端已嵌入后端二进制，开箱即跑，无需额外部署静态资源。**

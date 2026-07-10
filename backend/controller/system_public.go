@@ -19,6 +19,7 @@ type SetupInfo struct {
 	RootInit     bool   `json:"root_init"`
 	DatabaseType string `json:"database_type"`
 	DBConnected  bool   `json:"db_connected"`
+	DBConfigured bool   `json:"db_configured"`
 }
 
 type SetupRequest struct {
@@ -67,11 +68,14 @@ func GetSetup(c *gin.Context) {
 		common.DB.Model(&model.User{}).Where("role = ?", model.RoleRoot).Count(&rootCount)
 	}
 
+	_, dbConfigured := common.LoadDBConfig()
+
 	setup := SetupInfo{
 		Status:       rootCount > 0,
 		RootInit:     rootCount > 0,
 		DatabaseType: common.DBDriver,
 		DBConnected:  common.DB != nil,
+		DBConfigured: dbConfigured,
 	}
 	if setup.DatabaseType == "" {
 		setup.DatabaseType = "unknown"

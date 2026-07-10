@@ -48,3 +48,4 @@ backend/akasha.db
 backend/web/embedded/*
 !backend/web/embedded/index.html
 
+backend/akasha.db
