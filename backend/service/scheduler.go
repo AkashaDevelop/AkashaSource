@@ -8,9 +8,10 @@ import (
 )
 
 type SchedulerConfig struct {
-	CheckinCron         string
-	BalanceRefreshCron  string
+	CheckinCron          string
+	BalanceRefreshCron   string
 	CheckinIntervalHours int
+	VersionCheckIntervalHours int
 }
 
 var (
@@ -20,6 +21,7 @@ var (
 	checkinTicker       *time.Ticker
 	balanceTicker       *time.Ticker
 	logCleanupTicker    *time.Ticker
+	versionCheckTicker  *time.Ticker
 	stopChan            chan struct{}
 	currentConfig       SchedulerConfig
 )
@@ -29,9 +31,10 @@ func InitScheduler() {
 		schedulerRunning = false
 		stopChan = make(chan struct{})
 		currentConfig = SchedulerConfig{
-			CheckinCron:         "0 8 * * *",
-			BalanceRefreshCron:  "0 */6 * * *",
+			CheckinCron:          "0 8 * * *",
+			BalanceRefreshCron:   "0 */6 * * *",
 			CheckinIntervalHours: 24,
+			VersionCheckIntervalHours: 24,
 		}
 		loadSchedulerConfig()
 		startScheduler()
@@ -51,6 +54,11 @@ func loadSchedulerConfig() {
 	if hours, ok := common.OptionMap["checkin_interval_hours"]; ok && hours != "" {
 		if h := parseIntDefault(hours, 24); h > 0 {
 			currentConfig.CheckinIntervalHours = h
+		}
+	}
+	if hours, ok := common.OptionMap["version_check_interval_hours"]; ok && hours != "" {
+		if h := parseIntDefault(hours, 24); h > 0 {
+			currentConfig.VersionCheckIntervalHours = h
 		}
 	}
 }
@@ -97,19 +105,31 @@ func StartScheduler() {
 func runScheduler() {
 	checkinInterval := time.Duration(currentConfig.CheckinIntervalHours) * time.Hour
 	balanceInterval := 6 * time.Hour
-	logCleanupInterval := 24 * time.Hour // ～日志清理每天巡逻一次就够啦～
+	logCleanupInterval := 24 * time.Hour
+	versionCheckInterval := time.Duration(currentConfig.VersionCheckIntervalHours) * time.Hour
 
 	checkinTicker = time.NewTicker(checkinInterval)
 	balanceTicker = time.NewTicker(balanceInterval)
 	logCleanupTicker = time.NewTicker(logCleanupInterval)
+	versionCheckTicker = time.NewTicker(versionCheckInterval)
 
 	defer func() {
 		checkinTicker.Stop()
 		balanceTicker.Stop()
 		logCleanupTicker.Stop()
+		versionCheckTicker.Stop()
 	}()
 
-	log.Printf("[调度器] 签到间隔: %v, 余额刷新间隔: %v", checkinInterval, balanceInterval)
+	log.Printf("[调度器] 签到间隔: %v, 余额刷新间隔: %v, 版本检查间隔: %v", checkinInterval, balanceInterval, versionCheckInterval)
+
+	// 启动后延迟 30 秒执行一次版本检查
+	go func() {
+		time.Sleep(30 * time.Second)
+		if IsVersionCheckEnabled() {
+			log.Println("[调度器] 启动初始版本检查...")
+			DoVersionCheck()
+		}
+	}()
 
 	for {
 		select {
@@ -164,6 +184,13 @@ func runScheduler() {
 				}
 				log.Printf("[调度器] 日志清理任务完成: 清理 %d 条", deleted)
 			}()
+		case <-versionCheckTicker.C:
+			go func() {
+				if IsVersionCheckEnabled() {
+					log.Println("[调度器] 执行定时版本检查...")
+					DoVersionCheck()
+				}
+			}()
 		}
 	}
 }
@@ -194,11 +221,16 @@ func UpdateSchedulerConfig(config SchedulerConfig) {
 	if config.CheckinIntervalHours > 0 {
 		currentConfig.CheckinIntervalHours = config.CheckinIntervalHours
 	}
+	if config.VersionCheckIntervalHours > 0 {
+		currentConfig.VersionCheckIntervalHours = config.VersionCheckIntervalHours
+	}
 
 	if schedulerRunning {
 		checkinInterval := time.Duration(currentConfig.CheckinIntervalHours) * time.Hour
 		checkinTicker.Reset(checkinInterval)
-		log.Printf("[调度器] 更新签到间隔: %v", checkinInterval)
+		versionCheckInterval := time.Duration(currentConfig.VersionCheckIntervalHours) * time.Hour
+		versionCheckTicker.Reset(versionCheckInterval)
+		log.Printf("[调度器] 更新签到间隔: %v, 版本检查间隔: %v", checkinInterval, versionCheckInterval)
 	}
 }
 
@@ -207,10 +239,11 @@ func GetSchedulerStatus() map[string]interface{} {
 	defer schedulerMutex.Unlock()
 
 	return map[string]interface{}{
-		"running":                schedulerRunning,
-		"checkin_cron":           currentConfig.CheckinCron,
-		"balance_refresh_cron":   currentConfig.BalanceRefreshCron,
-		"checkin_interval_hours": currentConfig.CheckinIntervalHours,
+		"running":                      schedulerRunning,
+		"checkin_cron":                 currentConfig.CheckinCron,
+		"balance_refresh_cron":         currentConfig.BalanceRefreshCron,
+		"checkin_interval_hours":       currentConfig.CheckinIntervalHours,
+		"version_check_interval_hours": currentConfig.VersionCheckIntervalHours,
 	}
 }
 

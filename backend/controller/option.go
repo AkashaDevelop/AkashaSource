@@ -116,6 +116,8 @@ func GetOptionSchema(c *gin.Context) {
 		{"key": model.OptionKeyRealnameAliyunSceneId, "label": "阿里云认证场景ID", "type": "text", "group": "实名认证"},
 		{"key": "recaptcha_site_key", "label": "reCAPTCHA Site Key", "type": "text", "group": "安全"},
 		{"key": "recaptcha_secret_key", "label": "reCAPTCHA Secret Key", "type": "password", "group": "安全"},
+		{"key": model.OptionKeyVersionCheckEnabled, "label": "版本更新检查", "type": "boolean", "group": "版本更新"},
+		{"key": model.OptionKeyVersionCheckIntervalHours, "label": "版本检查间隔（小时）", "type": "number", "group": "版本更新"},
 	}
 	values := map[string]string{}
 	common.OptionLock.RLock()

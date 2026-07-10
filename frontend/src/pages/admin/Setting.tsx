@@ -1,22 +1,21 @@
- import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import PageHeader from '../../components/PageHeader';
-import EmptyState from '../../components/EmptyState';
 import {
   Card, CardBody, CardHeader,
   Input, Button, Divider,
-  Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure,
-  Tooltip, Switch, Textarea, Chip,
+  Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
+  Switch, Textarea, Chip,
   Tabs, Tab,
 } from '../../components/ui';
 import {
-  Save, Plus, Edit, Trash2,
-  Globe, CreditCard, Shield, Link2, Mail, Gift, CalendarCheck, Bell, Settings, BarChart3, Fingerprint, Lock, ShieldCheck, Check,
+  Save,
+  Globe, CreditCard, Shield, Link2, Mail, Gift, CalendarCheck, Bell, Settings, Fingerprint, Lock, ShieldCheck, Check, Download, RefreshCw,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
+import { useSystemStore } from '../../store/system';
 import { toast } from '../../store/toast';
 
 interface Option { key: string; value: string; }
-interface PricingItem { model: string; ratio: number; completion_ratio: number; }
 
 // 实名认证场景选项
 const REALNAME_SCENARIOS = [
@@ -73,11 +72,9 @@ export default function SystemSettings() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const { token } = useAuthStore();
-
-  const [pricingItems, setPricingItems] = useState<PricingItem[]>([]);
-  const { isOpen, onOpen, onOpenChange } = useDisclosure();
-  const [editingItem, setEditingItem] = useState<PricingItem | null>(null);
-  const [itemForm, setItemForm] = useState<PricingItem>({ model: '', ratio: 1, completion_ratio: 1 });
+  const { updateInfo, checkUpdate } = useSystemStore();
+  const [checking, setChecking] = useState(false);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
 
   const fetchSettings = async () => {
     try {
@@ -88,21 +85,8 @@ export default function SystemSettings() {
         data.data.forEach((opt: Option) => { map[opt.key] = opt.value; });
         if (!map['system_url']) map['system_url'] = window.location.origin;
         setSettings(map);
-        parsePricing(map);
       }
     } catch (e) { console.error('获取配置失败:', e); }
-  };
-
-  const parsePricing = (map: Record<string, string>) => {
-    try {
-      const mr = JSON.parse(map['model_ratio'] || '{}');
-      const cr = JSON.parse(map['completion_ratio'] || '{}');
-      const all = new Set([...Object.keys(mr), ...Object.keys(cr)]);
-      setPricingItems(
-        Array.from(all).map(m => ({ model: m, ratio: mr[m] || 0, completion_ratio: cr[m] || 0 }))
-          .sort((a, b) => a.model.localeCompare(b.model))
-      );
-    } catch (e) { console.error('解析倍率失败', e); }
   };
 
   useEffect(() => { fetchSettings(); }, []);
@@ -123,9 +107,6 @@ export default function SystemSettings() {
 
   const handleSave = async () => {
     setSaving(true);
-    const mr: Record<string, number> = {};
-    const cr: Record<string, number> = {};
-    pricingItems.forEach(i => { mr[i.model] = i.ratio; cr[i.model] = i.completion_ratio; });
 
     const keys = [
       'system_name','system_url','logo_url','notice','footer_html','chat_link','chat_link2',
@@ -164,16 +145,12 @@ export default function SystemSettings() {
       'quota_display_type', 'quota_display_symbol', 'quota_display_rate',
       'passkey_enabled','passkey_rp_id','passkey_display_name','passkey_origins','passkey_allow_insecure','passkey_user_verification','passkey_attachment',
       'about','payment_notify_secret','epay_notify_url','epay_return_url',
-      'model_price',
       'realname_enabled','realname_scenarios','realname_provider',
       'realname_aliyun_access_key_id','realname_aliyun_access_key_secret',
       'realname_aliyun_region','realname_aliyun_scene_id',
+      'version_check_enabled','version_check_interval_hours',
     ];
-    const options = [
-      ...keys.map(k => ({ key: k, value: get(k) })),
-      { key: 'model_ratio', value: JSON.stringify(mr) },
-      { key: 'completion_ratio', value: JSON.stringify(cr) },
-    ];
+    const options = keys.map(k => ({ key: k, value: get(k) }));
 
     try {
       const res = await fetch('/api/option', {
@@ -188,16 +165,20 @@ export default function SystemSettings() {
     } finally { setSaving(false); }
   };
 
-  const handleEditPricing = (item: PricingItem) => { setEditingItem(item); setItemForm({ ...item }); onOpen(); };
-  const handleAddPricing = () => { setEditingItem(null); setItemForm({ model: '', ratio: 1, completion_ratio: 1 }); onOpen(); };
-  const handleDeletePricing = (model: string) => setPricingItems(prev => prev.filter(p => p.model !== model));
-  const handleSavePricingItem = (onClose: () => void) => {
-    if (!itemForm.model) return;
-    setPricingItems(prev =>
-      [...prev.filter(p => p.model !== (editingItem?.model || itemForm.model)), itemForm]
-        .sort((a, b) => a.model.localeCompare(b.model))
-    );
-    onClose();
+  const handleCheckUpdate = async () => {
+    setChecking(true);
+    try {
+      const info = await checkUpdate();
+      if (info?.has_update) {
+        setUpdateModalOpen(true);
+      } else {
+        toast.success('当前已是最新版本');
+      }
+    } catch {
+      toast.error('检查更新失败');
+    } finally {
+      setChecking(false);
+    }
   };
 
   return (
@@ -240,7 +221,7 @@ export default function SystemSettings() {
                 <SettingRow title="要求邮箱验证" description="注册时需要输入邮箱验证码">
                   <Switch isSelected={get('email_verification_enabled') === 'true'} onValueChange={v => set('email_verification_enabled', String(v))} />
                 </SettingRow>
-                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>邮箱验证需要在「邮件」标签页配置 SMTP 服务器</p>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>邮箱验证需要在「登录与邮件」标签页配置 SMTP 服务器</p>
               </CardBody>
             </Card>
 
@@ -409,7 +390,7 @@ export default function SystemSettings() {
                 <CardBody className="gap-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Input label="Secret Key" type="password" value={get('stripe_secret_key')} onValueChange={v => set('stripe_secret_key', v)} placeholder="sk_live_..." />
-                    <Input label="Webhook Secret" type="password" value={get('stripe_webhook_secret')} onValueChange={v => set('stripe_webhook_secret', v)} placeholder="whsec_..." description="Stripe Dashboard → Webhooks 获取" />
+                    <Input label="Webhook Secret" type="password" value={get('stripe_webhook_secret')} onValueChange={v => set('stripe_webhook_secret', v)} placeholder="whsec_..." description="Stripe Dashboard -> Webhooks 获取" />
                     <Input label="货币代码" value={get('stripe_currency')} onValueChange={v => set('stripe_currency', v)} placeholder="usd" description="留空默认 usd" />
                     <Input label="支付成功跳转" value={get('stripe_success_url')} onValueChange={v => set('stripe_success_url', v)} placeholder="留空自动生成" />
                     <Input label="支付取消跳转" value={get('stripe_cancel_url')} onValueChange={v => set('stripe_cancel_url', v)} placeholder="留空同成功地址" />
@@ -434,7 +415,7 @@ export default function SystemSettings() {
                   <Divider />
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Input label="API Key" type="password" value={get('creem_api_key')} onValueChange={v => set('creem_api_key', v)} placeholder="creem_..." />
-                    <Input label="Webhook Secret" type="password" value={get('creem_webhook_secret')} onValueChange={v => set('creem_webhook_secret', v)} description="Creem Dashboard → Developers → Webhook" />
+                    <Input label="Webhook Secret" type="password" value={get('creem_webhook_secret')} onValueChange={v => set('creem_webhook_secret', v)} description="Creem Dashboard -> Developers -> Webhook" />
                     <Input label="Product ID（旧版单产品）" value={get('creem_product_id')} onValueChange={v => set('creem_product_id', v)} placeholder="prod_..." description="仅当未配置产品目录时使用" />
                     <Input label="支付成功跳转" value={get('creem_success_url')} onValueChange={v => set('creem_success_url', v)} placeholder="留空自动生成" />
                   </div>
@@ -453,9 +434,10 @@ export default function SystemSettings() {
           </div>
         </Tab>
 
-        {/* ════════ 安全 ════════ */}
+        {/* ════════ 安全（含实名认证） ════════ */}
         <Tab key="security" title={<TabIcon icon={Shield} label="安全" />}>
           <div className="space-y-4">
+            {/* ── 宸汐安全套件 ── */}
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
@@ -480,11 +462,12 @@ export default function SystemSettings() {
                   <Switch isSelected={get('qingyuan_enabled', 'false') === 'true'} onValueChange={v => set('qingyuan_enabled', String(v))} />
                 </SettingRow>
                 <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                  清源检测策略请前往「安全中心 → 宸汐清源」配置；宸汐玄鉴行为风控请在「安全中心 → 宸汐玄鉴」中开启（仅超级管理员可见）。
+                  清源检测策略请前往「安全中心 -&gt; 宸汐清源」配置；宸汐玄鉴行为风控请在「安全中心 -&gt; 宸汐玄鉴」中开启（仅超级管理员可见）。
                 </p>
               </CardBody>
             </Card>
 
+            {/* ── 内容审查 ── */}
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
@@ -514,6 +497,7 @@ export default function SystemSettings() {
               </CardBody>
             </Card>
 
+            {/* ── 人机验证 ── */}
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
@@ -628,6 +612,7 @@ export default function SystemSettings() {
               </CardBody>
             </Card>
 
+            {/* ── Passkey / WebAuthn ── */}
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
@@ -655,6 +640,7 @@ export default function SystemSettings() {
               </CardBody>
             </Card>
 
+            {/* ── 基础设施 ── */}
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
@@ -678,12 +664,8 @@ export default function SystemSettings() {
                 />
               </CardBody>
             </Card>
-          </div>
-        </Tab>
 
-        {/* ════════ 实名认证 ════════ */}
-        <Tab key="realname" title={<TabIcon icon={ShieldCheck} label="实名认证" />}>
-          <div className="space-y-4">
+            {/* ════════ 实名认证 ════════ */}
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
@@ -783,9 +765,10 @@ export default function SystemSettings() {
           </div>
         </Tab>
 
-        {/* ════════ OAuth ════════ */}
-        <Tab key="oauth" title={<TabIcon icon={Link2} label="OAuth" />}>
+        {/* ════════ 登录与邮件（OAuth + SMTP） ════════ */}
+        <Tab key="oauth" title={<TabIcon icon={Link2} label="登录与邮件" />}>
           <div className="space-y-4">
+            {/* ── OAuth 第三方登录 ── */}
             {[
               { key: 'github', label: 'GitHub', icon: '🐙', fields: [
                 { k: 'github_client_id', l: '客户端 ID' },
@@ -850,12 +833,8 @@ export default function SystemSettings() {
                 </CardBody>
               </Card>
             ))}
-          </div>
-        </Tab>
 
-        {/* ════════ 邮件 ════════ */}
-        <Tab key="smtp" title={<TabIcon icon={Mail} label="邮件" />}>
-          <div className="space-y-4">
+            {/* ── SMTP 邮件配置 ── */}
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
@@ -895,58 +874,55 @@ export default function SystemSettings() {
           </div>
         </Tab>
 
-        {/* ════════ 邀请 ════════ */}
-        <Tab key="invitation" title={<TabIcon icon={Gift} label="邀请" />}>
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Gift size={16} style={{ color: 'var(--accent-primary)' }} />
-                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>邀请奖励</span>
-              </div>
-            </CardHeader>
-            <CardBody className="gap-4">
-              <SettingRow title="注册必须使用邀请码" description="开启后新用户注册需填写有效邀请码">
-                <Switch isSelected={get('invitation_enabled') === 'true'} onValueChange={v => set('invitation_enabled', String(v))} />
-              </SettingRow>
-              <Divider />
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Input label="邀请码成本" type="number" placeholder="0" value={get('invitation_cost')} onValueChange={v => set('invitation_cost', v)} description="生成时扣除额度" />
-                <Input label="邀请者奖励" type="number" placeholder="0" value={get('invitation_reward')} onValueChange={v => set('invitation_reward', v)} description="被邀请人注册时发放" />
-                <Input label="新用户初始额度" type="number" placeholder="0" value={get('new_user_reward')} onValueChange={v => set('new_user_reward', v)} description="注册即赠" />
-              </div>
-            </CardBody>
-          </Card>
-        </Tab>
-
-        {/* ════════ 签到 ════════ */}
-        <Tab key="checkin" title={<TabIcon icon={CalendarCheck} label="签到" />}>
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <CalendarCheck size={16} style={{ color: 'var(--accent-primary)' }} />
-                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>每日签到</span>
-              </div>
-            </CardHeader>
-            <CardBody className="gap-4">
-              <SettingRow title="启用每日签到" description="允许用户每日签到获取随机额度奖励">
-                <Switch isSelected={get('checkin_enabled') === 'true'} onValueChange={v => set('checkin_enabled', String(v))} />
-              </SettingRow>
-              <Divider />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="最小奖励额度" type="number" placeholder="1000" value={get('checkin_min_reward')} onValueChange={v => set('checkin_min_reward', v)} description="Quota 单位" />
-                <Input label="最大奖励额度" type="number" placeholder="10000" value={get('checkin_max_reward')} onValueChange={v => set('checkin_max_reward', v)} description="Quota 单位" />
-              </div>
-              <Divider />
-              <SettingRow title="签到需要人机验证" description="防止自动脚本刷签到">
-                <Switch isSelected={get('checkin_captcha') === 'true'} onValueChange={v => set('checkin_captcha', String(v))} />
-              </SettingRow>
-            </CardBody>
-          </Card>
-        </Tab>
-
-        {/* ════════ 通知 ════════ */}
-        <Tab key="notify" title={<TabIcon icon={Bell} label="通知" />}>
+        {/* ════════ 运营（邀请 + 签到 + 通知） ════════ */}
+        <Tab key="operations" title={<TabIcon icon={Gift} label="运营" />}>
           <div className="space-y-4">
+            {/* ── 邀请奖励 ── */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Gift size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>邀请奖励</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <SettingRow title="注册必须使用邀请码" description="开启后新用户注册需填写有效邀请码">
+                  <Switch isSelected={get('invitation_enabled') === 'true'} onValueChange={v => set('invitation_enabled', String(v))} />
+                </SettingRow>
+                <Divider />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Input label="邀请码成本" type="number" placeholder="0" value={get('invitation_cost')} onValueChange={v => set('invitation_cost', v)} description="生成时扣除额度" />
+                  <Input label="邀请者奖励" type="number" placeholder="0" value={get('invitation_reward')} onValueChange={v => set('invitation_reward', v)} description="被邀请人注册时发放" />
+                  <Input label="新用户初始额度" type="number" placeholder="0" value={get('new_user_reward')} onValueChange={v => set('new_user_reward', v)} description="注册即赠" />
+                </div>
+              </CardBody>
+            </Card>
+
+            {/* ── 每日签到 ── */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <CalendarCheck size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>每日签到</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <SettingRow title="启用每日签到" description="允许用户每日签到获取随机额度奖励">
+                  <Switch isSelected={get('checkin_enabled') === 'true'} onValueChange={v => set('checkin_enabled', String(v))} />
+                </SettingRow>
+                <Divider />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="最小奖励额度" type="number" placeholder="1000" value={get('checkin_min_reward')} onValueChange={v => set('checkin_min_reward', v)} description="Quota 单位" />
+                  <Input label="最大奖励额度" type="number" placeholder="10000" value={get('checkin_max_reward')} onValueChange={v => set('checkin_max_reward', v)} description="Quota 单位" />
+                </div>
+                <Divider />
+                <SettingRow title="签到需要人机验证" description="防止自动脚本刷签到">
+                  <Switch isSelected={get('checkin_captcha') === 'true'} onValueChange={v => set('checkin_captcha', String(v))} />
+                </SettingRow>
+              </CardBody>
+            </Card>
+
+            {/* ── 余额预警 ── */}
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
@@ -965,6 +941,7 @@ export default function SystemSettings() {
               </CardBody>
             </Card>
 
+            {/* ── 渠道异常告警 ── */}
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-2">
@@ -977,119 +954,188 @@ export default function SystemSettings() {
                   <Switch isSelected={get('channel_alert_enabled') === 'true'} onValueChange={v => set('channel_alert_enabled', String(v))} />
                 </SettingRow>
                 <p className="text-xs leading-relaxed" style={{ color: 'var(--text-faint)' }}>
-                  各管理员的通知渠道（邮件 / Webhook / Bark / Gotify）需在「个人资料 → 通知设置」中单独配置
+                  各管理员的通知渠道（邮件 / Webhook / Bark / Gotify）需在「个人资料 -&gt; 通知设置」中单独配置
                 </p>
               </CardBody>
             </Card>
           </div>
         </Tab>
 
-        {/* ════════ 系统 ════════ */}
+        {/* ════════ 系统（系统参数 + 版本更新 + 倍率） ════════ */}
         <Tab key="system" title={<TabIcon icon={Settings} label="系统" />}>
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Settings size={16} style={{ color: 'var(--accent-primary)' }} />
-                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>系统参数</span>
-              </div>
-            </CardHeader>
-            <CardBody className="gap-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="全局 RPM 限制" type="number" value={get('model_rpm')} onValueChange={v => set('model_rpm', v)} description="每分钟最大请求数，0 表示不限制" />
-              </div>
-              <Divider />
-              <SettingRow title="thinking_to_content" description="将思考链（thinking）内容转换为普通消息输出">
-                <Switch isSelected={get('thinking_to_content') === 'true'} onValueChange={v => set('thinking_to_content', String(v))} />
-              </SettingRow>
-            </CardBody>
-          </Card>
-        </Tab>
-
-        {/* ════════ 倍率 ════════ */}
-        <Tab key="pricing" title={<TabIcon icon={BarChart3} label="倍率" />}>
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between w-full">
+          <div className="space-y-4">
+            {/* ── 系统参数 ── */}
+            <Card>
+              <CardHeader>
                 <div className="flex items-center gap-2">
-                  <BarChart3 size={16} style={{ color: 'var(--accent-primary)' }} />
-                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>模型计费倍率</span>
+                  <Settings size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>系统参数</span>
                 </div>
-                <Button size="sm" color="primary" variant="flat" startContent={<Plus size={15} />} onPress={handleAddPricing}>
-                  添加模型
-                </Button>
-              </div>
-            </CardHeader>
-            <CardBody style={{ padding: 0 }}>
-              <div className="data-table-wrap" style={{ borderRadius: 0, border: 'none', boxShadow: 'none' }}>
-                <table className="data-table">
-                  <thead>
-                    <tr><th>模型名称</th><th>模型倍率</th><th>补全倍率</th><th>操作</th></tr>
-                  </thead>
-                  <tbody>
-                    {pricingItems.length === 0 ? (
-                      <tr><td colSpan={4}><EmptyState icon="📊" title="暂无倍率配置" description="添加模型以自定义计费倍率，未配置的模型使用默认价格" /></td></tr>
-                    ) : pricingItems.map(item => (
-                      <tr key={item.model}>
-                        <td style={{ fontWeight: 600, fontFamily: 'monospace' }}>{item.model}</td>
-                        <td><Chip size="sm" variant="flat">{item.ratio}x</Chip></td>
-                        <td><Chip size="sm" variant="flat">{item.completion_ratio}x</Chip></td>
-                        <td>
-                          <div className="flex items-center gap-2">
-                            <Tooltip content="编辑"><span className="text-default-400 cursor-pointer active:opacity-50" onClick={() => handleEditPricing(item)}><Edit size={16} /></span></Tooltip>
-                            <Tooltip content="删除"><span className="text-danger cursor-pointer active:opacity-50" onClick={() => handleDeletePricing(item.model)}><Trash2 size={16} /></span></Tooltip>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardBody>
-          </Card>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="全局 RPM 限制" type="number" value={get('model_rpm')} onValueChange={v => set('model_rpm', v)} description="每分钟最大请求数，0 表示不限制" />
+                </div>
+                <Divider />
+                <SettingRow title="thinking_to_content" description="将思考链（thinking）内容转换为普通消息输出">
+                  <Switch isSelected={get('thinking_to_content') === 'true'} onValueChange={v => set('thinking_to_content', String(v))} />
+                </SettingRow>
+              </CardBody>
+            </Card>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <BarChart3 size={16} style={{ color: 'var(--accent-cosmic)' }} />
-                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>按次计费价格</span>
-              </div>
-            </CardHeader>
-            <CardBody className="gap-3">
-              <Textarea
-                label="按次计费价格 JSON"
-                value={get('model_price', '{}')}
-                onValueChange={v => set('model_price', v)}
-                minRows={6}
-                placeholder='{"dall-e-2":0.02,"dall-e-3":0.04,"mj_imagine":0.1}'
-                description='每个模型每次调用的价格（美元/次）。配置后优先于按量计费，quota = price × QuotaPerUnit × groupRatio + 工具附加费。'
-              />
-            </CardBody>
-          </Card>
+            {/* ── 版本更新检查 ── */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Download size={16} style={{ color: 'var(--accent-primary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>版本更新检查</span>
+                </div>
+              </CardHeader>
+              <CardBody className="gap-4">
+                <SettingRow title="启用版本检查" description="启动时及定时自动检查是否有新版本可用">
+                  <Switch isSelected={get('version_check_enabled', 'true') === 'true'} onValueChange={v => set('version_check_enabled', String(v))} />
+                </SettingRow>
+                <Divider />
+                <Input
+                  label="检查间隔（小时）"
+                  type="number"
+                  value={get('version_check_interval_hours', '24')}
+                  onValueChange={v => set('version_check_interval_hours', v)}
+                  description="每隔多少小时自动检查一次新版本，默认 24 小时"
+                />
+                <Divider />
+                <div className="flex items-center gap-3">
+                  <Button
+                    color="primary"
+                    variant="flat"
+                    startContent={<RefreshCw size={16} className={checking ? 'animate-spin' : ''} />}
+                    isLoading={checking}
+                    onPress={handleCheckUpdate}
+                  >
+                    立即检查更新
+                  </Button>
+                </div>
+              </CardBody>
+            </Card>
+
+            {updateInfo && (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>检查结果</span>
+                    {updateInfo.last_checked && (
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        上次检查: {new Date(updateInfo.last_checked).toLocaleString('zh-CN')}
+                      </span>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardBody className="gap-3">
+                  <div className="flex items-center gap-4">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>当前版本</span>
+                      <span className="text-sm font-mono font-medium" style={{ color: 'var(--text-primary)' }}>
+                        {updateInfo.current_version || '未知'}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>最新版本</span>
+                      <span className="text-sm font-mono font-medium" style={{
+                        color: updateInfo.has_update
+                          ? (updateInfo.force_update ? '#ef4444' : '#3b82f6')
+                          : 'var(--text-primary)',
+                      }}>
+                        {updateInfo.latest_version || '未知'}
+                      </span>
+                    </div>
+                    {updateInfo.has_update && (
+                      <Chip
+                        size="sm"
+                        color={updateInfo.force_update ? 'danger' : 'primary'}
+                        variant="flat"
+                      >
+                        {updateInfo.force_update ? '强制更新' : '有新版本'}
+                      </Chip>
+                    )}
+                  </div>
+                  {updateInfo.has_update && updateInfo.changelog_summary && (
+                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      {updateInfo.changelog_summary}
+                    </p>
+                  )}
+                  {updateInfo.has_update && updateInfo.release_url && (
+                    <a
+                      href={updateInfo.release_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-medium underline"
+                      style={{ color: 'var(--accent-primary)' }}
+                    >
+                      前往下载 -&gt;
+                    </a>
+                  )}
+                  {!updateInfo.has_update && (
+                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                      当前已是最新版本
+                    </p>
+                  )}
+                </CardBody>
+              </Card>
+            )}
+          </div>
         </Tab>
 
       </Tabs>
 
-      <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
+      {/* 版本更新弹窗 */}
+      <Modal isOpen={updateModalOpen} onOpenChange={setUpdateModalOpen}>
         <ModalContent>
           {(onClose) => (
             <>
-              <ModalHeader>{editingItem ? '编辑倍率' : '添加倍率'}</ModalHeader>
-              <ModalBody>
-                <div className="flex flex-col gap-4">
-                  <Input label="模型名称" placeholder="gpt-4o" value={itemForm.model}
-                    onValueChange={v => setItemForm({ ...itemForm, model: v })}
-                    isDisabled={!!editingItem} isRequired />
-                  <Input label="模型倍率" type="number" value={itemForm.ratio.toString()}
-                    onValueChange={v => setItemForm({ ...itemForm, ratio: parseFloat(v) })}
-                    description="相对于基础价格的倍数" />
-                  <Input label="补全倍率" type="number" value={itemForm.completion_ratio.toString()}
-                    onValueChange={v => setItemForm({ ...itemForm, completion_ratio: parseFloat(v) })}
-                    description="输出 token 相对于输入的倍数" />
+              <ModalHeader>
+                <div className="flex items-center gap-2">
+                  <Download size={18} style={{ color: updateInfo?.force_update ? '#ef4444' : 'var(--accent-primary)' }} />
+                  <span>{updateInfo?.force_update ? '强制更新可用' : '发现新版本'}</span>
                 </div>
+              </ModalHeader>
+              <ModalBody>
+                {updateInfo && (
+                  <div className="flex flex-col gap-4 py-2">
+                    <div className="flex items-center gap-6">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>当前版本</span>
+                        <span className="text-sm font-mono" style={{ color: 'var(--text-secondary)' }}>{updateInfo.current_version}</span>
+                      </div>
+                      <span style={{ color: 'var(--text-faint)' }}>-&gt;</span>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>最新版本</span>
+                        <span className="text-sm font-mono font-bold" style={{ color: updateInfo.force_update ? '#ef4444' : 'var(--accent-primary)' }}>{updateInfo.latest_version}</span>
+                      </div>
+                      {updateInfo.force_update && (
+                        <Chip size="sm" color="danger" variant="flat">强制更新</Chip>
+                      )}
+                    </div>
+                    {updateInfo.changelog_summary && (
+                      <div className="p-3 rounded-xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
+                        <p className="text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>更新摘要</p>
+                        <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{updateInfo.changelog_summary}</p>
+                      </div>
+                    )}
+                    {updateInfo.force_update && (
+                      <p className="text-sm" style={{ color: '#ef4444' }}>
+                        当前版本已被标记为需要强制更新，请尽快下载并部署最新版本。
+                      </p>
+                    )}
+                  </div>
+                )}
               </ModalBody>
               <ModalFooter>
-                <Button color="danger" variant="light" onPress={onClose}>取消</Button>
-                <Button color="primary" onPress={() => handleSavePricingItem(onClose)}>确定</Button>
+                <Button color="default" variant="light" onPress={onClose}>稍后再说</Button>
+                {updateInfo?.release_url && (
+                  <a href={updateInfo.release_url} target="_blank" rel="noopener noreferrer">
+                    <Button color="primary" startContent={<Download size={16} />}>前往下载</Button>
+                  </a>
+                )}
               </ModalFooter>
             </>
           )}

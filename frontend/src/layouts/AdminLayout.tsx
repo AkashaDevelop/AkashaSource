@@ -3,9 +3,10 @@ import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box,
   Crown, Building2, Ticket, ListTodo,
-  ArrowLeft, CreditCard, Shield, Sparkles, ShieldAlert,
+  ArrowLeft, CreditCard, Shield, Sparkles, ShieldAlert, Download,
 } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
+import { useSystemStore } from '../store/system';
 import SidebarLayout, { type NavGroup, useLayoutCommon } from './SidebarLayout';
 
 const navGroups: NavGroup[] = [
@@ -50,6 +51,8 @@ export default function AdminLayout() {
   const { user, token } = useAuthStore();
   const navigate = useNavigate();
   const isRoot = (user?.role ?? 0) >= 100;
+  const { updateInfo } = useSystemStore();
+  const [updateDismissed, setUpdateDismissed] = useState(false);
 
   // ↓↓↓ REMOVABLE：系统授权门禁的提示横幅，整体移除时删掉这个 state + effect + JSX 块即可 ↓↓↓
   const [licenseWarning, setLicenseWarning] = useState(false);
@@ -83,6 +86,8 @@ export default function AdminLayout() {
     ),
   }));
 
+  const showUpdateBanner = updateInfo?.has_update && (!updateDismissed || updateInfo.force_update);
+
   return (
     <SidebarLayout
       navGroups={filteredGroups}
@@ -98,10 +103,58 @@ export default function AdminLayout() {
           style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: 'var(--accent-star)' }}
         >
           <ShieldAlert size={16} className="flex-shrink-0" />
-          <span className="text-sm">系统未完成 GitHub 组织授权，功能已受限，点击前往「安全中心 → 系统授权」完成授权</span>
+          <span className="text-sm">系统未完成 GitHub 组织授权，功能已受限，点击前往「安全中心 -{'>'} 系统授权」完成授权</span>
         </div>
       )}
       {/* ↑↑↑ REMOVABLE ↑↑↑ */}
+
+      {/* 版本更新提示横幅 */}
+      {showUpdateBanner && (
+        <div
+          className="flex items-center gap-2 mb-4 px-4 py-2.5 rounded-xl"
+          style={
+            updateInfo.force_update
+              ? { background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444' }
+              : { background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#3b82f6' }
+          }
+        >
+          <Download size={16} className="flex-shrink-0" />
+          <span className="text-sm flex-1">
+            {updateInfo.force_update ? '【强制更新】' : '新版本可用'}
+            {' '}
+            {updateInfo.latest_version}
+            {updateInfo.changelog_summary ? ` - ${updateInfo.changelog_summary}` : ''}
+          </span>
+          {updateInfo.release_url && (
+            <a
+              href={updateInfo.release_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium underline flex-shrink-0"
+              style={{ color: 'inherit' }}
+            >
+              下载
+            </a>
+          )}
+          <button
+            onClick={() => navigate('/admin/changelog')}
+            className="text-sm font-medium underline flex-shrink-0"
+            style={{ color: 'inherit' }}
+          >
+            查看详情
+          </button>
+          {!updateInfo.force_update && (
+            <button
+              onClick={() => setUpdateDismissed(true)}
+              className="text-sm flex-shrink-0 opacity-60 hover:opacity-100"
+              style={{ color: 'inherit' }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
+
       <Outlet />
     </SidebarLayout>
   );

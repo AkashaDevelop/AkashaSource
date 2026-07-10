@@ -4,6 +4,7 @@ import (
 	"STfreApi/common"
 	oauthctl "STfreApi/controller/oauth"
 	"STfreApi/model"
+	"STfreApi/service"
 	"crypto/rand"
 	"encoding/hex"
 	"strconv"
@@ -187,6 +188,7 @@ func GetStatus(c *gin.Context) {
 		"setup":              rootCount > 0,
 		"_qn":                "stfreapi",
 		"options":            options,
+		"update_info":        service.GetCachedUpdateInfo(),
 	})
 }
 

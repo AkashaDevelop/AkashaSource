@@ -232,6 +232,9 @@ func UpdateOptionMap(key string, value string) {
 	if key == "qingyuan_enabled" {
 		QingyuanEnabled = (value == "true")
 	}
+	if key == "version_check_enabled" {
+		// version_check_enabled 只存 OptionMap，由 service 层读取
+	}
 	if key == "cxsec_protected_paths" && value != "" {
 		CxSecProtectedPaths = value
 	}

@@ -12,6 +12,7 @@ import (
 	"STfreApi/common"
 	"STfreApi/common/email"
 	"STfreApi/model"
+	"STfreApi/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -430,4 +431,24 @@ func randomIntn(n int) int {
 		return 0
 	}
 	return int(time.Now().UnixNano() % int64(n))
+}
+
+// CheckUpdate 手动触发版本检查
+func CheckUpdate(c *gin.Context) {
+	info, err := service.DoVersionCheck()
+	if err != nil {
+		common.Fail(c, common.CodeServerError, err.Error())
+		return
+	}
+	common.OK(c, info)
+}
+
+// GetUpdateInfo 获取上次版本检查结果（不触发网络请求）
+func GetUpdateInfo(c *gin.Context) {
+	info := service.GetCachedUpdateInfo()
+	if info == nil {
+		common.OK(c, gin.H{"has_update": false, "last_checked": ""})
+		return
+	}
+	common.OK(c, info)
 }

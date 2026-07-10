@@ -165,6 +165,10 @@ const (
 	OptionKeyRealnameAliyunAccessKeySecret = "realname_aliyun_access_key_secret"
 	OptionKeyRealnameAliyunRegion          = "realname_aliyun_region"   // 默认 cn-hangzhou
 	OptionKeyRealnameAliyunSceneId         = "realname_aliyun_scene_id" // 认证场景ID（阿里云控制台创建）
+
+	// 版本更新检查
+	OptionKeyVersionCheckEnabled       = "version_check_enabled"        // "true" | "false"
+	OptionKeyVersionCheckIntervalHours = "version_check_interval_hours" // 检查间隔（小时）
 )
 
 func InitOptions() {
@@ -256,5 +260,15 @@ func InitOptions() {
 	}
 	if v, ok := common.OptionMap[OptionKeyPasswordRegisterEnabled]; !ok || v == "" {
 		common.UpdateOptionMap(OptionKeyPasswordRegisterEnabled, "true")
+	}
+
+	// 版本更新检查默认值
+	if v, ok := common.OptionMap[OptionKeyVersionCheckEnabled]; !ok || v == "" {
+		common.DB.FirstOrCreate(&Option{Key: OptionKeyVersionCheckEnabled, Value: "true"}, Option{Key: OptionKeyVersionCheckEnabled})
+		common.UpdateOptionMap(OptionKeyVersionCheckEnabled, "true")
+	}
+	if v, ok := common.OptionMap[OptionKeyVersionCheckIntervalHours]; !ok || v == "" {
+		common.DB.FirstOrCreate(&Option{Key: OptionKeyVersionCheckIntervalHours, Value: "24"}, Option{Key: OptionKeyVersionCheckIntervalHours})
+		common.UpdateOptionMap(OptionKeyVersionCheckIntervalHours, "24")
 	}
 }

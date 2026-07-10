@@ -293,6 +293,10 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.GET("/dashboard", controller.GetAdminDashboard)
 			adminGroup.GET("/admin/system/monitor", controller.GetSystemMonitor)
 
+			// 版本更新检查
+			adminGroup.GET("/system/update-check", controller.GetUpdateInfo)
+			adminGroup.POST("/system/update-check", controller.CheckUpdate)
+
 			// 渠道管理 (仅管理员)
 			adminGroup.GET("/channel", controller.GetAllChannels)
 			adminGroup.GET("/channel/search", controller.SearchChannels)
