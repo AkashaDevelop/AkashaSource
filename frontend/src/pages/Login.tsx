@@ -64,6 +64,8 @@ export default function Login() {
         const payload = data.code === 0 ? data.data : data;
         if (payload.initialized === false) {
           setInitialized(false);
+          navigate('/setup', { replace: true });
+          return;
         }
         if (payload.options) {
           if (payload.options.system_name) setSystemName(payload.options.system_name);

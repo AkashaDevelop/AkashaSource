@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"runtime"
+	"time"
 
 	"STfreApi/common"
 	"STfreApi/middleware"
@@ -27,6 +29,9 @@ func main() {
 	flag.IntVar(&rpm, "rpm", 60, "Rate limit (requests per minute)")
 	flag.Parse()
 
+	// 生产模式：关闭 gin 调试日志
+	gin.SetMode(gin.ReleaseMode)
+
 	// 初始化 JWT 密钥（环境变量优先，否则复用/生成本地密钥文件）
 	common.InitJwtSecret()
 
@@ -34,28 +39,35 @@ func main() {
 	common.InitRedis()
 
 	// Initialize Rate Limiter（纯内存实现，不依赖数据库）
-	log.Printf("初始化限流器，RPM: %d", rpm)
 	middleware.InitRateLimiter(rpm)
 
-	// 宸汐清源姊妹功能～引导式初始化：优先用向导持久化过的连接信息，
-	// 没有的话才退回命令行参数；连不上也不 Fatal，让 API 先跑起来，
-	// 好让向导页面能调到 /api/setup/database 把数据库接上
-	effectiveDriver, effectiveDSN := driver, dsn
+	// 引导式初始化：只有 dbconfig.json 存在时才连接数据库，
+	// 首次启动（无配置文件）不自动用默认 SQLite 连接，等用户通过向导选择数据库
+	effectiveDriver, effectiveDSN := "", ""
 	if cfg, ok := common.LoadDBConfig(); ok {
 		effectiveDriver, effectiveDSN = cfg.Driver, cfg.DSN
-		log.Printf("检测到已保存的数据库配置，使用驱动: %s", effectiveDriver)
 	}
-	log.Printf("初始化数据库，驱动: %s", effectiveDriver)
-	if err := common.InitDB(effectiveDriver, effectiveDSN); err != nil {
-		log.Printf("数据库连接失败，等待通过初始化向导配置: %v", err)
+
+	// 启动横幅（在确定 driver 之后打印）
+	printBanner(port, effectiveDriver)
+
+	log.Printf("[Init] 限流器 RPM: %d", rpm)
+	if effectiveDriver == "" {
+		log.Printf("[Init] 未检测到数据库配置，等待通过初始化向导配置")
 	} else {
-		bootstrap.RunPostDBInit()
+		log.Printf("[Init] 数据库驱动: %s", effectiveDriver)
+		if err := common.InitDB(effectiveDriver, effectiveDSN); err != nil {
+			log.Printf("[Init] 数据库连接失败，等待通过初始化向导配置: %v", err)
+		} else {
+			bootstrap.RunPostDBInit()
+		}
 	}
 
 	// Initialize Gin
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
 	if err := r.SetTrustedProxies(common.TrustedProxies()); err != nil {
-		log.Fatalf("受信任代理配置有误（AKASHA_TRUSTED_PROXIES）: %v", err)
+		log.Fatalf("[Init] 受信任代理配置有误（AKASHA_TRUSTED_PROXIES）: %v", err)
 	}
 
 	// Set API Router
@@ -75,8 +87,32 @@ func main() {
 
 	// Start Server
 	addr := fmt.Sprintf(":%d", port)
-	log.Printf("服务启动中: %s", addr)
+	log.Printf("[Server] 监听 %s", addr)
 	if err := r.Run(addr); err != nil {
-		log.Fatalf("服务启动失败: %v", err)
+		log.Fatalf("[Server] 启动失败: %v", err)
 	}
+}
+
+func printBanner(port int, driver string) {
+	line := "───────────────────────────────────────────────────────────────"
+	now := time.Now().Format("2006-01-02 15:04:05")
+
+	fmt.Println()
+	fmt.Println(line)
+	fmt.Println("     _    _      _                   _           _       ")
+	fmt.Println("    / \\  | | ___| |_ _ __ ___  _ __ | |_ ___  __| |_   _ ")
+	fmt.Println("   / _ \\ | |/ _ \\ __| '__/ _ \\| '_ \\| __/ _ \\/ _` | | | |")
+	fmt.Println("  / ___ \\| |  __/ |_| | | (_) | |_) | ||  __/ (_| | |_| |")
+	fmt.Println(" /_/   \\_\\_|\\___|\\__|_|  \\___/| .__/ \\__\\___|\\__,_|\\__, |")
+	fmt.Println("                              |_|                  |___/ ")
+	fmt.Println()
+	fmt.Printf("  [ Version ]  %s\n", common.Version)
+	fmt.Printf("  [ Runtime ]  Go %s  %s/%s\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("  [ Listen ]   http://0.0.0.0:%d\n", port)
+	fmt.Printf("  [ Driver ]   %s\n", driver)
+	fmt.Printf("  [ Started ]  %s\n", now)
+	fmt.Println()
+	fmt.Println("  Security:  CxSec (ECDH+AES-256-GCM)  ·  QingYuan  ·  XuanJian")
+	fmt.Println(line)
+	fmt.Println()
 }

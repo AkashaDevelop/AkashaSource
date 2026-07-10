@@ -112,6 +112,7 @@ export default function Setup() {
       if (data.code !== 0) throw new Error(data.msg || '连接失败');
       setDbConnected(true);
       setShowDbForm(false);
+      setSetupStatus(prev => prev ? { ...prev, database_type: driver, db_configured: true } : { root_init: false, db_connected: true, db_configured: true, database_type: driver });
     } catch (err: any) {
       setError(err.message);
     } finally {

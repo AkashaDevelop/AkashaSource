@@ -151,6 +151,11 @@ func UpdateOption(c *gin.Context) {
 }
 
 func IsSystemInitialized(c *gin.Context) {
+	// 数据库未连接时，返回未初始化状态（引导前端显示初始化向导）
+	if common.DB == nil {
+		common.OK(c, gin.H{"initialized": false, "setup": false, "db_connected": false, "options": gin.H{}})
+		return
+	}
 	var count int64
 	common.DB.Model(&model.User{}).Where("role >= ?", model.RoleAdmin).Count(&count)
 	options := make(map[string]string)

@@ -29,6 +29,14 @@ func RequireSystemLicensed() gin.HandlerFunc {
 		}
 
 		path := c.Request.URL.Path
+
+		// 非 API 路径（前端页面、静态资源等）一律放行，
+		// 否则用户连登录页都看不到，无法进后台完成授权
+		if !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/v1/") && !strings.HasPrefix(path, "/oauth/") {
+			c.Next()
+			return
+		}
+
 		for _, p := range licenseFreePrefixes {
 			if strings.HasPrefix(path, p) {
 				c.Next()
@@ -36,8 +44,6 @@ func RequireSystemLicensed() gin.HandlerFunc {
 			}
 		}
 
-		// ～和 RequireDatabaseReady 保持一致：这种系统级硬拦截跳出"永远 200 + 业务码"的常规约定，
-		// 直接给真实的 503，方便监控/反代一眼识别出这是系统级故障而不是普通业务错误～
 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, common.R{
 			Code: common.CodeForbidden,
 			Msg:  "系统未完成授权，请联系站长在后台完成 GitHub 组织授权",

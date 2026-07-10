@@ -1,4 +1,4 @@
-// 系统授权门禁 — 功能启用检查
+// 系统授权门禁 - 功能启用检查
 package license
 
 // FeatureEnabled 返回 true 时门禁中间件生效。
