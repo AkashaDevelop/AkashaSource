@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import EmptyState from '../../components/EmptyState';
 import LoadingRows from '../../components/LoadingRows';
 import BatchChannelActions from '../../components/BatchChannelActions';
+import ChannelTestDialog from '../../components/ChannelTestDialog';
+import ChannelContextMenu, { createChannelContextMenuItems } from '../../components/ChannelContextMenu';
 import {
   Chip,
   Tooltip,
@@ -28,7 +30,7 @@ import {
   Checkbox,
   Switch,
 } from '../../components/ui';
-import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap, Download, DollarSign, Search, KeyRound, Settings } from 'lucide-react';
+import { Edit, Trash2, Plus, RefreshCw, Power, Activity, ArrowRight, Upload, Zap, Download, DollarSign, Search, KeyRound, Settings, Box, Copy } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
 import { confirm } from '../../store/confirm';
@@ -38,7 +40,6 @@ import { CHANNEL_TYPES } from './channelConstants';
 export default function ChannelManagement() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(false);
-  const [testingId, setTestingId] = useState<number | null>(null);
   const { token, user } = useAuthStore();
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
   const { isOpen: isBatchOpen, onOpen: onBatchOpen, onOpenChange: onBatchOpenChange } = useDisclosure();
@@ -67,16 +68,16 @@ export default function ChannelManagement() {
   const [modelSourceMode, setModelSourceMode] = useState<'manual' | 'sync'>('manual');
   const [newModelInput, setNewModelInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const { isOpen: isTestOpen, onOpen: onTestOpen, onOpenChange: onTestOpenChange } = useDisclosure();
-  const [testChannel, setTestChannel] = useState<Channel | null>(null);
-  const [testMode, setTestMode] = useState<string>('quick');
-  const [testModel, setTestModel] = useState<string>('');
-  const [testPrompt, setTestPrompt] = useState<string>('');
   const { isOpen: isPromptOpen, onOpen: onPromptOpen, onOpenChange: onPromptOpenChange } = useDisclosure();
   const [promptConfig, setPromptConfig] = useState<PromptDialogConfig>({ title: '' });
   const [promptValue, setPromptValue] = useState('');
   const [promptSubmitting, setPromptSubmitting] = useState(false);
   const promptResolveRef = useRef<((value: string | null) => void) | null>(null);
+
+  // 右键菜单状态
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; channelId: number } | null>(null);
+  const { isOpen: isBatchTestOpen, onOpen: onBatchTestOpen, onOpenChange: onBatchTestOpenChange } = useDisclosure();
+  const [batchTestChannel, setBatchTestChannel] = useState<Channel | null>(null);
 
   // 自定义配置相关状态
   const { isOpen: isCustomConfigOpen, onOpen: onCustomConfigOpen, onOpenChange: onCustomConfigOpenChange } = useDisclosure();
@@ -161,92 +162,93 @@ export default function ChannelManagement() {
     const channel = channels.find(c => c.id === id);
     if (!channel) return;
 
-    setTestChannel(channel);
-    setTestMode('quick');
-    setTestModel('');
-    setTestPrompt('');
-    onTestOpen();
+    setBatchTestChannel(channel);
+    onBatchTestOpen();
   };
 
-  const executeTest = async () => {
-    if (!testChannel) return;
-
-    if (testMode === 'quick') {
-      await executeChannelTest(testChannel.id);
-    } else if (testMode === 'custom') {
-      if (!testPrompt.trim()) {
-        toast.error('请输入测试问题');
-        return;
-      }
-      await executeChannelTest(testChannel.id, testPrompt.trim());
-    } else if (testMode === 'model') {
-      if (!testModel.trim()) {
-        toast.error('请选择或输入模型名称');
-        return;
-      }
-      await executeModelTest(testChannel.id, testModel.trim(), testPrompt.trim() || undefined);
-    }
-
-    onTestOpenChange();
-  };
-
-  const executeChannelTest = async (id: number, prompt?: string) => {
-    setTestingId(id);
+  const handleDetectUpstreamUpdates = async (channelId: number) => {
+    setOperatingId(channelId);
     try {
-      const res = await fetch(`/api/channel/test/${id}`, {
+      const res = await fetch('/api/channel/upstream_updates/detect', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ prompt: prompt || '' }),
+        body: JSON.stringify({ channel_ids: [channelId] }),
       });
       const data = await res.json();
-      if (data.code === 0 && data.data.success) {
-        toast.success(`测试通过 (${data.data.time}ms)`);
-        setChannels(prev => prev.map(c =>
-          c.id === id ? { ...c, response_time: data.data.time } : c
-        ));
+      if (data.code === 0 && data.data?.items?.length > 0) {
+        const item = data.data.items[0];
+        if (item.has_updates) {
+          const addedCount = item.added?.length || 0;
+          const removedCount = item.removed?.length || 0;
+          const shouldApply = await confirm({
+            title: '检测到上游更新',
+            message: `新增 ${addedCount} 个模型，移除 ${removedCount} 个模型。是否应用更新？`,
+          });
+          if (shouldApply) {
+            await handleApplyUpstreamUpdates(channelId);
+          }
+        } else {
+          toast.info('上游模型无变化');
+        }
       } else {
-        toast.error(data.data?.msg || data.msg || '测试失败');
+        toast.error(data.msg || '检测上游更新失败');
       }
     } catch (error) {
-      console.error('Test error:', error);
-      toast.error('测试请求失败');
+      console.error('Detect upstream updates error:', error);
+      toast.error('检测上游更新失败');
     } finally {
-      setTestingId(null);
+      setOperatingId(null);
     }
   };
 
-  const executeModelTest = async (id: number, model: string, prompt?: string) => {
-    setTestingId(id);
+  const handleApplyUpstreamUpdates = async (channelId: number) => {
+    setOperatingId(channelId);
     try {
-      const res = await fetch(`/api/channel/test-model/${id}`, {
+      const res = await fetch('/api/channel/upstream_updates/apply', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ model, prompt: prompt || '' }),
+        body: JSON.stringify({ channel_ids: [channelId] }),
       });
       const data = await res.json();
-      if (data.code === 0 && data.data.success) {
-        toast.success(`模型 ${model} 测试通过 (${data.data.time}ms)`);
+      if (data.code === 0) {
+        toast.success('上游更新已应用');
+        fetchChannels();
       } else {
-        toast.error(data.data?.msg || data.msg || '模型测试失败');
+        toast.error(data.msg || '应用上游更新失败');
       }
     } catch (error) {
-      console.error('Model test error:', error);
-      toast.error('模型测试请求失败');
+      console.error('Apply upstream updates error:', error);
+      toast.error('应用上游更新失败');
     } finally {
-      setTestingId(null);
+      setOperatingId(null);
     }
   };
 
   useEffect(() => {
     fetchChannels();
     fetchCustomConfigs();
+    fetchGroupOptions();
   }, []);
+
+  // 🎀 分组下拉选项（渠道可用分组不再手输啦）～
+  const [groupOptions, setGroupOptions] = useState<string[]>([]);
+  const fetchGroupOptions = async () => {
+    try {
+      const res = await fetch('/api/group', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.code === 0 && Array.isArray(data.data)) {
+        setGroupOptions(data.data.map((g: { name: string }) => g.name).filter(Boolean));
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     setSelectedChannelIds((prev) => prev.filter((id) => channels.some((channel) => channel.id === id)));
@@ -1367,7 +1369,17 @@ export default function ChannelManagement() {
             ) : channels.length === 0 ? (
               <tr><td colSpan={10}><EmptyState icon="📡" title="暂无渠道" description="添加您的第一个 AI 渠道" /></td></tr>
             ) : channels.map((channel) => (
-              <tr key={channel.id}>
+              <tr
+                key={channel.id}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    channelId: channel.id,
+                  });
+                }}
+              >
                 <td>
                   <Checkbox
                     isSelected={selectedChannelIds.includes(channel.id)}
@@ -1384,7 +1396,7 @@ export default function ChannelManagement() {
                 <td>{channel.priority}</td>
                 <td>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <Tooltip content="测试"><span className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${testingId === channel.id ? 'animate-spin' : ''}`} onClick={() => handleTest(channel.id)}><Activity size={18} /></span></Tooltip>
+                    <Tooltip content="测试"><span className="text-lg text-default-400 cursor-pointer active:opacity-50" onClick={() => handleTest(channel.id)}><Activity size={18} /></span></Tooltip>
                     <Tooltip content="查询余额"><span className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${fetchingBalance === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleFetchBalance(channel.id)}><DollarSign size={18} /></span></Tooltip>
                     <Tooltip content="复制渠道"><span className={`text-lg text-default-400 cursor-pointer active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleCopyChannel(channel.id)}><Plus size={18} /></span></Tooltip>
                     <Tooltip content="查看 Key (Root)"><span className={`text-lg ${(user?.role ?? 0) >= 100 ? 'text-warning cursor-pointer' : 'text-default-300 cursor-not-allowed'} active:opacity-50 ${operatingId === channel.id ? 'animate-pulse' : ''}`} onClick={() => handleGetChannelKey(channel.id)}><KeyRound size={18} /></span></Tooltip>
@@ -1496,12 +1508,20 @@ export default function ChannelManagement() {
                     value={formData.priority}
                     onValueChange={(v) => setFormData({...formData, priority: v})}
                   />
-                  <Input
-                    label="分组"
-                    placeholder="default,vip"
-                    value={formData.group}
-                    onValueChange={(v) => setFormData({...formData, group: v})}
-                  />
+                  <Select
+                    label="可用分组"
+                    placeholder="选择分组（可多选）"
+                    selectionMode="multiple"
+                    selectedKeys={new Set(formData.group.split(',').map(s => s.trim()).filter(Boolean))}
+                    onSelectionChange={(keys) => {
+                      const arr = Array.from(keys as Set<string>).map(String);
+                      setFormData({ ...formData, group: arr.join(',') });
+                    }}
+                  >
+                    {groupOptions.map((g) => (
+                      <SelectItem key={g}>{g}</SelectItem>
+                    ))}
+                  </Select>
                   <Input
                     label="Base URL"
                     placeholder="https://api.openai.com"
@@ -1531,102 +1551,170 @@ export default function ChannelManagement() {
                       description="支持多Key轮换，每行一个"
                     />
                   </div>
-                  
-                  <div className="col-span-2 space-y-2">
-                    {!editingChannel && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-small font-medium">模型来源</span>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={modelSourceMode === 'manual' ? 'solid' : 'flat'}
-                          color={modelSourceMode === 'manual' ? 'primary' : 'default'}
-                          onPress={() => setModelSourceMode('manual')}
-                        >
-                          手动输入
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={modelSourceMode === 'sync' ? 'solid' : 'flat'}
-                          color={modelSourceMode === 'sync' ? 'secondary' : 'default'}
-                          onPress={() => setModelSourceMode('sync')}
-                        >
-                          同步上游模型
-                        </Button>
+
+                  {/* 模型与分组 */}
+                  <div className="col-span-2 space-y-4 border-t pt-4 mt-2">
+                    <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center">
+                          <Box className="w-4 h-4 text-primary-600" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-semibold">模型与分组</h3>
+                          <p className="text-xs text-default-500">已发布的模型、分组将根据此配置对应。</p>
+                        </div>
                       </div>
-                    )}
-                    <div className="flex justify-between items-center">
-                      <span className="text-small font-medium">模型列表 (逗号分隔)</span>
-                      {editingChannel?.id ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="flat"
-                          color="secondary"
-                          startContent={<Download size={14} />}
-                          isLoading={fetchingModels === editingChannel.id}
-                          onPress={() => handleFetchModels(editingChannel.id!)}
-                        >
-                          拉取模型
-                        </Button>
-                      ) : modelSourceMode === 'sync' ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="flat"
-                          color="secondary"
-                          startContent={<Download size={14} />}
-                          isLoading={fetchingModels === -1}
-                          onPress={handleFetchModelsByForm}
-                        >
-                          同步上游模型
-                        </Button>
-                      ) : null}
-                    </div>
-                    <div className="border border-default-200 rounded-xl p-2 min-h-[80px] flex flex-wrap gap-1.5">
-                      {formData.models
-                        ? formData.models.split(',').map((m: string) => m.trim()).filter(Boolean).map((m: string) => (
-                            <Chip
-                              key={m}
+
+                      {/* 模型 */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <span className="text-small font-medium">模型</span>
+                            <span className="text-xs text-red-500">*</span>
+                            {formData.models && formData.models.split(',').filter(Boolean).length > 0 && (
+                              <span className="text-xs text-default-500">
+                                已选 {formData.models.split(',').filter(Boolean).length} 个
+                              </span>
+                            )}
+                          </div>
+                          {editingChannel?.id && (
+                            <Button
+                              type="button"
                               size="sm"
                               variant="flat"
-                              color="primary"
-                              onClose={() => removeModel(m)}
+                              color="secondary"
+                              startContent={<Download size={14} />}
+                              isLoading={fetchingModels === editingChannel.id}
+                              onPress={() => handleFetchModels(editingChannel.id!)}
                             >
-                              {m}
-                            </Chip>
-                          ))
-                        : <span className="text-default-400 text-small px-1 py-0.5">
-                            {modelSourceMode === 'sync' && !editingChannel ? '点击"同步上游模型"后自动填入，可删改后保存' : '请在下方输入框逐个添加或粘贴逗号分隔列表'}
-                          </span>
-                      }
+                              拉取模型
+                            </Button>
+                          )}
+                        </div>
+                        <p className="text-xs text-default-500">此渠道支持的模型列表。使用逗号分隔多个模型。</p>
+
+                        <div className="border border-default-200 rounded-lg p-3 min-h-[100px]">
+                          {formData.models && formData.models.split(',').filter(Boolean).length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {formData.models.split(',').map((m: string) => m.trim()).filter(Boolean).map((m: string) => (
+                                <Chip
+                                  key={m}
+                                  size="sm"
+                                  variant="flat"
+                                  color="primary"
+                                  onClose={() => removeModel(m)}
+                                >
+                                  {m}
+                                </Chip>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center h-full text-default-400 text-sm">
+                              请在下方输入框添加模型或粘贴逗号分隔列表
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 快捷操作 - 始终显示 */}
+                        <div className="space-y-2">
+                          <span className="text-small font-medium text-default-700">快捷操作</span>
+                          <p className="text-xs text-default-500">使用预设按钮上快速添加未包含的模型列表。</p>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="bordered"
+                              startContent={<Download size={14} />}
+                              onPress={() => {
+                                if (editingChannel?.id) {
+                                  handleFetchModels(editingChannel.id);
+                                }
+                              }}
+                            >
+                              填入相关模型
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="bordered"
+                              startContent={<Plus size={14} />}
+                              onPress={() => {
+                                toast.info('请使用"同步上游模型"或"拉取模型"功能');
+                              }}
+                            >
+                              填充所有模型
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="bordered"
+                              startContent={<RefreshCw size={14} />}
+                              onPress={() => {
+                                if (editingChannel?.id) {
+                                  handleFetchModels(editingChannel.id);
+                                } else if (modelSourceMode === 'sync') {
+                                  handleFetchModelsByForm();
+                                }
+                              }}
+                            >
+                              从上游获取
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="bordered"
+                              startContent={<Copy size={14} />}
+                              onPress={() => {
+                                if (formData.models) {
+                                  navigator.clipboard.writeText(formData.models);
+                                  toast.success('已复制模型列表');
+                                }
+                              }}
+                            >
+                              全部复制
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="bordered"
+                              color="danger"
+                              startContent={<Trash2 size={14} />}
+                              onPress={() => {
+                                setFormData({ ...formData, models: '' });
+                                toast.success('已清空模型列表');
+                              }}
+                            >
+                              清除全部
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* 添加模型输入框 */}
+                        <div className="flex gap-2 items-center">
+                          <Input
+                            size="sm"
+                            placeholder="输入模型名称后按 Enter 添加，或粘贴逗号分隔列表"
+                            value={newModelInput}
+                            onValueChange={setNewModelInput}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                newModelInput.split(',').forEach((m) => addModel(m));
+                              }
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            isIconOnly
+                            color="primary"
+                            variant="flat"
+                            onPress={() => newModelInput.split(',').forEach((m) => addModel(m))}
+                          >
+                            <Plus size={16} />
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex gap-2 items-center">
-                      <Input
-                        size="sm"
-                        placeholder="输入模型名称后按 Enter 添加，或粘贴逗号分隔列表"
-                        value={newModelInput}
-                        onValueChange={setNewModelInput}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            newModelInput.split(',').forEach((m) => addModel(m));
-                          }
-                        }}
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        isIconOnly
-                        color="primary"
-                        variant="flat"
-                        onPress={() => newModelInput.split(',').forEach((m) => addModel(m))}
-                      >
-                        <Plus size={16} />
-                      </Button>
-                    </div>
-                  </div>
 
                   <div className="col-span-2 space-y-2">
                     <span className="text-small font-medium">模型映射 (重定向)</span>
@@ -1928,74 +2016,6 @@ export default function ChannelManagement() {
         </ModalContent>
       </Modal>
 
-      {/* Test Channel Modal */}
-      <Modal isOpen={isTestOpen} onOpenChange={onTestOpenChange}>
-        <ModalContent>
-          {(onClose) => (
-            <>
-              <ModalHeader>测试渠道可用性</ModalHeader>
-              <ModalBody>
-                <div className="space-y-4">
-                  <div className="p-3 bg-warning-50 border border-warning-200 rounded-lg">
-                    <p className="text-sm text-warning-800">⚠️ 测试会向上游发送真实请求，可能产生费用</p>
-                  </div>
-
-                  <Select
-                    label="测试方式"
-                    selectedKeys={new Set([testMode])}
-                    onSelectionChange={(keys) => {
-                      const selected = Array.from(keys)[0] as string;
-                      setTestMode(selected);
-                    }}
-                  >
-                    <SelectItem key="quick">快速测试（默认问题：现在几点了）</SelectItem>
-                    <SelectItem key="custom">自定义问题测试</SelectItem>
-                    <SelectItem key="model">测试指定模型</SelectItem>
-                  </Select>
-
-                  {testMode === 'custom' && (
-                    <Input
-                      label="测试问题"
-                      placeholder="输入测试问题"
-                      value={testPrompt}
-                      onValueChange={setTestPrompt}
-                    />
-                  )}
-
-                  {testMode === 'model' && (
-                    <>
-                      <Select
-                        label="选择模型"
-                        placeholder="选择模型"
-                        selectedKeys={testModel ? new Set([testModel]) : new Set()}
-                        onSelectionChange={(keys) => {
-                          const selected = Array.from(keys)[0] as string;
-                          setTestModel(selected || '');
-                        }}
-                      >
-                        {(testChannel?.models?.split(',').filter(m => m.trim()) || []).map(m => (
-                          <SelectItem key={m.trim()}>{m.trim()}</SelectItem>
-                        ))}
-                      </Select>
-                      <Input
-                        label="测试问题（可选）"
-                        placeholder="留空使用默认问题"
-                        value={testPrompt}
-                        onValueChange={setTestPrompt}
-                      />
-                    </>
-                  )}
-                </div>
-              </ModalBody>
-              <ModalFooter>
-                <Button color="danger" variant="light" onPress={onClose}>取消</Button>
-                <Button color="primary" onPress={executeTest} isLoading={testingId === testChannel?.id}>开始测试</Button>
-              </ModalFooter>
-            </>
-          )}
-        </ModalContent>
-      </Modal>
-
       {/* Batch Import Modal */}
       <Modal isOpen={isBatchOpen} onOpenChange={onBatchOpenChange} size="2xl">
         <ModalContent>
@@ -2245,6 +2265,44 @@ export default function ChannelManagement() {
           )}
         </ModalContent>
       </Modal>
+
+      {/* 批量测试弹窗 */}
+      <ChannelTestDialog
+        isOpen={isBatchTestOpen}
+        onOpenChange={onBatchTestOpenChange}
+        channel={batchTestChannel}
+        token={token || ''}
+        onTestComplete={fetchChannels}
+      />
+
+      {/* 右键菜单 */}
+      <ChannelContextMenu
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        items={
+          contextMenu
+            ? createChannelContextMenuItems({
+                onTest: () => {
+                  const channel = channels.find(c => c.id === contextMenu.channelId);
+                  if (channel) {
+                    setBatchTestChannel(channel);
+                    onBatchTestOpen();
+                  }
+                },
+                onBalance: () => handleFetchBalance(contextMenu.channelId),
+                onFetchModels: async () => {
+                  const channel = channels.find(c => c.id === contextMenu.channelId);
+                  if (channel) {
+                    await handleFetchModels(channel.id);
+                  }
+                },
+                onUpdate: () => handleDetectUpstreamUpdates(contextMenu.channelId),
+                onCopy: () => handleCopyChannel(contextMenu.channelId),
+                onDelete: () => handleDelete(contextMenu.channelId),
+              })
+            : []
+        }
+        onClose={() => setContextMenu(null)}
+      />
     </div>
   );
 }

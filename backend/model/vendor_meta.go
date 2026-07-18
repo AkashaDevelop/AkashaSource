@@ -11,6 +11,7 @@ type Vendor struct {
 	Code        string    `json:"code" gorm:"size:64;uniqueIndex"`
 	BaseURL     string    `json:"base_url" gorm:"size:255"`
 	ApiVersion  string    `json:"api_version" gorm:"size:64"`
+	Icon        string    `json:"icon" gorm:"size:191"` // 🎀 @lobehub/icons 图标键名～
 	Status      int       `json:"status" gorm:"default:1;index"`
 	Description string    `json:"description" gorm:"type:text"`
 	CreatedAt   time.Time `json:"created_at"`

@@ -4,7 +4,12 @@
       "Bash(go build)",
       "Bash(npm run build)",
       "Bash(git config --global user.name \"moonseafishcat\")",
-      "Bash(git config --global user.email \"ishuiliyi@gmail.com\")"
+      "Bash(git config --global user.email \"ishuiliyi@gmail.com\")",
+      "Bash(pnpm run *)",
+      "Bash(go clean *)",
+      "Bash(go list *)",
+      "Bash(rm D:/桌面/Protect/AKasha/backend/controller/deployment.go D:/桌面/Protect/AKasha/backend/model/deployment.go)",
+      "Bash(rm -rf D:/桌面/Protect/AKasha/backend/pkg/ionet)"
     ]
   }
 }

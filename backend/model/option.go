@@ -190,7 +190,6 @@ func InitOptions() {
 	common.DB.AutoMigrate(&UserOAuthBinding{})
 	common.DB.AutoMigrate(&Vendor{})
 	common.DB.AutoMigrate(&ModelMeta{})
-	common.DB.AutoMigrate(&Deployment{})
 	common.DB.AutoMigrate(&PrefillGroup{})
 	common.DB.AutoMigrate(&ChannelCheckinLog{})
 	common.DB.AutoMigrate(&ChannelBalanceLog{})
@@ -204,6 +203,7 @@ func InitOptions() {
 	// 老数据库跑完那一次版本号就不会再重新迁移了，后续给它们加字段会跟 AuditLog 一样报错，
 	// 挪到这里保证每次启动都跟 model 定义对齐喵～
 	common.DB.AutoMigrate(&Group{})
+	SeedDefaultGroups()
 	common.DB.AutoMigrate(&CheckIn{})
 	common.DB.AutoMigrate(&ModelConfig{})
 	common.DB.AutoMigrate(&ContextSanitizationPolicy{})

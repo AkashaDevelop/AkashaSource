@@ -26,6 +26,7 @@ export interface SelectProps {
   errorMessage?: string
   className?: string
   size?: 'sm' | 'md' | 'lg'
+  selectionMode?: 'single' | 'multiple' // 🎀 多选模式支持～
 }
 
 function getKeys(keys?: Set<string> | string[]): string[] {
@@ -46,6 +47,7 @@ export function Select({
   errorMessage,
   className = '',
   size = 'md',
+  selectionMode = 'single',
 }: SelectProps) {
   const [open, setOpen] = useState(false)
   const [internalSelected, setInternalSelected] = useState<string[]>(
@@ -67,7 +69,11 @@ export function Select({
   })
 
   const selectedLabel = selected.length > 0
-    ? options.find(o => o.key === selected[0])?.label ?? selected[0]
+    ? selectionMode === 'multiple'
+      ? selected.length === 1
+        ? options.find(o => o.key === selected[0])?.label ?? selected[0]
+        : `已选 ${selected.length} 项`
+      : options.find(o => o.key === selected[0])?.label ?? selected[0]
     : null
 
   useEffect(() => {
@@ -81,6 +87,18 @@ export function Select({
   }, [])
 
   function select(key: string) {
+    if (selectionMode === 'multiple') {
+      // 🎀 多选：点一下切换选中状态，面板保持打开～
+      const next = new Set(selected)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      if (!controlled) setInternalSelected([...next])
+      onSelectionChange?.(next)
+      return
+    }
     const next = new Set([key])
     if (!controlled) setInternalSelected([key])
     onSelectionChange?.(next)

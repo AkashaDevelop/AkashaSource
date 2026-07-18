@@ -158,3 +158,15 @@ func GetGroupQPM(groupName string) int {
 	}
 	return g.QPM
 }
+
+// GetGroupRateLimits 一次取回分组的三项速率限制：RPM / TPM / RPD，<=0 都表示不限～
+func GetGroupRateLimits(groupName string) (rpm int, tpm int, rpd int) {
+	if groupName == "" {
+		return 0, 0, 0
+	}
+	var g model.Group
+	if err := common.DB.Where("name = ?", groupName).First(&g).Error; err != nil {
+		return 0, 0, 0
+	}
+	return g.QPM, g.TPM, g.RPD
+}

@@ -32,7 +32,6 @@ import CustomChannelConfig from './pages/admin/CustomChannelConfig';
 import PaymentManagement from './pages/admin/PaymentManagement';
 import ChannelHub from './pages/admin/ChannelHub';
 import ModelHub from './pages/admin/ModelHub';
-import VendorHub from './pages/admin/VendorHub';
 import SecurityHub from './pages/admin/SecurityHub';
 
 function PrivateRoute({ children, roleRequired }: { children: React.ReactElement, roleRequired?: number }) {
@@ -105,7 +104,7 @@ function App() {
         <Route path="changelog" element={<Changelog />} />
         <Route path="tasks" element={<TasksPage />} />
         <Route path="ops" element={<TasksPage />} />
-        <Route path="vendor" element={<VendorHub />} />
+        <Route path="vendor" element={<Navigate to="/admin/model" replace />} />
         <Route path="security" element={<SecurityHub />} />
         <Route
           path="payment"

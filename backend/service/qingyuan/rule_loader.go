@@ -31,22 +31,23 @@ type RuleCache struct {
 	rules        map[string][]DynamicRule // category -> []rules
 	lastReload   time.Time
 	reloadTicker *time.Ticker
+	ruleCount    int // 上次加载的规则数量
 }
 
 var globalRuleCache = &RuleCache{
 	rules: make(map[string][]DynamicRule),
 }
 
-// InitRuleCache 启动规则缓存自动刷新（每 30 秒）
+// InitRuleCache 启动规则缓存自动刷新（每 5 分钟）
 func InitRuleCache() {
 	globalRuleCache.Reload()
-	globalRuleCache.reloadTicker = time.NewTicker(30 * time.Second)
+	globalRuleCache.reloadTicker = time.NewTicker(5 * time.Minute)
 	go func() {
 		for range globalRuleCache.reloadTicker.C {
 			globalRuleCache.Reload()
 		}
 	}()
-	log.Printf("[宸汐清源] 规则缓存自动刷新已启动，间隔 30 秒")
+	log.Printf("[宸汐清源] 规则缓存自动刷新已启动，间隔 5 分钟")
 }
 
 // Reload 从数据库重新加载规则
@@ -89,7 +90,12 @@ func (rc *RuleCache) Reload() {
 	for _, rules := range newRules {
 		totalRules += len(rules)
 	}
-	log.Printf("[宸汐清源] 规则缓存已刷新，共加载 %d 条规则，分布在 %d 个分类", totalRules, len(newRules))
+
+	// 只在规则数量变化时输出日志
+	if rc.ruleCount != totalRules {
+		log.Printf("[宸汐清源] 规则缓存已刷新，共加载 %d 条规则，分布在 %d 个分类", totalRules, len(newRules))
+		rc.ruleCount = totalRules
+	}
 }
 
 // GetRulesByCategory 获取指定分类的规则

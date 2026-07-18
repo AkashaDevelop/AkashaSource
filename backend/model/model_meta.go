@@ -5,18 +5,29 @@ import (
 	"time"
 )
 
+// 🌸 模型元数据结构 - 完整对齐前端需求～
 type ModelMeta struct {
 	Id            int       `json:"id" gorm:"primaryKey;autoIncrement"`
 	VendorId      int       `json:"vendor_id" gorm:"index"`
 	ModelName     string    `json:"model_name" gorm:"size:191;index"`
 	DisplayName   string    `json:"display_name" gorm:"size:191"`
+	Description   string    `json:"description" gorm:"type:text"`                  // 🎀 新增：描述
+	Icon          string    `json:"icon" gorm:"size:191"`                          // 🎀 新增：图标
+	Tags          string    `json:"tags" gorm:"type:text"`                         // 🎀 新增：标签（JSON数组）
+	Endpoints     string    `json:"endpoints" gorm:"type:text"`                    // 🎀 新增：端点配置（JSON对象）
+	NameRule      int       `json:"name_rule" gorm:"default:0;index"`              // 🎀 新增：匹配规则 0=精确 1=前缀 2=后缀 3=中缀
 	ModelType     string    `json:"model_type" gorm:"size:64;index"`
 	ContextLength int       `json:"context_length" gorm:"default:0"`
 	InputPrice    float64   `json:"input_price" gorm:"default:0"`
 	OutputPrice   float64   `json:"output_price" gorm:"default:0"`
 	Enabled       bool      `json:"enabled" gorm:"default:true;index"`
+	SyncOfficial  bool      `json:"sync_official" gorm:"default:true"`             // 🎀 新增：官方同步
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+
+	// 🎀 计算字段（不存储到数据库）
+	MatchedCount  int      `json:"matched_count,omitempty" gorm:"-"`
+	MatchedModels []string `json:"matched_models,omitempty" gorm:"-"`
 }
 
 func (m *ModelMeta) Insert() error {
@@ -72,4 +83,20 @@ func SearchModelsMeta(keyword string, offset int, limit int) ([]*ModelMeta, int6
 		return nil, 0, err
 	}
 	return items, total, nil
+}
+
+// 🎀 批量更新状态～
+func BatchUpdateModelsStatus(ids []int, enabled bool) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return common.DB.Model(&ModelMeta{}).Where("id IN ?", ids).Update("enabled", enabled).Error
+}
+
+// 🎀 批量删除模型～
+func BatchDeleteModels(ids []int) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return common.DB.Where("id IN ?", ids).Delete(&ModelMeta{}).Error
 }

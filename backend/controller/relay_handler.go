@@ -3,6 +3,7 @@ package controller
 import (
 	"STfreApi/common"
 	"STfreApi/dto"
+	"STfreApi/middleware"
 	"STfreApi/model"
 	"STfreApi/service"
 	"fmt"
@@ -190,6 +191,9 @@ func RecordConsumeLog(c *gin.Context, token *model.Token, modelName string, prom
 		service.EnqueueLog(log)
 		return nil
 	})
+
+	// 🎀 把本次 token 消耗记入分组 TPM 窗口～
+	middleware.RecordGroupTokens(billingGroup, promptTokens+completionTokens)
 }
 
 // RecordConsumeWithBilling 使用预扣/退款模式结算
@@ -243,6 +247,9 @@ func RecordConsumeWithBilling(c *gin.Context, token *model.Token, modelName stri
 		IP:               c.ClientIP(),
 		RequestId:        c.GetString("request_id"),
 	}
+
+	// 🎀 把本次 token 消耗记入分组 TPM 窗口（放在结算分支前，哪条路径都不漏）～
+	middleware.RecordGroupTokens(billingGroup, usage.PromptTokens+usage.CompletionTokens)
 
 	// 根据用户偏好决定结算来源
 	priority := getUserBillingPreference(token.UserId)

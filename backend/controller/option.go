@@ -191,6 +191,37 @@ func GetPublicPricing(c *gin.Context) {
 		return
 	}
 
+	// 🎀 模型元数据（描述/图标/标签/端点/供应商/上下文），按模型名索引～
+	var metas []model.ModelMeta
+	_ = common.DB.Where("enabled = ?", true).Find(&metas).Error
+	metaByName := make(map[string]*model.ModelMeta, len(metas))
+	for i := range metas {
+		metaByName[metas[i].ModelName] = &metas[i]
+	}
+
+	// 🎀 供应商信息（名称/图标）～
+	var vendors []model.Vendor
+	_ = common.DB.Find(&vendors).Error
+	vendorByID := make(map[int]*model.Vendor, len(vendors))
+	for i := range vendors {
+		vendorByID[vendors[i].Id] = &vendors[i]
+	}
+
+	// 🎀 从能力表捞出每个模型在哪些分组可用（group×model 真实映射）～
+	type abilityRow struct {
+		GroupName string
+		Model     string
+	}
+	var abilityRows []abilityRow
+	_ = common.DB.Model(&model.Ability{}).
+		Select("DISTINCT group_name, model").
+		Where("enabled = ?", true).
+		Scan(&abilityRows).Error
+	groupsByModel := make(map[string][]string)
+	for _, r := range abilityRows {
+		groupsByModel[r.Model] = append(groupsByModel[r.Model], r.GroupName)
+	}
+
 	// Convert to array format
 	type ModelPrice struct {
 		Model               string  `json:"model"`
@@ -200,11 +231,41 @@ func GetPublicPricing(c *gin.Context) {
 		UpstreamOutputPrice float64 `json:"upstream_output_price"`
 		ActualInputPrice    float64 `json:"actual_input_price"`
 		ActualOutputPrice   float64 `json:"actual_output_price"`
+		// 🎀 元数据增强字段～
+		Description   string   `json:"description,omitempty"`
+		Icon          string   `json:"icon,omitempty"`
+		Tags          string   `json:"tags,omitempty"`
+		Endpoints     string   `json:"endpoints,omitempty"`
+		VendorName    string   `json:"vendor_name,omitempty"`
+		VendorIcon    string   `json:"vendor_icon,omitempty"`
+		ContextLength int      `json:"context_length,omitempty"`
+		Groups        []string `json:"groups,omitempty"` // 🎀 可用分组～
 	}
 
-	models := make([]ModelPrice, 0, len(configs))
+	fillMeta := func(mp *ModelPrice, meta *model.ModelMeta) {
+		mp.Groups = groupsByModel[mp.Model]
+		if meta == nil {
+			return
+		}
+		mp.Description = meta.Description
+		mp.Icon = meta.Icon
+		mp.Tags = meta.Tags
+		mp.Endpoints = meta.Endpoints
+		mp.ContextLength = meta.ContextLength
+		if v := vendorByID[meta.VendorId]; v != nil {
+			mp.VendorName = v.Name
+			if v.Icon != "" {
+				mp.VendorIcon = v.Icon
+			} else {
+				mp.VendorIcon = v.Name
+			}
+		}
+	}
+
+	models := make([]ModelPrice, 0, len(configs)+len(metas))
+	seen := make(map[string]bool, len(configs))
 	for _, cfg := range configs {
-		models = append(models, ModelPrice{
+		mp := ModelPrice{
 			Model:               cfg.ModelName,
 			InputRatio:          cfg.InputRatio,
 			OutputRatio:         cfg.OutputRatio,
@@ -212,8 +273,44 @@ func GetPublicPricing(c *gin.Context) {
 			UpstreamOutputPrice: cfg.UpstreamOutputPrice,
 			ActualInputPrice:    cfg.UpstreamInputPrice * cfg.InputRatio,
 			ActualOutputPrice:   cfg.UpstreamOutputPrice * cfg.OutputRatio,
-		})
+		}
+		fillMeta(&mp, metaByName[cfg.ModelName])
+		models = append(models, mp)
+		seen[cfg.ModelName] = true
 	}
 
-	common.OK(c, gin.H{"models": models})
+	// 🎀 元数据表独有的模型也放进广场（用元数据价格，倍率视为 1）～
+	for i := range metas {
+		meta := &metas[i]
+		if seen[meta.ModelName] {
+			continue
+		}
+		mp := ModelPrice{
+			Model:               meta.ModelName,
+			InputRatio:          1,
+			OutputRatio:         1,
+			UpstreamInputPrice:  meta.InputPrice,
+			UpstreamOutputPrice: meta.OutputPrice,
+			ActualInputPrice:    meta.InputPrice,
+			ActualOutputPrice:   meta.OutputPrice,
+		}
+		fillMeta(&mp, meta)
+		models = append(models, mp)
+	}
+
+	// 🎀 分组速率限制表（RPM/TPM/RPD，0=不限），给广场 API 页展示～
+	type groupLimit struct {
+		Group string `json:"group"`
+		RPM   int    `json:"rpm"`
+		TPM   int    `json:"tpm"`
+		RPD   int    `json:"rpd"`
+	}
+	var groups []model.Group
+	_ = common.DB.Find(&groups).Error
+	groupLimits := make([]groupLimit, 0, len(groups))
+	for _, g := range groups {
+		groupLimits = append(groupLimits, groupLimit{Group: g.Name, RPM: g.QPM, TPM: g.TPM, RPD: g.RPD})
+	}
+
+	common.OK(c, gin.H{"models": models, "group_limits": groupLimits})
 }

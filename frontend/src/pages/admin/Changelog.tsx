@@ -27,9 +27,24 @@ const TYPE_META: Record<ChangeType, { label: string; icon: typeof Sparkles; colo
 // 硬编码的更新日志列表，发布新版本时在这里追加一条即可～
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '公测 1.1.0',
+    date: '2026-07-18',
+    current: true,
+    items: [
+      { type: 'feature', text: '模型广场全面重构：多维筛选、卡片/表格双视图、计价单位切换、模型详情三标签页（概览/性能/API）' },
+      { type: 'feature', text: '模型详情性能页基于真实调用日志：TPS、平均延迟、成功率、近 7 天请求趋势' },
+      { type: 'feature', text: '官方元数据仓库一键同步：自动带出模型描述、图标、标签、端点、供应商与官方价格，支持中/英/日多语言' },
+      { type: 'feature', text: '分组三维速率限制 RPM/TPM/RPD，五个中继入口统一生效；空分组表自动播种 default/vip/svip' },
+      { type: 'feature', text: '模型元数据批量操作与侧边抽屉编辑器：匹配规则选择、端点可视化编辑与模板填充' },
+      { type: 'improve', text: '模型中心合并供应商管理，移除部署管理与 io.net 部署能力' },
+      { type: 'improve', text: '所有渠道 ID 手输框改为下拉选择；模型/订阅/分组页面增加分页' },
+      { type: 'improve', text: '宸汐清源规则缓存日志降噪：刷新间隔 30 秒调整为 5 分钟，仅变化时输出' },
+      { type: 'fix', text: '修复匹配规则无法选中、批量操作被 :id 路由拦截、官方元数据中文路径 404 等问题' },
+    ],
+  },
+  {
     version: '公测 1.0.0',
     date: '2026-07-06',
-    current: true,
     items: [
       { type: 'feature', text: '新增多验证码方式支持、Passkey 与双因素认证（2FA）登录' },
       { type: 'feature', text: '新增宸汐玄鉴 AI 内容审核模块，支持行为风控与上下文净化' },

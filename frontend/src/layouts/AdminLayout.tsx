@@ -2,7 +2,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box,
-  Crown, Building2, Ticket, ListTodo,
+  Crown, Ticket, ListTodo,
   ArrowLeft, CreditCard, Shield, Sparkles, ShieldAlert, Download,
 } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
@@ -33,7 +33,6 @@ const navGroups: NavGroup[] = [
     items: [
       { key: '/admin/channel', icon: Server, label: '渠道中心' },
       { key: '/admin/model', icon: Box, label: '模型中心' },
-      { key: '/admin/vendor', icon: Building2, label: '供应商与部署' },
       { key: '/admin/group', icon: Layers, label: '分组管理' },
     ],
   },

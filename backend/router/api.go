@@ -178,6 +178,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.POST("/user/password/reset-confirm", middleware.CriticalRateLimitMiddleware(), middleware.CxSecMiddleware(), controller.PasswordResetConfirm)
 		apiRouter.GET("/system/status", controller.IsSystemInitialized)
 		apiRouter.GET("/pricing", controller.GetPublicPricing)
+		apiRouter.GET("/pricing/stats", middleware.RateLimitMiddleware(), controller.GetPublicModelStats)
 
 		// neko-api-key-tool compatible endpoint (self-auth via Bearer token)
 		apiRouter.GET("/key/info", controller.GetKeyInfo)
@@ -383,6 +384,8 @@ func SetApiRouter(router *gin.Engine) {
 
 			// 渠道增强
 			adminGroup.POST("/channel/test-all", controller.TestAllChannels)
+			adminGroup.POST("/channel/:id/test-batch", controller.BatchTestChannelModels)
+			adminGroup.POST("/channel/:id/test-advanced", controller.TestChannelWithEndpointType)
 			adminGroup.GET("/channel/models/:id", controller.FetchChannelModels)
 			adminGroup.GET("/channel/balance/:id", controller.FetchChannelBalance)
 			adminGroup.GET("/export/channel", controller.ExportChannelsJSON)
@@ -492,6 +495,9 @@ func SetApiRouter(router *gin.Engine) {
 			// Models Meta
 			adminGroup.GET("/models/sync_upstream/preview", controller.SyncUpstreamPreview)
 			adminGroup.POST("/models/sync_upstream", controller.SyncUpstreamModels)
+			// 🎀 官方元数据仓库同步（对齐 new-api，带描述/图标/标签/端点/供应商）～
+			adminGroup.GET("/models/sync_official/preview", controller.SyncOfficialPreview)
+			adminGroup.POST("/models/sync_official", controller.SyncOfficialModels)
 			adminGroup.GET("/models/missing", controller.GetMissingModels)
 			adminGroup.GET("/models", controller.GetAllModelsMeta)
 			adminGroup.GET("/models/search", controller.SearchModelsMeta)
@@ -499,27 +505,9 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.POST("/models", controller.CreateModelMeta)
 			adminGroup.PUT("/models", controller.UpdateModelMeta)
 			adminGroup.DELETE("/models/:id", controller.DeleteModelMeta)
-
-			// Deployments
-			adminGroup.GET("/deployments/settings", controller.GetModelDeploymentSettings)
-			adminGroup.POST("/deployments/settings/test-connection", controller.TestIoNetConnection)
-			adminGroup.GET("/deployments", controller.GetAllDeployments)
-			adminGroup.GET("/deployments/search", controller.SearchDeployments)
-			adminGroup.POST("/deployments/test-connection", controller.TestIoNetConnection)
-			adminGroup.GET("/deployments/hardware-types", controller.GetHardwareTypes)
-			adminGroup.GET("/deployments/locations", controller.GetLocations)
-			adminGroup.GET("/deployments/available-replicas", controller.GetAvailableReplicas)
-			adminGroup.POST("/deployments/price-estimation", controller.GetPriceEstimation)
-			adminGroup.GET("/deployments/check-name", controller.CheckClusterNameAvailability)
-			adminGroup.POST("/deployments", controller.CreateDeployment)
-			adminGroup.GET("/deployments/:id", controller.GetDeployment)
-			adminGroup.GET("/deployments/:id/logs", controller.GetDeploymentLogs)
-			adminGroup.GET("/deployments/:id/containers", controller.ListDeploymentContainers)
-			adminGroup.GET("/deployments/:id/containers/:container_id", controller.GetContainerDetails)
-			adminGroup.PUT("/deployments/:id", controller.UpdateDeployment)
-			adminGroup.PUT("/deployments/:id/name", controller.UpdateDeploymentName)
-			adminGroup.POST("/deployments/:id/extend", controller.ExtendDeployment)
-			adminGroup.DELETE("/deployments/:id", controller.DeleteDeployment)
+			// 🎀 批量操作路由～
+			adminGroup.PUT("/models/batch", controller.BatchUpdateModels)
+			adminGroup.DELETE("/models/batch", controller.BatchDeleteModels)
 
 			// 管理员支付管理（只读接口，普通管理员可查）
 			adminGroup.GET("/admin/payment/orders", controller.AdminListOrders)

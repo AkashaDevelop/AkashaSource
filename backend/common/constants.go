@@ -2,7 +2,7 @@ package common
 
 // System Constants
 var (
-	Version      = "公测1.0.0"
+	Version      = "公测1.1.0"
 	StartTime    = GetTimestamp()
 	QuotaPerUnit = 500 * 1000.0 // $0.002 / 1K tokens
 

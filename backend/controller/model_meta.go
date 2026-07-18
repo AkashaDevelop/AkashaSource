@@ -128,3 +128,44 @@ func DeleteModelMeta(c *gin.Context) {
 	}
 	common.OKMsg(c, "删除模型成功", nil)
 }
+
+// 🎀 批量更新模型状态～
+func BatchUpdateModels(c *gin.Context) {
+	var req struct {
+		IDs     []int `json:"ids" binding:"required"`
+		Enabled bool  `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, common.CodeParamError, err.Error())
+		return
+	}
+	if len(req.IDs) == 0 {
+		common.Fail(c, common.CodeParamError, "请选择要操作的模型")
+		return
+	}
+	if err := model.BatchUpdateModelsStatus(req.IDs, req.Enabled); err != nil {
+		common.Fail(c, common.CodeServerError, "批量更新失败")
+		return
+	}
+	common.OKMsg(c, "批量更新成功", nil)
+}
+
+// 🎀 批量删除模型～
+func BatchDeleteModels(c *gin.Context) {
+	var req struct {
+		IDs []int `json:"ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.Fail(c, common.CodeParamError, err.Error())
+		return
+	}
+	if len(req.IDs) == 0 {
+		common.Fail(c, common.CodeParamError, "请选择要删除的模型")
+		return
+	}
+	if err := model.BatchDeleteModels(req.IDs); err != nil {
+		common.Fail(c, common.CodeServerError, "批量删除失败")
+		return
+	}
+	common.OKMsg(c, "批量删除成功", nil)
+}

@@ -1,55 +1,15 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  Search, X, Copy, Check, SlidersHorizontal,
-  Grid3X3, List, EyeOff, ChevronDown, ChevronUp, RotateCcw,
+  Search, X, SlidersHorizontal, Grid3X3, List, EyeOff, ChevronDown, ChevronUp, RotateCcw,
 } from 'lucide-react';
+import {
+  type ModelPrice, getVendor, parseTags, parseEndpoints, formatPrice, formatContext, tierColor, TIER_OPTIONS,
+} from './pricing/lib';
+import ModelCard from './pricing/ModelCard';
+import ModelDetailsDrawer from './pricing/ModelDetailsDrawer';
 
-/* ═══ 类型 ═══ */
-interface ModelPrice {
-  model: string;
-  input_ratio: number;
-  output_ratio: number;
-  upstream_input_price: number;
-  upstream_output_price: number;
-  actual_input_price: number;
-  actual_output_price: number;
-}
-
-/* ═══ 供应商 ═══ */
-const VENDORS: { pattern: RegExp; name: string; icon: string; color: string }[] = [
-  { pattern: /^(gpt|o1|o3|dall-e|whisper|tts|text-)/i, name: 'OpenAI',     icon: '⚡', color: '#10a37f' },
-  { pattern: /^claude/i,                                  name: 'Anthropic',  icon: '🟣', color: '#d97706' },
-  { pattern: /^gemini/i,                                  name: 'Google',     icon: '🔵', color: '#4285f4' },
-  { pattern: /^deepseek/i,                                name: 'DeepSeek',   icon: '🌊', color: '#4f46e5' },
-  { pattern: /^(glm|chatglm)/i,                           name: '智谱 AI',    icon: '🔮', color: '#7c3aed' },
-  { pattern: /^qwen/i,                                    name: '阿里云',     icon: '☁️', color: '#ff6a00' },
-  { pattern: /^hunyuan/i,                                 name: '腾讯混元',   icon: '💙', color: '#0052d9' },
-  { pattern: /^ernie/i,                                   name: '百度文心',   icon: '🔍', color: '#2932e1' },
-  { pattern: /^spark/i,                                   name: '讯飞星火',   icon: '🔥', color: '#ca0d19' },
-  { pattern: /^moonshot/i,                                name: 'Moonshot',   icon: '🌙', color: '#6d28d9' },
-  { pattern: /^(llama|ollama)/i,                          name: 'Ollama',     icon: '🦙', color: '#8b5cf6' },
-  { pattern: /^mistral/i,                                 name: 'Mistral',    icon: '🌬️', color: '#ffb300' },
-  { pattern: /^silicon/i,                                 name: 'SiliconFlow',icon: '💎', color: '#6366f1' },
-  { pattern: /^azure/i,                                   name: 'Azure',      icon: '☁️', color: '#0078d4' },
-];
-
-function vName(m: string) {
-  return VENDORS.find(v => v.pattern.test(m)) ?? { name: '其他', icon: '🧠', color: 'var(--accent-primary)' };
-}
-
-function fp(p: number) {
-  if (p <= 0) return '—';
-  if (p < 0.01) return p.toFixed(4);
-  return p.toFixed(2);
-}
-
-/* 倍率分级颜色 */
-function tierColor(r: number) {
-  if (r <= 1)  return { fg: '#10b981', bg: 'rgba(16,185,129,0.12)' };
-  if (r <= 5)  return { fg: '#0891b2', bg: 'rgba(8,145,178,0.12)' };
-  if (r <= 15) return { fg: '#d97706', bg: 'rgba(217,119,6,0.12)' };
-  return            { fg: '#dc2626', bg: 'rgba(220,38,38,0.12)' };
-}
+// 🌸 模型广场：探索、比较、选择模型的公开页面～
+// 对齐 new-api 新版前端：侧栏筛选（档位/供应商/标签/端点）+ 卡片/表格双视图 + 详情抽屉 + 单位切换
 
 /* ═══ 骨架 ═══ */
 function SkeletonCard() {
@@ -118,18 +78,34 @@ function FilterItem({ label, count, active, onClick, icon, dot }: { label: strin
   );
 }
 
+/* ～已选筛选小胶囊～ */
+function ActiveChip({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <span style={{ padding: '3px 9px', borderRadius: 'var(--radius-full)', fontSize: '11px', fontWeight: 600, background: 'var(--nav-active-bg)', color: 'var(--accent-primary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+      {label}
+      <button onClick={onClear} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, lineHeight: 1, fontSize: '13px', fontWeight: 700 }}>×</button>
+    </span>
+  );
+}
+
 /* ═══ 主页面 ═══ */
 export default function Pricing() {
   const [models, setModels] = useState<ModelPrice[]>([]);
+  const [groupLimits, setGroupLimits] = useState<{ group: string; rpm: number; tpm: number; rpd: number }[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const [search,       setSearch]       = useState('');
-  const [vendorF,      setVendorF]      = useState<string | null>(null);
-  const [tierF,        setTierF]        = useState<string | null>(null);
-  const [sort,         setSort]         = useState<'name' | 'input' | 'output'>('name');
-  const [view,         setView]         = useState<'card' | 'table'>('card');
+  const [search, setSearch] = useState('');
+  const [vendorF, setVendorF] = useState<string | null>(null);
+  const [tierF, setTierF] = useState<string | null>(null);
+  const [tagF, setTagF] = useState<string | null>(null);
+  const [endpointF, setEndpointF] = useState<string | null>(null);
+  const [groupF, setGroupF] = useState<string | null>(null);
+  const [sort, setSort] = useState<'name' | 'input' | 'output'>('name');
+  const [view, setView] = useState<'card' | 'table'>('card');
+  const [unit, setUnit] = useState<'M' | 'K'>('M');
   const [mobileFilter, setMobileFilter] = useState(false);
-  const [copied,       setCopied]       = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [detailModel, setDetailModel] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const handleCopy = useCallback(async (n: string) => {
@@ -143,8 +119,9 @@ export default function Pricing() {
     fetch('/api/pricing')
       .then(r => r.json())
       .then(d => {
-        const list = d.code === 0 ? d.data?.models : d.models;
-        if (Array.isArray(list)) setModels(list);
+        const payload = d.code === 0 ? d.data : d;
+        if (Array.isArray(payload?.models)) setModels(payload.models);
+        if (Array.isArray(payload?.group_limits)) setGroupLimits(payload.group_limits);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -162,52 +139,84 @@ export default function Pricing() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  /* 供应商列表 */
+  /* 供应商列表（元数据优先，名称推断兜底） */
   const vlist = useMemo(() => {
     const m: Record<string, { icon: string; color: string; count: number }> = {};
     models.forEach(x => {
-      const v = vName(x.model);
+      const v = getVendor(x);
       if (!m[v.name]) m[v.name] = { icon: v.icon, color: v.color, count: 0 };
       m[v.name].count++;
     });
     return Object.entries(m).sort(([, a], [, b]) => b.count - a.count);
   }, [models]);
 
-  /* 过滤 */
+  /* 标签列表 */
+  const tagList = useMemo(() => {
+    const m: Record<string, number> = {};
+    models.forEach(x => parseTags(x.tags).forEach(t => { m[t] = (m[t] || 0) + 1; }));
+    return Object.entries(m).sort(([, a], [, b]) => b - a).slice(0, 20);
+  }, [models]);
+
+  /* 端点列表 */
+  const endpointList = useMemo(() => {
+    const m: Record<string, number> = {};
+    models.forEach(x => parseEndpoints(x.endpoints).forEach(e => { m[e] = (m[e] || 0) + 1; }));
+    return Object.entries(m).sort(([, a], [, b]) => b - a);
+  }, [models]);
+
+  /* 分组列表：模型自带的分组 ∪ 后端分组限制表 */
+  const groupList = useMemo(() => {
+    const m: Record<string, number> = {};
+    models.forEach(x => (x.groups || []).forEach(g => { m[g] = (m[g] || 0) + 1; }));
+    // 分组限制表里有但还没模型的分组也展示（计数 0）
+    groupLimits.forEach(gl => { if (!(gl.group in m)) m[gl.group] = 0; });
+    return Object.entries(m).sort(([, a], [, b]) => b - a);
+  }, [models, groupLimits]);
+
+  /* 过滤 + 排序 */
   const filtered = useMemo(() => {
     let list = models;
     const q = search.toLowerCase().trim();
-    if (q) list = list.filter(x => x.model.toLowerCase().includes(q));
-    if (vendorF) list = list.filter(x => vName(x.model).name === vendorF);
+    if (q) {
+      list = list.filter(x =>
+        x.model.toLowerCase().includes(q)
+        || getVendor(x).name.toLowerCase().includes(q)
+        || (x.description || '').toLowerCase().includes(q)
+        || parseTags(x.tags).some(t => t.toLowerCase().includes(q))
+        || parseEndpoints(x.endpoints).some(e => e.toLowerCase().includes(q))
+      );
+    }
+    if (vendorF) list = list.filter(x => getVendor(x).name === vendorF);
+    if (tagF) list = list.filter(x => parseTags(x.tags).includes(tagF));
+    if (endpointF) list = list.filter(x => parseEndpoints(x.endpoints).includes(endpointF));
+    if (groupF) list = list.filter(x => (x.groups || []).includes(groupF));
     if (tierF) {
-      if (tierF === 'low')  list = list.filter(x => x.input_ratio <= 5 && x.output_ratio <= 5);
-      if (tierF === 'mid')  list = list.filter(x => Math.max(x.input_ratio, x.output_ratio) > 5 && Math.max(x.input_ratio, x.output_ratio) <= 15);
-      if (tierF === 'high') list = list.filter(x => Math.max(x.input_ratio, x.output_ratio) > 15);
+      const opt = TIER_OPTIONS.find(t => t.key === tierF);
+      if (opt) list = list.filter(opt.test);
     }
     return [...list].sort((a, b) => {
-      if (sort === 'input')  return b.actual_input_price - a.actual_input_price;
+      if (sort === 'input') return b.actual_input_price - a.actual_input_price;
       if (sort === 'output') return b.actual_output_price - a.actual_output_price;
       return a.model.localeCompare(b.model);
     });
-  }, [models, search, vendorF, tierF, sort]);
+  }, [models, search, vendorF, tierF, tagF, endpointF, groupF, sort]);
 
-  const hasF = !!(vendorF || tierF);
-  const fCnt = (vendorF ? 1 : 0) + (tierF ? 1 : 0);
-  const clearAll = () => { setSearch(''); setVendorF(null); setTierF(null); };
+  const hasF = !!(vendorF || tierF || tagF || endpointF || groupF);
+  const fCnt = (vendorF ? 1 : 0) + (tierF ? 1 : 0) + (tagF ? 1 : 0) + (endpointF ? 1 : 0) + (groupF ? 1 : 0);
+  const clearAll = () => { setSearch(''); setVendorF(null); setTierF(null); setTagF(null); setEndpointF(null); setGroupF(null); };
+
+  const selectedModel = useMemo(
+    () => (detailModel ? models.find(m => m.model === detailModel) ?? null : null),
+    [models, detailModel],
+  );
 
   /* ═══ 侧边栏 ═══ */
-  const TIER_OPTS = [
-    { key: 'low',  label: '经济 ≤5x',   dot: '#10b981', test: (x: ModelPrice) => x.input_ratio <= 5 && x.output_ratio <= 5 },
-    { key: 'mid',  label: '标准 5-15x', dot: '#d97706', test: (x: ModelPrice) => Math.max(x.input_ratio, x.output_ratio) > 5 && Math.max(x.input_ratio, x.output_ratio) <= 15 },
-    { key: 'high', label: '高级 >15x',  dot: '#dc2626', test: (x: ModelPrice) => Math.max(x.input_ratio, x.output_ratio) > 15 },
-  ];
-
   const sidebar = (
     <div>
       <div className="flex items-center justify-between" style={{ padding: '16px 16px 4px' }}>
         <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>筛选</span>
         {hasF && (
-          <button onClick={clearAll} className="flex items-center gap-1" style={{ fontSize: '11px', color: 'var(--accent-primary)', background: 'none', border: 'none', cursor: 'pointer' }}>
+          <button onClick={() => { setVendorF(null); setTierF(null); setTagF(null); setEndpointF(null); setGroupF(null); }} className="flex items-center gap-1" style={{ fontSize: '11px', color: 'var(--accent-primary)', background: 'none', border: 'none', cursor: 'pointer' }}>
             <RotateCcw size={11} /> 重置
           </button>
         )}
@@ -215,10 +224,22 @@ export default function Pricing() {
 
       <FilterGroup title="价格档位">
         <FilterItem label="全部档位" count={models.length} active={!tierF} onClick={() => setTierF(null)} />
-        {TIER_OPTS.map(t => (
+        {TIER_OPTIONS.map(t => (
           <FilterItem key={t.key} label={t.label} dot={t.dot} count={models.filter(t.test).length} active={tierF === t.key} onClick={() => setTierF(tierF === t.key ? null : t.key)} />
         ))}
       </FilterGroup>
+
+      {groupList.length > 0 && (
+        <>
+          <div style={{ borderTop: '1px solid var(--border-color)', margin: '0 16px' }} />
+          <FilterGroup title="分组">
+            <FilterItem label="全部分组" count={models.length} active={!groupF} onClick={() => setGroupF(null)} />
+            {groupList.map(([name, count]) => (
+              <FilterItem key={name} label={name} count={count} active={groupF === name} onClick={() => setGroupF(groupF === name ? null : name)} />
+            ))}
+          </FilterGroup>
+        </>
+      )}
 
       <div style={{ borderTop: '1px solid var(--border-color)', margin: '0 16px' }} />
 
@@ -228,6 +249,30 @@ export default function Pricing() {
           <FilterItem key={name} label={name} count={info.count} active={vendorF === name} onClick={() => setVendorF(vendorF === name ? null : name)} icon={info.icon} />
         ))}
       </FilterGroup>
+
+      {endpointList.length > 0 && (
+        <>
+          <div style={{ borderTop: '1px solid var(--border-color)', margin: '0 16px' }} />
+          <FilterGroup title="端点类型">
+            <FilterItem label="全部端点" count={models.length} active={!endpointF} onClick={() => setEndpointF(null)} />
+            {endpointList.map(([name, count]) => (
+              <FilterItem key={name} label={name} count={count} active={endpointF === name} onClick={() => setEndpointF(endpointF === name ? null : name)} />
+            ))}
+          </FilterGroup>
+        </>
+      )}
+
+      {tagList.length > 0 && (
+        <>
+          <div style={{ borderTop: '1px solid var(--border-color)', margin: '0 16px' }} />
+          <FilterGroup title="能力标签" defaultOpen={false}>
+            <FilterItem label="全部标签" count={models.length} active={!tagF} onClick={() => setTagF(null)} />
+            {tagList.map(([name, count]) => (
+              <FilterItem key={name} label={name} count={count} active={tagF === name} onClick={() => setTagF(tagF === name ? null : name)} />
+            ))}
+          </FilterGroup>
+        </>
+      )}
     </div>
   );
 
@@ -241,7 +286,10 @@ export default function Pricing() {
           模型广场
         </h1>
         <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '8px' }}>
-          {loading ? '正在加载模型数据...' : `本站当前已启用模型，总计 ${models.length} 个 · 探索并比较各模型的定价`}
+          {loading ? '正在加载模型数据...' : `本站当前已启用 ${models.length} 个模型`}
+        </p>
+        <p style={{ fontSize: '12px', color: 'var(--text-faint)', marginTop: '4px', maxWidth: '520px', marginLeft: 'auto', marginRight: 'auto' }}>
+          探索精选 AI 模型，比较定价与能力，为每个场景选择合适的模型。
         </p>
 
         {/* 居中大搜索框 */}
@@ -249,7 +297,7 @@ export default function Pricing() {
           <Search size={17} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)', pointerEvents: 'none' }} />
           <input
             ref={searchRef}
-            placeholder="搜索模型名称、供应商..."
+            placeholder="搜索模型名称、供应商、端点或标签..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{
@@ -306,8 +354,8 @@ export default function Pricing() {
       {/* ══════ 双栏主体 ══════ */}
       <div className="flex gap-6">
         {/* 侧边栏 */}
-        <aside className="hidden md:block" style={{ width: '232px', flexShrink: 0 }}>
-          <div style={{ borderRadius: 'var(--radius-xl)', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', overflow: 'hidden', position: 'sticky', top: '68px', paddingBottom: '8px' }}>
+        <aside className="hidden md:block" style={{ width: '240px', flexShrink: 0 }}>
+          <div style={{ borderRadius: 'var(--radius-xl)', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', overflow: 'hidden', position: 'sticky', top: '68px', paddingBottom: '8px', maxHeight: 'calc(100dvh - 84px)', overflowY: 'auto' }}>
             {sidebar}
           </div>
         </aside>
@@ -320,22 +368,27 @@ export default function Pricing() {
               <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>
                 {loading ? '加载中' : `${filtered.length} 个模型`}
               </span>
-              {/* 已选标签 */}
-              {tierF && (
-                <span style={{ padding: '3px 9px', borderRadius: 'var(--radius-full)', fontSize: '11px', fontWeight: 600, background: 'var(--nav-active-bg)', color: 'var(--accent-primary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  {({ low: '经济档', mid: '标准档', high: '高级档' } as any)[tierF]}
-                  <button onClick={() => setTierF(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, lineHeight: 1, fontSize: '13px', fontWeight: 700 }}>×</button>
-                </span>
-              )}
-              {vendorF && (
-                <span style={{ padding: '3px 9px', borderRadius: 'var(--radius-full)', fontSize: '11px', fontWeight: 600, background: 'var(--nav-active-bg)', color: 'var(--accent-primary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  {vName(vendorF).icon} {vendorF}
-                  <button onClick={() => setVendorF(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, lineHeight: 1, fontSize: '13px', fontWeight: 700 }}>×</button>
-                </span>
-              )}
+              {tierF && <ActiveChip label={TIER_OPTIONS.find(t => t.key === tierF)?.label || tierF} onClear={() => setTierF(null)} />}
+              {groupF && <ActiveChip label={`分组: ${groupF}`} onClear={() => setGroupF(null)} />}
+              {vendorF && <ActiveChip label={vendorF} onClear={() => setVendorF(null)} />}
+              {endpointF && <ActiveChip label={endpointF} onClear={() => setEndpointF(null)} />}
+              {tagF && <ActiveChip label={tagF} onClear={() => setTagF(null)} />}
             </div>
 
             <div className="flex items-center gap-2">
+              {/* 单位切换 */}
+              <div className="flex items-center" style={{ background: 'var(--bg-elevated)', borderRadius: '9px', border: '1px solid var(--border-color)', padding: '2px' }}>
+                {([['M', '/1M'], ['K', '/1K']] as const).map(([k, l]) => (
+                  <button key={k} onClick={() => setUnit(k)} style={{
+                    padding: '4px 10px', borderRadius: '7px', border: 'none', fontSize: '12px', fontWeight: 500, cursor: 'pointer',
+                    background: unit === k ? 'var(--bg-surface)' : 'transparent',
+                    color: unit === k ? 'var(--accent-primary)' : 'var(--text-muted)',
+                    boxShadow: unit === k ? 'var(--shadow-card)' : 'none',
+                    transition: 'all 0.12s',
+                  }}>{l}</button>
+                ))}
+              </div>
+
               {/* 排序分段控件 */}
               <div className="flex items-center" style={{ background: 'var(--bg-elevated)', borderRadius: '9px', border: '1px solid var(--border-color)', padding: '2px' }}>
                 {([['name', '名称'], ['input', '输入价'], ['output', '输出价']] as const).map(([k, l]) => (
@@ -375,18 +428,31 @@ export default function Pricing() {
             <div className="data-table-wrap">
               <table className="data-table">
                 <thead>
-                  <tr><th>模型</th><th>供应商</th><th>输入价格</th><th>输出价格</th><th>倍率</th></tr>
+                  <tr><th>模型</th><th>供应商</th><th>标签</th><th>上下文</th><th>输入价格</th><th>输出价格</th><th>倍率</th></tr>
                 </thead>
                 <tbody>
                   {filtered.map(m => {
-                    const v = vName(m.model);
+                    const v = getVendor(m);
+                    const tags = parseTags(m.tags);
+                    const ctx = formatContext(m.context_length);
                     const it = tierColor(m.input_ratio), ot = tierColor(m.output_ratio);
                     return (
-                      <tr key={m.model} style={{ fontSize: '12px' }}>
+                      <tr key={m.model} style={{ fontSize: '12px', cursor: 'pointer' }} onClick={() => setDetailModel(m.model)}>
                         <td><span style={{ fontFamily: 'SF Mono, Menlo, monospace', fontWeight: 600 }}>{m.model}</span></td>
                         <td><span style={{ color: v.color, fontWeight: 600 }}>{v.icon} {v.name}</span></td>
-                        <td>¥{fp(m.actual_input_price)}<span style={{ color: 'var(--text-faint)' }}>/M</span></td>
-                        <td><span style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>¥{fp(m.actual_output_price)}</span><span style={{ color: 'var(--text-faint)' }}>/M</span></td>
+                        <td>
+                          {tags.length > 0 ? (
+                            <span className="flex flex-wrap gap-1">
+                              {tags.slice(0, 3).map(t => (
+                                <span key={t} style={{ padding: '1px 7px', borderRadius: '5px', fontSize: '10px', fontWeight: 500, background: 'var(--nav-active-bg)', color: 'var(--accent-primary)' }}>{t}</span>
+                              ))}
+                              {tags.length > 3 && <span style={{ fontSize: '10px', color: 'var(--text-faint)' }}>+{tags.length - 3}</span>}
+                            </span>
+                          ) : <span style={{ color: 'var(--text-faint)' }}>—</span>}
+                        </td>
+                        <td>{ctx || <span style={{ color: 'var(--text-faint)' }}>—</span>}</td>
+                        <td>{m.actual_input_price <= 0 ? '免费' : <>¥{formatPrice(m.actual_input_price, unit)}<span style={{ color: 'var(--text-faint)' }}>/{unit === 'M' ? 'M' : 'K'}</span></>}</td>
+                        <td>{m.actual_output_price <= 0 ? '免费' : <><span style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>¥{formatPrice(m.actual_output_price, unit)}</span><span style={{ color: 'var(--text-faint)' }}>/{unit === 'M' ? 'M' : 'K'}</span></>}</td>
                         <td>
                           <span style={{ padding: '1px 7px', borderRadius: '5px', fontSize: '10px', fontWeight: 600, background: it.bg, color: it.fg, marginRight: '4px' }}>{m.input_ratio}x</span>
                           <span style={{ padding: '1px 7px', borderRadius: '5px', fontSize: '10px', fontWeight: 600, background: ot.bg, color: ot.fg }}>{m.output_ratio}x</span>
@@ -400,84 +466,23 @@ export default function Pricing() {
           ) : (
             /* ─── 卡片视图 ─── */
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filtered.map(m => {
-                const v = vName(m.model);
-                const isCopied = copied === m.model;
-                const it = tierColor(m.input_ratio), ot = tierColor(m.output_ratio);
-
-                return (
-                  <div
-                    key={m.model}
-                    className="model-card-item"
-                    style={{
-                      borderRadius: '16px', border: '1px solid var(--border-color)',
-                      background: 'var(--bg-surface)', overflow: 'hidden', position: 'relative',
-                      transition: 'box-shadow 0.2s, transform 0.2s, border-color 0.2s',
-                    }}
-                    onMouseEnter={e => { const el = e.currentTarget; el.style.transform = 'translateY(-3px)'; el.style.boxShadow = 'var(--shadow-hover)'; el.style.borderColor = v.color === 'var(--accent-primary)' ? 'var(--accent-primary)' : `${v.color}66`; }}
-                    onMouseLeave={e => { const el = e.currentTarget; el.style.transform = 'translateY(0)'; el.style.boxShadow = 'none'; el.style.borderColor = 'var(--border-color)'; }}
-                  >
-                    {/* 顶部品牌色强调线 */}
-                    <div style={{ height: '3px', background: `linear-gradient(90deg, ${v.color}, transparent)` }} />
-
-                    {/* 卡片主体 */}
-                    <div style={{ padding: '18px 20px 16px' }}>
-                      {/* 头行 */}
-                      <div className="flex items-start justify-between gap-3 mb-4">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <div style={{ width: '42px', height: '42px', borderRadius: '12px', flexShrink: 0, background: `${v.color}14`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>
-                            {v.icon}
-                          </div>
-                          <div className="min-w-0">
-                            <h3 style={{ fontFamily: 'SF Mono, Menlo, monospace', fontSize: '15px', lineHeight: 1.25, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>
-                              {m.model}
-                            </h3>
-                            <span style={{ fontSize: '12px', color: v.color, fontWeight: 600 }}>{v.name}</span>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleCopy(m.model)}
-                          style={{ padding: '6px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-elevated)', color: isCopied ? '#10b981' : 'var(--text-muted)', cursor: 'pointer', display: 'flex', flexShrink: 0, transition: 'color 0.15s' }}
-                          title="复制模型名"
-                        >
-                          {isCopied ? <Check size={14} /> : <Copy size={14} />}
-                        </button>
-                      </div>
-
-                      {/* 价格双列 */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
-                          <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: '0 0 3px' }}>输入 / 百万 Token</p>
-                          <p style={{ fontSize: '16px', fontWeight: 700, fontFamily: 'SF Mono, Menlo, monospace', color: 'var(--text-primary)', margin: 0 }}>
-                            ¥{fp(m.actual_input_price)}
-                          </p>
-                        </div>
-                        <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
-                          <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: '0 0 3px' }}>输出 / 百万 Token</p>
-                          <p style={{ fontSize: '16px', fontWeight: 700, fontFamily: 'SF Mono, Menlo, monospace', color: 'var(--accent-primary)', margin: 0 }}>
-                            ¥{fp(m.actual_output_price)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 底部元信息 */}
-                    <div style={{ padding: '10px 20px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div className="flex items-center gap-1.5">
-                        <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, background: it.bg, color: it.fg }}>输入 {m.input_ratio}x</span>
-                        <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, background: ot.bg, color: ot.fg }}>输出 {m.output_ratio}x</span>
-                      </div>
-                      {m.upstream_input_price > 0 && (
-                        <span style={{ fontSize: '11px', color: 'var(--text-faint)' }}>上游 ¥{m.upstream_input_price.toFixed(2)}</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              {filtered.map(m => (
+                <ModelCard key={m.model} m={m} unit={unit} copied={copied} onCopy={handleCopy} onClick={setDetailModel} />
+              ))}
             </div>
           )}
         </main>
       </div>
+
+      {/* 详情抽屉 */}
+      <ModelDetailsDrawer
+        model={selectedModel}
+        unit={unit}
+        copied={copied}
+        groupLimits={groupLimits}
+        onCopy={handleCopy}
+        onClose={() => setDetailModel(null)}
+      />
     </div>
   );
 }

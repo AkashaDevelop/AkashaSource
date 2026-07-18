@@ -14,6 +14,7 @@ import {
   Select,
   SelectItem,
   useDisclosure,
+  Pagination,
 } from '../../components/ui';
 import {
   CircleDashed,
@@ -119,6 +120,8 @@ export default function SubscriptionManagement() {
   const [keyword, setKeyword] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(20);
 
   const [editing, setEditing] = useState<Partial<Plan> | null>(null);
   const [isNew, setIsNew] = useState(false);
@@ -162,6 +165,19 @@ export default function SubscriptionManagement() {
       return hitKeyword && hitType && hitStatus;
     });
   }, [plans, keyword, typeFilter, statusFilter]);
+
+  const paginatedPlans = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return filteredPlans.slice(startIndex, endIndex);
+  }, [filteredPlans, currentPage, pageSize]);
+
+  const totalPages = Math.ceil(filteredPlans.length / pageSize);
+
+  // 筛选条件改变时重置到第一页
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [keyword, typeFilter, statusFilter]);
 
   const openNew = () => {
     setIsNew(true);
@@ -357,7 +373,7 @@ export default function SubscriptionManagement() {
                 </td>
               </tr>
             ) : (
-              filteredPlans.map((plan) => (
+              paginatedPlans.map((plan) => (
                 <tr key={plan.id}>
                   <td>{plan.id}</td>
                   <td>
@@ -433,6 +449,20 @@ export default function SubscriptionManagement() {
           </tbody>
         </table>
       </div>
+
+      {/* 分页控件 */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <span className="text-sm text-default-500">
+            显示 {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredPlans.length)} 条，共 {filteredPlans.length} 条
+          </span>
+          <Pagination
+            total={totalPages}
+            page={currentPage}
+            onChange={setCurrentPage}
+          />
+        </div>
+      )}
 
       <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
         <ModalContent>

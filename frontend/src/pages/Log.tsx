@@ -64,6 +64,25 @@ export default function LogPage() {
   });
   const [cleanupDays, setCleanupDays] = useState('30');
 
+  // 🎀 渠道下拉选项（管理员日志筛选用，不手输ID啦～）
+  const [channelOptions, setChannelOptions] = useState<{ id: number; name: string }[]>([]);
+
+  useEffect(() => {
+    if (!isGlobalLog || !token) return;
+    (async () => {
+      try {
+        const res = await fetch('/api/channel', { headers: { Authorization: `Bearer ${token}` } });
+        const data = await res.json();
+        if (data.code !== 0) return;
+        const payload = data.data;
+        const list = Array.isArray(payload) ? payload : (payload?.items || []);
+        setChannelOptions(list.map((c: any) => ({ id: c.id, name: c.name })));
+      } catch {
+        // ignore
+      }
+    })();
+  }, [isGlobalLog, token]);
+
   const setFilter = (key: string, val: string) =>
     setFilters(prev => ({ ...prev, [key]: val }));
 
@@ -245,7 +264,11 @@ export default function LogPage() {
               {isGlobalLog && (
                 <>
                   <Input size="sm" label="用户 ID" value={filters.user_id} onValueChange={v => setFilter('user_id', v)} />
-                  <Input size="sm" label="渠道 ID" value={filters.channel_id} onValueChange={v => setFilter('channel_id', v)} />
+                  <Select size="sm" label="渠道" placeholder="全部渠道"
+                    selectedKeys={filters.channel_id ? [filters.channel_id] : []}
+                    onSelectionChange={keys => setFilter('channel_id', [...keys][0] as string || '')}>
+                    {channelOptions.map(c => <SelectItem key={String(c.id)}>{`#${c.id} ${c.name}`}</SelectItem>)}
+                  </Select>
                 </>
               )}
             </div>

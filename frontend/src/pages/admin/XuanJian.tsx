@@ -173,6 +173,9 @@ export default function XuanJian() {
   const [saving, setSaving] = useState(false);
   const [eventFilter, setEventFilter] = useState({ finding_group: '', min_score: '' });
 
+  // 🎀 渠道下拉选项（审核渠道不用手输ID啦～）
+  const [channelOptions, setChannelOptions] = useState<{ id: number; name: string }[]>([]);
+
   const [rules, setRules] = useState<RuleRow[]>([]);
   const [rulesLoading, setRulesLoading] = useState(false);
   const [ruleGroupFilter, setRuleGroupFilter] = useState('');
@@ -225,8 +228,22 @@ export default function XuanJian() {
   };
 
   useEffect(() => {
-    if (token) { fetchConfig(); fetchEvents(); }
+    if (token) { fetchConfig(); fetchEvents(); fetchChannelOptions(); }
   }, [token]);
+
+  // 🎀 拉取渠道列表供下拉选择～
+  const fetchChannelOptions = async () => {
+    try {
+      const res = await fetch('/api/channel', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.code !== 0) return;
+      const payload = data.data;
+      const list = Array.isArray(payload) ? payload : (payload?.items || []);
+      setChannelOptions(list.map((c: any) => ({ id: c.id, name: c.name })));
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     if (token && activeTab === 'events') fetchEvents();
@@ -476,13 +493,16 @@ export default function XuanJian() {
           <div className="p-4 rounded-xl space-y-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
             <div className="text-sm font-semibold">审核渠道配置</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input
-                type="number"
-                label="审核渠道 ID"
-                placeholder="输入渠道 ID"
-                value={String(config.ai_review_channel_id || '')}
-                onValueChange={v => setConfig({ ...config, ai_review_channel_id: parseInt(v) || 0 })}
-              />
+              <Select
+                label="审核渠道"
+                placeholder="选择审核渠道"
+                selectedKeys={config.ai_review_channel_id ? [String(config.ai_review_channel_id)] : []}
+                onSelectionChange={keys => setConfig({ ...config, ai_review_channel_id: Number([...keys][0]) || 0 })}
+              >
+                {channelOptions.map(c => (
+                  <SelectItem key={String(c.id)}>{`#${c.id} ${c.name}`}</SelectItem>
+                ))}
+              </Select>
               <Input
                 label="审核模型名"
                 placeholder="如 gpt-4o-mini"

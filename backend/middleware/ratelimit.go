@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"STfreApi/common"
-	"STfreApi/service"
 	"STfreApi/service/sanction"
 
 	"github.com/gin-gonic/gin"
@@ -190,18 +189,6 @@ func ModelRateLimitMiddleware(modelName string) bool {
 	}
 
 	return checkLimit("model:"+modelName, limit)
-}
-
-// GroupRateLimitMiddleware 按 model.Group.QPM 给分组单独限流，QPM<=0 表示这个分组不限～
-func GroupRateLimitMiddleware(groupName string) bool {
-	if GlobalRateLimiter == nil || groupName == "" {
-		return true
-	}
-	qpm := service.GetGroupQPM(groupName)
-	if qpm <= 0 {
-		return true
-	}
-	return checkLimit("group:"+groupName, qpm)
 }
 
 // CheckTokenSanction 检查 Token 级处置（停用/降速/固定低RPM），命中拦截则写响应并返回 false。

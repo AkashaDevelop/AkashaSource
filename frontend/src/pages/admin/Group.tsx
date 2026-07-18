@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import LoadingRows from '../../components/LoadingRows';
 import {
   Button, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
-  useDisclosure, Input, Chip,
+  useDisclosure, Input, Chip, Pagination,
 } from '../../components/ui';
 import { Plus, Edit, Trash2, RefreshCw, X } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
@@ -18,6 +18,8 @@ interface Group {
   model_ratios: string;
   allowed_channels: string;
   qpm: number;
+  tpm: number;
+  rpd: number;
 }
 
 interface RatioRow { model: string; ratio: string; }
@@ -210,8 +212,10 @@ export default function GroupManagement() {
   const { token } = useAuthStore();
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
   const [editing, setEditing] = useState<Group | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(20);
   const [formData, setFormData] = useState({
-    name: '', description: '', model_ratios: '{}', allowed_channels: '', qpm: '0', ratio: '1',
+    name: '', description: '', model_ratios: '{}', allowed_channels: '', qpm: '0', tpm: '0', rpd: '0', ratio: '1',
   });
 
   // 分组倍率 JSON（存储在 options 表）
@@ -229,6 +233,7 @@ export default function GroupManagement() {
   };
 
   const saveGroupRatio = async (updated: Record<string, number>) => {
+  
     try {
       await fetch('/api/option', {
         method: 'PUT',
@@ -250,9 +255,18 @@ export default function GroupManagement() {
 
   useEffect(() => { fetchGroups(); fetchGroupRatio(); }, []);
 
+  // 分页计算
+  const paginatedGroups = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return groups.slice(startIndex, endIndex);
+  }, [groups, currentPage, pageSize]);
+
+  const totalPages = Math.ceil(groups.length / pageSize);
+
   const handleAdd = () => {
     setEditing(null);
-    setFormData({ name: '', description: '', model_ratios: '{}', allowed_channels: '', qpm: '0', ratio: '1' });
+    setFormData({ name: '', description: '', model_ratios: '{}', allowed_channels: '', qpm: '0', tpm: '0', rpd: '0', ratio: '1' });
     onOpen();
   };
 
@@ -263,6 +277,8 @@ export default function GroupManagement() {
       model_ratios: g.model_ratios || '{}',
       allowed_channels: g.allowed_channels,
       qpm: g.qpm.toString(),
+      tpm: (g.tpm ?? 0).toString(),
+      rpd: (g.rpd ?? 0).toString(),
       ratio: String(groupRatio[g.name] ?? 1),
     });
     onOpen();
@@ -270,7 +286,12 @@ export default function GroupManagement() {
 
   const handleSubmit = async (onClose: () => void) => {
     const method = editing ? 'PUT' : 'POST';
-    const body = { ...formData, id: editing?.id, qpm: parseInt(formData.qpm) || 0 };
+    const body = {
+      ...formData, id: editing?.id,
+      qpm: parseInt(formData.qpm) || 0,
+      tpm: parseInt(formData.tpm) || 0,
+      rpd: parseInt(formData.rpd) || 0,
+    };
     try {
       const res = await fetch('/api/group', {
         method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -320,21 +341,23 @@ export default function GroupManagement() {
         <table className="data-table">
           <thead>
             <tr>
-              <th>ID</th><th>名称</th><th>描述</th><th>倍率</th><th>QPM</th><th>操作</th>
+              <th>ID</th><th>名称</th><th>描述</th><th>倍率</th><th>RPM</th><th>TPM</th><th>RPD</th><th>操作</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <LoadingRows cols={6} rows={5} />
+              <LoadingRows cols={8} rows={5} />
             ) : groups.length === 0 ? (
-              <tr><td colSpan={6}><EmptyState icon="🏷️" title="暂无分组" /></td></tr>
-            ) : groups.map((g) => (
+              <tr><td colSpan={8}><EmptyState icon="🏷️" title="暂无分组" /></td></tr>
+            ) : paginatedGroups.map((g) => (
               <tr key={g.id}>
                 <td>{g.id}</td>
                 <td><Chip size="sm" variant="flat" color="primary">{g.name}</Chip></td>
                 <td>{g.description || '-'}</td>
                 <td><Chip size="sm" variant="flat">{groupRatio[g.name] ?? 1}x</Chip></td>
                 <td>{g.qpm || '无限制'}</td>
+                <td>{g.tpm ? g.tpm.toLocaleString() : '无限制'}</td>
+                <td>{g.rpd ? g.rpd.toLocaleString() : '无限制'}</td>
                 <td>
                   <div className="flex gap-2">
                     <span className="cursor-pointer" style={{ color: 'var(--text-muted)' }} onClick={() => handleEdit(g)}><Edit size={18} /></span>
@@ -347,6 +370,20 @@ export default function GroupManagement() {
         </table>
       </div>
 
+      {/* 分页控件 */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <span className="text-sm text-default-500">
+            显示 {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, groups.length)} 条，共 {groups.length} 条
+          </span>
+          <Pagination
+            total={totalPages}
+            page={currentPage}
+            onChange={setCurrentPage}
+          />
+        </div>
+      )}
+
       <Modal isOpen={isOpen} onOpenChange={onOpenChange} size="2xl">
         <ModalContent>
           {(onClose) => (
@@ -357,9 +394,18 @@ export default function GroupManagement() {
                   onValueChange={(v) => setFormData({ ...formData, name: v })} isRequired />
                 <Input label="描述" value={formData.description}
                   onValueChange={(v) => setFormData({ ...formData, description: v })} />
-                <Input label="QPM (每分钟请求数)" type="number" value={formData.qpm}
-                  onValueChange={(v) => setFormData({ ...formData, qpm: v })}
-                  description="0 表示不限制" />
+                {/* 🎀 三维速率限制～ */}
+                <div className="grid grid-cols-3 gap-3">
+                  <Input label="RPM (每分钟请求)" type="number" value={formData.qpm}
+                    onValueChange={(v) => setFormData({ ...formData, qpm: v })}
+                    description="0 = 不限" />
+                  <Input label="TPM (每分钟 Token)" type="number" value={formData.tpm}
+                    onValueChange={(v) => setFormData({ ...formData, tpm: v })}
+                    description="0 = 不限" />
+                  <Input label="RPD (每日请求)" type="number" value={formData.rpd}
+                    onValueChange={(v) => setFormData({ ...formData, rpd: v })}
+                    description="0 = 不限" />
+                </div>
                 <Input label="计费倍率" type="number" value={formData.ratio}
                   onValueChange={(v) => setFormData({ ...formData, ratio: v })}
                   description="1 = 原价，0.8 = 八折，影响该分组下所有用户的消费金额" />
