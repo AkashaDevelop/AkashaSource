@@ -113,12 +113,12 @@ func RelayMessages(c *gin.Context) {
 	claudeReq.Model = reasoningParams.CleanModel
 
 	// 6. Select channels
-	usingGroup, err := service.ResolveUsingGroup(user.Group, token.Group)
+	usingGroup, err := service.ResolveUsingGroupFull(user.Group, user.ExtraGroups, token.Group)
 	if err != nil {
 		sendClaudeError(c, http.StatusForbidden, "invalid_request_error", err.Error())
 		return
 	}
-	if !middleware.GroupRateLimitMiddleware(service.ResolveBillingGroup(user.Group, token.Group)) {
+	if !middleware.GroupRateLimitMiddleware(service.ResolveBillingGroupFull(user.Group, user.ExtraGroups, token.Group)) {
 		sendClaudeError(c, http.StatusTooManyRequests, "rate_limit_error", fmt.Sprintf("分组 %s 请求过于频繁", usingGroup))
 		return
 	}

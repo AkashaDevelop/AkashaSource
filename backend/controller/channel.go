@@ -5,12 +5,15 @@ import (
 	"STfreApi/common"
 	"STfreApi/model"
 	"STfreApi/service"
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm/clause"
@@ -239,6 +242,85 @@ func syncModelConfigsFromChannelModels(modelsText string) error {
 	return common.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&toCreate).Error
 }
 
+// 🌸 syncModelMetaFromChannelModels ～把渠道里配置的模型顺手补进「模型元数据(模型广场)」～
+// 新增/编辑渠道并设置好模型后，这些模型自动出现在模型广场，不用再手动一个个加啦(๑˃̵ᴗ˂̵)
+// 只补「还不存在」的模型名，已有的原样不动——绝不覆盖主人辛苦调好的元数据喵～
+// 🎀 升级：新建时顺便从官方上游匹配端点/供应商/标签/图标/描述，上下文默认 200K(可手动改)～
+func syncModelMetaFromChannelModels(modelsText string) error {
+	// 拆出去重后的模型名列表
+	names := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, item := range strings.Split(modelsText, ",") {
+		name := strings.TrimSpace(item)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return nil
+	}
+
+	// 查出已存在的模型名，剩下的才需要新建～
+	var existing []string
+	if err := common.DB.Model(&model.ModelMeta{}).
+		Where("model_name IN ?", names).
+		Pluck("model_name", &existing).Error; err != nil {
+		return err
+	}
+	existSet := make(map[string]bool, len(existing))
+	for _, n := range existing {
+		existSet[strings.TrimSpace(n)] = true
+	}
+
+	// 🎀 拉一份官方元数据用于匹配端点/供应商等；拉不到也没关系，用默认值兜底～
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	modelByName, vendorByName, _, _, metaErr := fetchOfficialMeta(ctx, "")
+	if metaErr != nil {
+		modelByName = map[string]officialModel{}
+		vendorByName = map[string]officialVendor{}
+	}
+	vendorIDCache := make(map[string]int)
+	createdVendors := 0
+
+	const defaultContextLength = 200000 // 🌸 上下文默认 200K，用户可在元数据编辑里改～
+
+	now := time.Now()
+	toCreate := make([]model.ModelMeta, 0)
+	for _, name := range names {
+		if existSet[name] {
+			continue
+		}
+		meta := model.ModelMeta{
+			ModelName:     name,
+			DisplayName:   name,
+			ModelType:     "text",
+			ContextLength: defaultContextLength,
+			Enabled:       true,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}
+		// 官方有这个模型 → 带出端点/标签/图标/描述/供应商～
+		if up, ok := modelByName[name]; ok {
+			meta.Endpoints = officialEndpointsStr(up.Endpoints)
+			meta.Tags = up.Tags
+			meta.Icon = up.Icon
+			meta.Description = up.Description
+			meta.NameRule = up.NameRule
+			if up.VendorName != "" {
+				meta.VendorId = ensureOfficialVendor(up.VendorName, vendorByName, vendorIDCache, &createdVendors)
+			}
+		}
+		toCreate = append(toCreate, meta)
+	}
+	if len(toCreate) == 0 {
+		return nil
+	}
+	return common.DB.Create(&toCreate).Error
+}
+
 func AddChannel(c *gin.Context) {
 	var channel model.Channel
 	if err := c.ShouldBindJSON(&channel); err != nil {
@@ -261,6 +343,13 @@ func AddChannel(c *gin.Context) {
 		common.Fail(c, common.CodeServerError, "渠道已创建，但同步模型管理失败")
 		return
 	}
+	// 🌸 顺手把模型补进模型广场(含官方端点匹配，可能较慢)～后台异步做，不阻塞创建响应
+	channelModels := channel.Models
+	go func() {
+		if err := syncModelMetaFromChannelModels(channelModels); err != nil {
+			log.Printf("[Channel] 渠道已创建，但同步模型元数据失败: %v", err)
+		}
+	}()
 	common.OKMsg(c, "渠道创建成功", channel)
 }
 
@@ -293,6 +382,13 @@ func AddChannels(c *gin.Context) {
 			common.Fail(c, common.CodeServerError, "批量创建成功，但同步模型管理失败")
 			return
 		}
+		// 🌸 批量创建也顺手补进模型广场～后台异步补齐(含官方端点匹配)
+		cm := channel.Models
+		go func() {
+			if err := syncModelMetaFromChannelModels(cm); err != nil {
+				log.Printf("[Channel] 批量创建渠道后同步模型元数据失败: %v", err)
+			}
+		}()
 	}
 	common.OKMsg(c, "批量创建成功", gin.H{"count": len(channels)})
 }
@@ -441,6 +537,13 @@ func UpdateChannel(c *gin.Context) {
 		common.Fail(c, common.CodeServerError, "渠道已更新，但同步模型管理失败")
 		return
 	}
+	// 🌸 编辑渠道后同样把模型补进模型广场～用 fresh 完整数据里的 models 更稳；后台异步补齐
+	freshModels := fresh.Models
+	go func() {
+		if err := syncModelMetaFromChannelModels(freshModels); err != nil {
+			log.Printf("[Channel] 渠道已更新，但同步模型元数据失败: %v", err)
+		}
+	}()
 	common.OKMsg(c, "渠道更新成功", nil)
 }
 

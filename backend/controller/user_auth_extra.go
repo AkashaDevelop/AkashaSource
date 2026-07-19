@@ -120,12 +120,12 @@ func GetUserGroups(c *gin.Context) {
 	}
 
 	var user model.User
-	if err := common.DB.Select("id", "group").First(&user, userID).Error; err != nil {
+	if err := common.DB.Select("id", "group", "extra_groups").First(&user, userID).Error; err != nil {
 		common.Fail(c, common.CodeNotFound, "用户不存在")
 		return
 	}
 
-	userUsableGroups := service.GetUserUsableGroups(user.Group)
+	userUsableGroups := service.GetUserUsableGroupsFull(user.Group, user.ExtraGroups)
 	usable := make(map[string]map[string]interface{}, len(userUsableGroups))
 	for name, desc := range userUsableGroups {
 		if name == "auto" {

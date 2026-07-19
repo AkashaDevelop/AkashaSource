@@ -5,6 +5,7 @@ import (
 
 	"STfreApi/common"
 	"STfreApi/model"
+	"STfreApi/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -184,6 +185,39 @@ func IsSystemInitialized(c *gin.Context) {
 }
 
 func GetPublicPricing(c *gin.Context) {
+	// 🌸 软鉴权～带了有效 token 就认出是哪位主人，没带就当游客(っ˘ω˘ς)
+	//   · 游客     → 只看 default 分组的价格
+	//   · 登录用户 → 看 GetUserUsableGroups 解出的所有有权限分组(含 svip 解锁的特殊分组)
+	isGuest := true
+	userGroup := ""
+	userExtraGroups := ""
+	if authHeader := c.GetHeader("Authorization"); authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && parts[0] == "Bearer" {
+			if claims, err := common.ParseToken(parts[1]); err == nil && !common.IsTokenBlacklisted(parts[1]) {
+				var row struct {
+					Group       string
+					ExtraGroups string
+				}
+				if e := common.DB.Model(&model.User{}).Where("id = ?", claims.UserId).Select("group", "extra_groups").Scan(&row).Error; e == nil {
+					userGroup = strings.TrimSpace(row.Group)
+					userExtraGroups = row.ExtraGroups
+					isGuest = false
+				}
+			}
+		}
+	}
+
+	// 算出当前视角下"可展示价格"的分组名单～
+	usableGroupSet := make(map[string]bool)
+	if isGuest {
+		usableGroupSet["default"] = true
+	} else {
+		for name := range service.GetUserUsableGroupsFull(userGroup, userExtraGroups) {
+			usableGroupSet[name] = true
+		}
+	}
+
 	// Get model configs from database
 	var configs []model.ModelConfig
 	if err := common.DB.Where("enabled = ?", true).Find(&configs).Error; err != nil {
@@ -223,27 +257,74 @@ func GetPublicPricing(c *gin.Context) {
 	}
 
 	// Convert to array format
+	// 🌸 单个分组的定价明细～倍率是"模型倍率×分组倍率"(或分组对该模型的 override)
+	type GroupPrice struct {
+		Group  string  `json:"group"`  // 分组名
+		Ratio  float64 `json:"ratio"`  // 综合倍率(展示用)
+		Input  float64 `json:"input"`  // 输入价格(元/百万 token)
+		Output float64 `json:"output"` // 输出价格(元/百万 token)
+		Cache  float64 `json:"cache"`  // 缓存输入价格(元/百万 token)
+	}
 	type ModelPrice struct {
 		Model               string  `json:"model"`
 		InputRatio          float64 `json:"input_ratio"`
 		OutputRatio         float64 `json:"output_ratio"`
+		CacheRatio          float64 `json:"cache_ratio"`
 		UpstreamInputPrice  float64 `json:"upstream_input_price"`
 		UpstreamOutputPrice float64 `json:"upstream_output_price"`
 		ActualInputPrice    float64 `json:"actual_input_price"`
 		ActualOutputPrice   float64 `json:"actual_output_price"`
 		// 🎀 元数据增强字段～
-		Description   string   `json:"description,omitempty"`
-		Icon          string   `json:"icon,omitempty"`
-		Tags          string   `json:"tags,omitempty"`
-		Endpoints     string   `json:"endpoints,omitempty"`
-		VendorName    string   `json:"vendor_name,omitempty"`
-		VendorIcon    string   `json:"vendor_icon,omitempty"`
-		ContextLength int      `json:"context_length,omitempty"`
-		Groups        []string `json:"groups,omitempty"` // 🎀 可用分组～
+		Description   string       `json:"description,omitempty"`
+		Icon          string       `json:"icon,omitempty"`
+		Tags          string       `json:"tags,omitempty"`
+		Endpoints     string       `json:"endpoints,omitempty"`
+		VendorName    string       `json:"vendor_name,omitempty"`
+		VendorIcon    string       `json:"vendor_icon,omitempty"`
+		ContextLength int          `json:"context_length,omitempty"`
+		Groups        []string     `json:"groups,omitempty"`        // 🎀 可用分组～
+		GroupPricing  []GroupPrice `json:"group_pricing,omitempty"` // 🌸 按分组定价明细～
 	}
 
 	fillMeta := func(mp *ModelPrice, meta *model.ModelMeta) {
 		mp.Groups = groupsByModel[mp.Model]
+
+		// 🌸 构造"按分组定价"明细～只保留 [模型真实可用分组] ∩ [当前视角有权限分组]
+		// 分组综合倍率 = 分组对该模型的 override(有则优先) × 分组倍率；
+		// 价格 = 上游参考价 × 综合倍率，缓存价再乘模型的 cache_ratio～
+		gp := make([]GroupPrice, 0)
+		for _, g := range mp.Groups {
+			if !usableGroupSet[g] {
+				continue
+			}
+			// 基础模型倍率：分组有 override 就用 override，否则用模型自身输入倍率
+			modelRatio := mp.InputRatio
+			outModelRatio := mp.OutputRatio
+			if override, ok := service.GetGroupModelRatioOverride(g, mp.Model); ok {
+				modelRatio = override
+				outModelRatio = override
+			}
+			// 分组倍率：登录用户按"用户分组×使用分组"算专属折扣，游客直接取分组倍率
+			groupRatio := common.GetGroupRatio(g)
+			if !isGuest {
+				groupRatio = service.GetUserGroupRatio(userGroup, g)
+			}
+			inRatio := modelRatio * groupRatio
+			outRatio := outModelRatio * groupRatio
+			cacheR := mp.CacheRatio
+			if cacheR <= 0 {
+				cacheR = 0.5
+			}
+			gp = append(gp, GroupPrice{
+				Group:  g,
+				Ratio:  groupRatio,
+				Input:  mp.UpstreamInputPrice * inRatio,
+				Output: mp.UpstreamOutputPrice * outRatio,
+				Cache:  mp.UpstreamInputPrice * inRatio * cacheR,
+			})
+		}
+		mp.GroupPricing = gp
+
 		if meta == nil {
 			return
 		}
@@ -269,6 +350,7 @@ func GetPublicPricing(c *gin.Context) {
 			Model:               cfg.ModelName,
 			InputRatio:          cfg.InputRatio,
 			OutputRatio:         cfg.OutputRatio,
+			CacheRatio:          cfg.CacheRatio,
 			UpstreamInputPrice:  cfg.UpstreamInputPrice,
 			UpstreamOutputPrice: cfg.UpstreamOutputPrice,
 			ActualInputPrice:    cfg.UpstreamInputPrice * cfg.InputRatio,
@@ -289,6 +371,7 @@ func GetPublicPricing(c *gin.Context) {
 			Model:               meta.ModelName,
 			InputRatio:          1,
 			OutputRatio:         1,
+			CacheRatio:          0.5,
 			UpstreamInputPrice:  meta.InputPrice,
 			UpstreamOutputPrice: meta.OutputPrice,
 			ActualInputPrice:    meta.InputPrice,
@@ -312,5 +395,5 @@ func GetPublicPricing(c *gin.Context) {
 		groupLimits = append(groupLimits, groupLimit{Group: g.Name, RPM: g.QPM, TPM: g.TPM, RPD: g.RPD})
 	}
 
-	common.OK(c, gin.H{"models": models, "group_limits": groupLimits})
+	common.OK(c, gin.H{"models": models, "group_limits": groupLimits, "is_guest": isGuest})
 }

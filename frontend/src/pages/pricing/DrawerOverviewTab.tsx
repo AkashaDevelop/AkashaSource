@@ -76,6 +76,36 @@ export default function DrawerOverviewTab({ model, unit, stats }: { model: Model
             ¥{((model.actual_input_price * 1000 + model.actual_output_price * 500) / 1000000).toFixed(6)}
           </span>
         </div>
+
+        {/* 🌸 按分组定价～显示当前有权限使用的分组的价格(游客只有 default) */}
+        {model.group_pricing && model.group_pricing.length > 0 && (
+          <div style={{ marginTop: '14px' }}>
+            <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>按分组定价</p>
+            <div style={{ borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+              {/* 表头 */}
+              <div className="grid" style={{ gridTemplateColumns: '1.4fr 0.8fr 1fr 1fr 1fr', padding: '8px 12px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-color)' }}>
+                <span>分组</span>
+                <span style={{ textAlign: 'right' }}>倍率</span>
+                <span style={{ textAlign: 'right' }}>输入</span>
+                <span style={{ textAlign: 'right' }}>输出</span>
+                <span style={{ textAlign: 'right' }}>缓存</span>
+              </div>
+              {/* 数据行 */}
+              {model.group_pricing.map((g, idx) => (
+                <div key={g.group} className="grid" style={{ gridTemplateColumns: '1.4fr 0.8fr 1fr 1fr 1fr', padding: '9px 12px', fontSize: '12px', alignItems: 'center', background: idx % 2 === 0 ? 'var(--bg-surface)' : 'var(--bg-elevated)' }}>
+                  <span style={{ color: 'var(--accent-primary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={g.group}>{g.group}</span>
+                  <span style={{ textAlign: 'right', fontFamily: 'SF Mono, Menlo, monospace', color: 'var(--text-muted)' }}>{g.ratio}x</span>
+                  <span style={{ textAlign: 'right', fontFamily: 'SF Mono, Menlo, monospace', color: 'var(--text-primary)' }}>{g.input <= 0 ? '免费' : `¥${formatPrice(g.input, unit)}`}</span>
+                  <span style={{ textAlign: 'right', fontFamily: 'SF Mono, Menlo, monospace', color: 'var(--text-primary)' }}>{g.output <= 0 ? '免费' : `¥${formatPrice(g.output, unit)}`}</span>
+                  <span style={{ textAlign: 'right', fontFamily: 'SF Mono, Menlo, monospace', color: 'var(--text-muted)' }}>{g.cache <= 0 ? '—' : `¥${formatPrice(g.cache, unit)}`}</span>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: '11px', color: 'var(--text-faint)', margin: '8px 0 0' }}>
+              价格显示单位 1{unit === 'M' ? 'M' : 'K'} tokens · 仅展示你当前有权限使用的分组
+            </p>
+          </div>
+        )}
       </Section>
 
       {/* 能力标签 */}

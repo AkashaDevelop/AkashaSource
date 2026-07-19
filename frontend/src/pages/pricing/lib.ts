@@ -1,9 +1,19 @@
 // 🌸 模型广场的类型定义和小工具们～
 
+// 🌸 单个分组的定价明细（后端 /api/pricing 的 group_pricing 提供）～
+export interface GroupPrice {
+  group: string;   // 分组名
+  ratio: number;   // 分组倍率（展示用）
+  input: number;   // 输入价格（元/百万 token）
+  output: number;  // 输出价格（元/百万 token）
+  cache: number;   // 缓存输入价格（元/百万 token）
+}
+
 export interface ModelPrice {
   model: string;
   input_ratio: number;
   output_ratio: number;
+  cache_ratio?: number;
   upstream_input_price: number;
   upstream_output_price: number;
   actual_input_price: number;
@@ -17,6 +27,7 @@ export interface ModelPrice {
   vendor_icon?: string;
   context_length?: number;
   groups?: string[]; // 🎀 该模型可用的分组～
+  group_pricing?: GroupPrice[]; // 🌸 按分组定价明细～
 }
 
 export interface VendorInfo {

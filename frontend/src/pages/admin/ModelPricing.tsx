@@ -75,6 +75,9 @@ export default function ModelPricing() {
   const [syncing, setSyncing] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [onlyUnset, setOnlyUnset] = useState(false);
+  // 🌸 模型广场里但还没匹配到定价的模型名集合～用来做"仅显示未匹配定价"筛选
+  const [unpricedSet, setUnpricedSet] = useState<Set<string>>(new Set());
+  const [onlyUnpricedMeta, setOnlyUnpricedMeta] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState<PricingForm | null>(null);
   const [applyTargets, setApplyTargets] = useState<number[]>([]);
@@ -90,7 +93,18 @@ export default function ModelPricing() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchModels(); }, []);
+  // 🌸 拉取"模型广场收录但未匹配定价"的模型名～后端顺手会补齐定价占位记录
+  const fetchUnpriced = async () => {
+    try {
+      const res = await fetch('/api/model/unpriced', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.code === 0) {
+        setUnpricedSet(new Set<string>((data.data?.unpriced || []) as string[]));
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  useEffect(() => { fetchModels(); fetchUnpriced(); }, []);
 
   const filteredModels = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -99,9 +113,11 @@ export default function ModelPricing() {
         || m.model_name.toLowerCase().includes(kw)
         || (m.display_name || '').toLowerCase().includes(kw);
       const hitUnset = !onlyUnset || isUnsetPricing(m);
-      return hitKeyword && hitUnset;
+      // 仅显示"模型广场收录但未匹配定价"的模型
+      const hitUnpricedMeta = !onlyUnpricedMeta || unpricedSet.has(m.model_name);
+      return hitKeyword && hitUnset && hitUnpricedMeta;
     });
-  }, [models, keyword, onlyUnset]);
+  }, [models, keyword, onlyUnset, onlyUnpricedMeta, unpricedSet]);
 
   const selected = models.find(m => m.id === selectedId) || null;
 
@@ -136,6 +152,7 @@ export default function ModelPricing() {
       if (res.ok) {
         toast.success('定价已保存并生效');
         fetchModels();
+        fetchUnpriced();
       } else {
         toast.error('保存失败');
       }
@@ -155,7 +172,8 @@ export default function ModelPricing() {
       });
       const data = await res.json();
       if (data.code === 0) {
-        toast.success(`同步成功：创建 ${data.data.created} 个，更新 ${data.data.updated} 个`);
+        const d = data.data || {};
+        toast.success(`同步完成：更新 ${d.updated ?? 0} 个${d.skipped ? `，跳过 ${d.skipped} 个未收录` : ''}`);
         fetchModels();
       } else {
         toast.error(data.msg || '同步失败');
@@ -211,6 +229,15 @@ export default function ModelPricing() {
           <Switch isSelected={onlyUnset} onValueChange={setOnlyUnset}>
             仅显示未配置价格
           </Switch>
+          {/* 🌸 只看模型广场收录、却还没配价的模型～提醒超管去补齐 */}
+          <div className="flex items-center justify-between gap-2">
+            <Switch isSelected={onlyUnpricedMeta} onValueChange={setOnlyUnpricedMeta}>
+              仅显示广场未匹配定价
+            </Switch>
+            {unpricedSet.size > 0 && (
+              <Chip size="sm" variant="flat" color="warning">{unpricedSet.size}</Chip>
+            )}
+          </div>
           <Button
             size="sm" variant="flat" color="warning" className="w-full"
             startContent={<RefreshCw size={14} />}
@@ -236,12 +263,17 @@ export default function ModelPricing() {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-mono truncate">{m.model_name}</span>
-                  {isUnsetPricing(m) && <AlertCircle size={13} className="text-warning flex-shrink-0" />}
+                  {unpricedSet.has(m.model_name) && (
+                    <AlertCircle size={13} className="text-warning flex-shrink-0" />
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 mt-1">
                   <Chip size="sm" variant="flat" color={m.is_fixed_price ? 'secondary' : 'default'}>
                     {m.is_fixed_price ? '按次计费' : '按量计费'}
                   </Chip>
+                  {unpricedSet.has(m.model_name) && (
+                    <Chip size="sm" variant="flat" color="warning">待配价</Chip>
+                  )}
                 </div>
               </div>
             ))}

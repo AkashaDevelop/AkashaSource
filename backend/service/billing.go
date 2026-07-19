@@ -27,9 +27,13 @@ func PreConsumeQuota(token *model.Token, promptTokens int, maxTokens int, modelN
 	audioRatio := common.GetAudioRatio(modelName)
 
 	// 查询用户分组，令牌自己有独立分组的话优先用令牌的～
-	var userGroup string
-	common.DB.Model(&model.User{}).Where("id = ?", token.UserId).Select("group").Scan(&userGroup)
-	billingGroup := ResolveBillingGroup(userGroup, token.Group)
+	var userRow struct {
+		Group       string
+		ExtraGroups string
+	}
+	common.DB.Model(&model.User{}).Where("id = ?", token.UserId).Select("group", "extra_groups").Scan(&userRow)
+	userGroup := userRow.Group
+	billingGroup := ResolveBillingGroupFull(userGroup, userRow.ExtraGroups, token.Group)
 	groupRatio := GetUserGroupRatio(userGroup, billingGroup)
 	if override, ok := GetGroupModelRatioOverride(billingGroup, modelName); ok {
 		ratio = override

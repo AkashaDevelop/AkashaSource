@@ -230,3 +230,89 @@ func syncAllPricingFromModelConfig() error {
 
 	return nil
 }
+
+// pricingConfigured ～判断一条定价记录是不是"真的配过价"～
+// 全是默认值(倍率都1、缓存0.5、又不是按次计费)就当作没配置，跟前端 isUnsetPricing 保持一致喵
+func pricingConfigured(cfg model.ModelConfig) bool {
+	isDefault := cfg.InputRatio == 1 &&
+		cfg.OutputRatio == 1 &&
+		cfg.CacheRatio == 0.5 &&
+		cfg.ImageRatio == 1 &&
+		cfg.AudioRatio == 1 &&
+		cfg.AudioCompletionRatio == 1 &&
+		!cfg.IsFixedPrice
+	return !isDefault
+}
+
+// GetUnpricedMetaModels ～返回「已在模型广场收录、但还没匹配到定价」的模型清单～
+// 用途：定价页筛选出这些模型，提醒超管手动去配价。
+// 顺手把"广场有、但连定价占位记录都没有"的模型补一条默认 ModelConfig，
+// 这样它们能出现在定价列表里，超管点开即可设置(呼应"新增后自动匹配")～
+func GetUnpricedMetaModels(c *gin.Context) {
+	// 1) 模型广场里所有模型名
+	var metaNames []string
+	if err := common.DB.Model(&model.ModelMeta{}).Pluck("model_name", &metaNames).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "读取模型广场失败")
+		return
+	}
+	metaSet := make(map[string]bool, len(metaNames))
+	for _, n := range metaNames {
+		if n != "" {
+			metaSet[n] = true
+		}
+	}
+
+	// 2) 现有定价记录，按模型名归档～
+	var configs []model.ModelConfig
+	if err := common.DB.Find(&configs).Error; err != nil {
+		common.Fail(c, common.CodeServerError, "读取定价配置失败")
+		return
+	}
+	configuredSet := make(map[string]bool)
+	existConfigSet := make(map[string]bool)
+	for _, cfg := range configs {
+		existConfigSet[cfg.ModelName] = true
+		if pricingConfigured(cfg) {
+			configuredSet[cfg.ModelName] = true
+		}
+	}
+
+	// 3) 广场有、但还没定价占位的 → 补一条默认记录，方便超管在定价页设置～
+	missingConfig := make([]string, 0)
+	for name := range metaSet {
+		if !existConfigSet[name] {
+			missingConfig = append(missingConfig, name)
+		}
+	}
+	if len(missingConfig) > 0 {
+		if err := syncModelConfigsFromChannelModels(joinComma(missingConfig)); err != nil {
+			log.Printf("[ModelConfig] 为模型广场补建定价占位失败: %v", err)
+		}
+	}
+
+	// 4) 汇总"未配置定价"的模型名(广场里有 && 定价仍是默认值)～
+	unpriced := make([]string, 0)
+	for name := range metaSet {
+		if !configuredSet[name] {
+			unpriced = append(unpriced, name)
+		}
+	}
+
+	common.OK(c, gin.H{
+		"unpriced":       unpriced,
+		"unpriced_count": len(unpriced),
+		"meta_count":     len(metaSet),
+	})
+}
+
+// joinComma ～把模型名列表拼成逗号串，喂给 syncModelConfigsFromChannelModels 复用～
+func joinComma(items []string) string {
+	result := ""
+	for i, s := range items {
+		if i > 0 {
+			result += ","
+		}
+		result += s
+	}
+	return result
+}

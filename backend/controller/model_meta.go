@@ -3,6 +3,7 @@ package controller
 import (
 	"STfreApi/common"
 	"STfreApi/model"
+	"log"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -78,6 +79,11 @@ func CreateModelMeta(c *gin.Context) {
 	if err := item.Insert(); err != nil {
 		common.Fail(c, common.CodeServerError, "创建模型失败")
 		return
+	}
+	// 🌸 新增模型广场模型后，顺手补一条默认定价占位～这样它立刻出现在定价页，
+	// 超管点开就能设置，不用再手动新建定价记录啦(๑˃̵ᴗ˂̵) 已存在则 DoNothing 不覆盖～
+	if err := syncModelConfigsFromChannelModels(item.ModelName); err != nil {
+		log.Printf("[ModelMeta] 新增模型元数据后同步定价占位失败: %v", err)
 	}
 	common.OKMsg(c, "创建模型成功", item)
 }

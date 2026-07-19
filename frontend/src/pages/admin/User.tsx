@@ -25,6 +25,7 @@ interface User {
   quota: number;
   used_quota: number;
   group: string;
+  extra_groups?: string;
   email: string;
   totp_enabled?: boolean;
 }
@@ -98,7 +99,7 @@ export default function UserManagement() {
   const [selectedPlan, setSelectedPlan] = useState('');
 
   const [formData, setFormData] = useState({
-    username: '', display_name: '', password: '', role: '1', status: '1', quota: '0', group: 'default', email: '',
+    username: '', display_name: '', password: '', role: '1', status: '1', quota: '0', group: 'default', extra_groups: '', email: '',
   });
   const [groupOptions, setGroupOptions] = useState<GroupOption[]>([]);
 
@@ -139,13 +140,13 @@ export default function UserManagement() {
     setFormData({
       username: u.username, display_name: u.display_name, password: '',
       role: u.role.toString(), status: u.status.toString(), quota: u.quota.toString(),
-      group: u.group, email: u.email,
+      group: u.group, extra_groups: u.extra_groups || '', email: u.email,
     });
     onOpen();
   };
   const handleAdd = () => {
     setEditingUser(null);
-    setFormData({ username: '', display_name: '', password: '', role: '1', status: '1', quota: '0', group: 'default', email: '' });
+    setFormData({ username: '', display_name: '', password: '', role: '1', status: '1', quota: '0', group: 'default', extra_groups: '', email: '' });
     onOpen();
   };
   const handleSubmit = async (onClose: () => void) => {
@@ -428,6 +429,16 @@ export default function UserManagement() {
                     onSelectionChange={(keys) => setFormData({ ...formData, group: [...keys][0] as string || 'default' })}
                   >
                     {groupOptions.map((g) => <SelectItem key={g.name} value={g.name}>{g.name}</SelectItem>)}
+                  </Select>
+                  {/* 🌸 额外分组：在基础分组之外直接授予的分组(与基础分组共存) */}
+                  <Select
+                    label="额外分组（可多选）"
+                    placeholder="直接授予的额外分组，可留空"
+                    selectionMode="multiple"
+                    selectedKeys={formData.extra_groups ? formData.extra_groups.split(',').filter(Boolean) : []}
+                    onSelectionChange={(keys) => setFormData({ ...formData, extra_groups: Array.from(keys as Set<string>).join(',') })}
+                  >
+                    {groupOptions.filter((g) => g.name !== formData.group).map((g) => <SelectItem key={g.name} value={g.name}>{g.name}</SelectItem>)}
                   </Select>
                 </Form>
               </ModalBody>

@@ -14,10 +14,17 @@ import (
 // tokenGroup 为空就乖乖跟着用户自己的分组走；非空则必须在用户可用分组名单里，
 // 而且要么在计费倍率表里挂了号，要么就是特殊值 "auto"，否则直接拒绝这次请求～
 func ResolveUsingGroup(userGroup string, tokenGroup string) (string, error) {
+	return ResolveUsingGroupFull(userGroup, "", tokenGroup)
+}
+
+// ResolveUsingGroupFull 🌸 带 extra_groups(直接授予)的完整版～
+// 校验令牌指定分组时，把"公开+基础+特殊解锁+额外授予"全算进可用集，extra 才能真正生效。
+func ResolveUsingGroupFull(userGroup string, extraGroups string, tokenGroup string) (string, error) {
 	if tokenGroup == "" {
 		return userGroup, nil
 	}
-	if !GroupInUserUsableGroups(userGroup, tokenGroup) {
+	usable := GetUserUsableGroupsFull(userGroup, extraGroups)
+	if _, ok := usable[tokenGroup]; !ok && tokenGroup != "auto" {
 		return "", fmt.Errorf("无权访问 %s 分组", tokenGroup)
 	}
 	if tokenGroup != "auto" && !common.ContainsGroupRatio(tokenGroup) {
@@ -29,50 +36,70 @@ func ResolveUsingGroup(userGroup string, tokenGroup string) (string, error) {
 // ResolveBillingGroup 算计费该用哪个分组的名字～auto 分组本身没有倍率可查（它只是"帮你自动挑分组"的壳子），
 // 所以 auto 令牌老老实实按用户自己的分组算账；其它情况直接用解析出来的 usingGroup～
 func ResolveBillingGroup(userGroup string, tokenGroup string) string {
-	usingGroup, err := ResolveUsingGroup(userGroup, tokenGroup)
+	return ResolveBillingGroupFull(userGroup, "", tokenGroup)
+}
+
+// ResolveBillingGroupFull 🌸 带 extra_groups 的计费分组解析～
+func ResolveBillingGroupFull(userGroup string, extraGroups string, tokenGroup string) string {
+	usingGroup, err := ResolveUsingGroupFull(userGroup, extraGroups, tokenGroup)
 	if err != nil || usingGroup == "auto" {
 		return userGroup
 	}
 	return usingGroup
 }
 
-// GetUserUsableGroups 汇总"这个用户分组能用哪些分组"：以 model.Group 表为权威名单，
-// 再叠加 common.GroupSpecialUsableGroup 里 "+:xxx"/"-:xxx" 的增删规则，
-// 最后保证用户自己的分组一定在里面（哪怕表里没登记）～
+// GetUserUsableGroups 汇总"这个用户分组能用哪些分组"～重构后的裁决逻辑(以 Group 表为权威)：
+//   ① 所有 visibility=public 的公开分组(游客/普通用户默认可选)
+//   ② 用户自己的基础分组(哪怕它是 hidden 也一定能用)
+//   ③ 该基础分组通过 GroupSpecialGrant 解锁的特殊分组(可解锁 hidden 分组)
+// 注意：直接授予用户的 extra_groups 不在这里(拿不到用户对象)，由 GetUserUsableGroupsFull 叠加～
 func GetUserUsableGroups(userGroup string) map[string]string {
-	usable := make(map[string]string)
-
-	var groups []model.Group
-	if err := common.DB.Find(&groups).Error; err == nil {
-		for _, g := range groups {
-			name := strings.TrimSpace(g.Name)
-			if name != "" {
-				usable[name] = g.Description
-			}
-		}
-	}
+	usable := model.GetAllPublicGroups() // ① 公开分组
 
 	if userGroup == "" {
 		return usable
 	}
 
-	if rules, ok := common.GetGroupSpecialUsableGroup(userGroup); ok {
-		for specialGroup, desc := range rules {
-			switch {
-			case strings.HasPrefix(specialGroup, "-:"):
-				delete(usable, strings.TrimPrefix(specialGroup, "-:"))
-			case strings.HasPrefix(specialGroup, "+:"):
-				usable[strings.TrimPrefix(specialGroup, "+:")] = desc
-			default:
-				usable[specialGroup] = desc
+	// ② 基础分组自身
+	if _, ok := usable[userGroup]; !ok {
+		desc := model.GetGroupDescription(userGroup)
+		if desc == "" {
+			desc = "用户分组"
+		}
+		usable[userGroup] = desc
+	}
+
+	// ③ 基础分组解锁的特殊分组
+	for _, sg := range model.GetSpecialGrantsByBase(userGroup) {
+		if _, ok := usable[sg]; !ok {
+			desc := model.GetGroupDescription(sg)
+			if desc == "" {
+				desc = "特殊分组"
 			}
+			usable[sg] = desc
 		}
 	}
 
-	if _, ok := usable[userGroup]; !ok {
-		usable[userGroup] = "用户分组"
-	}
+	return usable
+}
 
+// GetUserUsableGroupsFull 在 GetUserUsableGroups 基础上，叠加"直接授予用户"的 extra_groups～
+// 这是最完整的"用户实际可用分组"，请求准入/前端下拉都该用它(能拿到 user 对象时)。
+func GetUserUsableGroupsFull(userGroup string, extraGroups string) map[string]string {
+	usable := GetUserUsableGroups(userGroup)
+	for _, g := range strings.Split(extraGroups, ",") {
+		name := strings.TrimSpace(g)
+		if name == "" {
+			continue
+		}
+		if _, ok := usable[name]; !ok {
+			desc := model.GetGroupDescription(name)
+			if desc == "" {
+				desc = "额外分组"
+			}
+			usable[name] = desc
+		}
+	}
 	return usable
 }
 

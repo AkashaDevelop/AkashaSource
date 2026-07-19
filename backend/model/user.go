@@ -25,6 +25,7 @@ type User struct {
 	UsedQuota         int64  `json:"used_quota" gorm:"default:0"` // 历史用量
 	RequestCount      int    `json:"request_count" gorm:"default:0"`
 	Group             string `json:"group" gorm:"default:'default'"`
+	ExtraGroups       string `json:"extra_groups" gorm:"type:varchar(500);default:''"` // 🌸 直接授予的额外分组，逗号分隔(与基础分组共存)
 	BillingPreference string `json:"billing_preference" gorm:"type:varchar(32);default:'subscription_first'"`
 	AffCode           string `json:"aff_code" gorm:"index"`
 	AffQuota          int64  `json:"aff_quota" gorm:"default:0"` // 邀请返利余额，需通过转账接口转入可用 Quota

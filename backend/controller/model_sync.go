@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"STfreApi/common"
@@ -113,39 +114,58 @@ func SyncUpstreamPricing(c *gin.Context) {
 
 	created := 0
 	updated := 0
+	skipped := 0
 
+	// 🌸 以「模型广场(ModelMeta)」为准～只给广场里收录的模型更新上游参考价。
+	// 广场里没有的模型即使 models.dev 有价、ModelConfig 里也有记录，也一律跳过，
+	// 免得把没在用的模型也顺手改了喵(๑•̀ㅂ•́)و
+	metaNameSet := loadModelMetaNameSet()
+
+	// 只更新「既在模型广场、又在 ModelConfig」的模型，且只写两个参考价字段～
 	for modelName, prices := range modelPrices {
+		if !metaNameSet[modelName] {
+			// 不在模型广场 → 跳过
+			skipped++
+			continue
+		}
 		var existing model.ModelConfig
 		err := common.DB.Where("model_name = ?", modelName).First(&existing).Error
-
 		if err != nil {
-			cfg := model.ModelConfig{
-				ModelName:           modelName,
-				DisplayName:         modelName,
-				Category:            "chat",
-				InputRatio:          1,
-				OutputRatio:         1,
-				UpstreamInputPrice:  prices.input,
-				UpstreamOutputPrice: prices.output,
-				MaxContext:          4096,
-				Enabled:             true,
-				CreatedAt:           time.Now().Unix(),
-			}
-			if err := common.DB.Create(&cfg).Error; err == nil {
-				created++
-			}
-		} else {
-			existing.UpstreamInputPrice = prices.input
-			existing.UpstreamOutputPrice = prices.output
-			if err := common.DB.Save(&existing).Error; err == nil {
-				updated++
-			}
+			// 广场里有、但还没建定价记录 → 也跳过，交给"未匹配定价"筛选让超管手动配
+			skipped++
+			continue
+		}
+		if err := common.DB.Model(&model.ModelConfig{}).
+			Where("id = ?", existing.Id).
+			Updates(map[string]interface{}{
+				"upstream_input_price":  prices.input,
+				"upstream_output_price": prices.output,
+			}).Error; err == nil {
+			updated++
 		}
 	}
 
 	common.OK(c, gin.H{
-		"created": created,
+		"created": created, // 恒为 0，保留字段兼容前端提示～
 		"updated": updated,
+		"skipped": skipped,
 		"total":   len(modelPrices),
 	})
+}
+
+// 🌸 loadModelMetaNameSet ～把模型广场(ModelMeta)里所有模型名捞成一个集合，
+// 给"以广场为准"的同步逻辑当白名单用～查库失败就返回空集(宁可少同步也不乱同步)喵
+func loadModelMetaNameSet() map[string]bool {
+	set := make(map[string]bool)
+	var names []string
+	if err := common.DB.Model(&model.ModelMeta{}).Pluck("model_name", &names).Error; err != nil {
+		return set
+	}
+	for _, n := range names {
+		trimmed := strings.TrimSpace(n)
+		if trimmed != "" {
+			set[trimmed] = true
+		}
+	}
+	return set
 }

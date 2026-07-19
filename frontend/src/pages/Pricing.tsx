@@ -7,6 +7,7 @@ import {
 } from './pricing/lib';
 import ModelCard from './pricing/ModelCard';
 import ModelDetailsDrawer from './pricing/ModelDetailsDrawer';
+import { useAuthStore } from '../store/auth';
 
 // 🌸 模型广场：探索、比较、选择模型的公开页面～
 // 对齐 new-api 新版前端：侧栏筛选（档位/供应商/标签/端点）+ 卡片/表格双视图 + 详情抽屉 + 单位切换
@@ -90,6 +91,7 @@ function ActiveChip({ label, onClear }: { label: string; onClear: () => void }) 
 
 /* ═══ 主页面 ═══ */
 export default function Pricing() {
+  const { token } = useAuthStore();
   const [models, setModels] = useState<ModelPrice[]>([]);
   const [groupLimits, setGroupLimits] = useState<{ group: string; rpm: number; tpm: number; rpd: number }[]>([]);
   const [loading, setLoading] = useState(false);
@@ -116,7 +118,8 @@ export default function Pricing() {
 
   useEffect(() => {
     setLoading(true);
-    fetch('/api/pricing')
+    // 🌸 带上 token 让后端认出主人～游客不带就只返 default 分组价，登录则按权限返所有分组
+    fetch('/api/pricing', token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
       .then(r => r.json())
       .then(d => {
         const payload = d.code === 0 ? d.data : d;
@@ -125,7 +128,7 @@ export default function Pricing() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  }, [token]);
 
   /* ⌘K 聚焦搜索 */
   useEffect(() => {

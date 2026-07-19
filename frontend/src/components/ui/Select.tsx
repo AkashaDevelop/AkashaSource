@@ -70,9 +70,7 @@ export function Select({
 
   const selectedLabel = selected.length > 0
     ? selectionMode === 'multiple'
-      ? selected.length === 1
-        ? options.find(o => o.key === selected[0])?.label ?? selected[0]
-        : `已选 ${selected.length} 项`
+      ? selected.map(k => options.find(o => o.key === k)?.label ?? k).join('、')
       : options.find(o => o.key === selected[0])?.label ?? selected[0]
     : null
 
@@ -127,7 +125,7 @@ export function Select({
             ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
           `}
         >
-          <span className={selectedLabel ? 'text-[var(--text-primary)]' : 'text-[var(--text-faint)]'}>
+          <span className={`truncate text-left ${selectedLabel ? 'text-[var(--text-primary)]' : 'text-[var(--text-faint)]'}`}>
             {selectedLabel ?? placeholder}
           </span>
           <ChevronDown

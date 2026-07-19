@@ -429,6 +429,10 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.POST("/group", controller.AddGroup)
 			adminGroup.PUT("/group", controller.UpdateGroup)
 			adminGroup.DELETE("/group/:id", controller.DeleteGroup)
+			// 🌸 特殊分组授权(基础分组→解锁的特殊分组)～
+			adminGroup.GET("/group/special_grant", controller.GetSpecialGrants)
+			adminGroup.POST("/group/special_grant", controller.AddSpecialGrant)
+			adminGroup.DELETE("/group/special_grant/:id", controller.DeleteSpecialGrant)
 
 			// 模型配置
 			adminGroup.GET("/model", controller.GetAllModelConfigs)
@@ -439,6 +443,7 @@ func SetApiRouter(router *gin.Engine) {
 			adminGroup.POST("/model/batch-apply-pricing", controller.BatchApplyModelPricing)
 			adminGroup.POST("/model/sync-pricing", controller.SyncPricingFromModelConfig)
 			adminGroup.POST("/model/sync-upstream", controller.SyncUpstreamPricing)
+			adminGroup.GET("/model/unpriced", controller.GetUnpricedMetaModels)
 
 			// 运维监控
 			adminGroup.DELETE("/log", controller.DeleteLogs)

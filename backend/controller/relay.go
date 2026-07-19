@@ -233,7 +233,7 @@ func Relay(c *gin.Context) {
 	}
 
 	// 4. 选择渠道
-	usingGroup, err := service.ResolveUsingGroup(user.Group, token.Group)
+	usingGroup, err := service.ResolveUsingGroupFull(user.Group, user.ExtraGroups, token.Group)
 	if err != nil {
 		c.JSON(http.StatusForbidden, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
 			Message: err.Error(),
@@ -241,7 +241,7 @@ func Relay(c *gin.Context) {
 		}})
 		return
 	}
-	if !middleware.GroupRateLimitMiddleware(service.ResolveBillingGroup(user.Group, token.Group)) {
+	if !middleware.GroupRateLimitMiddleware(service.ResolveBillingGroupFull(user.Group, user.ExtraGroups, token.Group)) {
 		c.JSON(http.StatusTooManyRequests, dto.OpenAIErrorResponse{Error: dto.OpenAIError{
 			Message: fmt.Sprintf("分组 %s 请求过于频繁", usingGroup),
 			Type:    "rate_limit_error",

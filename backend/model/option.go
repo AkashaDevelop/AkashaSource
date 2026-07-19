@@ -203,6 +203,7 @@ func InitOptions() {
 	// 老数据库跑完那一次版本号就不会再重新迁移了，后续给它们加字段会跟 AuditLog 一样报错，
 	// 挪到这里保证每次启动都跟 model 定义对齐喵～
 	common.DB.AutoMigrate(&Group{})
+	common.DB.AutoMigrate(&GroupSpecialGrant{})
 	SeedDefaultGroups()
 	common.DB.AutoMigrate(&CheckIn{})
 	common.DB.AutoMigrate(&ModelConfig{})
@@ -221,6 +222,12 @@ func InitOptions() {
 	for _, option := range options {
 		common.UpdateOptionMap(option.Key, option.Value)
 	}
+
+	// 🌸 分组配置一次性迁移：旧 options JSON(group_ratio/group_special_usable_group) → Group 表&关联表
+	// 放在 options 加载之后，才能读到内存里的旧值～
+	MigrateGroupConfigFromOptions()
+	// 每次启动都把 Group 表倍率同步进内存计费表(迁移只跑一次，但同步要常驻)～
+	SyncGroupRatioToMemory()
 
 	// Initialize pricing if not present in DB
 	if _, ok := common.OptionMap[OptionKeyModelRatio]; !ok {

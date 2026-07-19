@@ -278,6 +278,7 @@ func UpdateUser(c *gin.Context) {
 	existing.Status = user.Status
 	existing.Quota = user.Quota
 	existing.Group = user.Group
+	existing.ExtraGroups = user.ExtraGroups // 🌸 额外授予的分组
 	existing.Email = user.Email
 	if user.Password != "" {
 		if hashed, err := common.Password2Hash(user.Password); err == nil {

@@ -136,13 +136,17 @@ func RecordConsumeLog(c *gin.Context, token *model.Token, modelName string, prom
 	d, _ := detail.(usageDetail)
 
 	// 查询用户分组，令牌自己有独立分组的话优先按令牌的算账～
-	var userGroup string
-	common.DB.Model(&model.User{}).Where("id = ?", token.UserId).Select("group").Scan(&userGroup)
+	var userRow struct {
+		Group       string
+		ExtraGroups string
+	}
+	common.DB.Model(&model.User{}).Where("id = ?", token.UserId).Select("group", "extra_groups").Scan(&userRow)
+	userGroup := userRow.Group
 	// auto 分组下具体命中了哪个候选分组，selector.go 已经通过 c.Set("billing_group", ...) 逐次记录，
 	// 这里直接读那份"实际命中"的记录来算账，不能笼统按 auto 或用户自己的分组打马虎眼～
 	billingGroup := c.GetString("billing_group")
 	if billingGroup == "" {
-		billingGroup = service.ResolveBillingGroup(userGroup, token.Group)
+		billingGroup = service.ResolveBillingGroupFull(userGroup, userRow.ExtraGroups, token.Group)
 	}
 
 	// 计算实际消耗
@@ -209,11 +213,15 @@ func RecordConsumeWithBilling(c *gin.Context, token *model.Token, modelName stri
 	channelId := c.GetInt("channel_id")
 
 	// 查询用户分组，令牌自己有独立分组的话优先按令牌的算账～
-	var userGroup string
-	common.DB.Model(&model.User{}).Where("id = ?", token.UserId).Select("group").Scan(&userGroup)
+	var userRow struct {
+		Group       string
+		ExtraGroups string
+	}
+	common.DB.Model(&model.User{}).Where("id = ?", token.UserId).Select("group", "extra_groups").Scan(&userRow)
+	userGroup := userRow.Group
 	billingGroup := c.GetString("billing_group")
 	if billingGroup == "" {
-		billingGroup = service.ResolveBillingGroup(userGroup, token.Group)
+		billingGroup = service.ResolveBillingGroupFull(userGroup, userRow.ExtraGroups, token.Group)
 	}
 
 	// 计算实际消耗

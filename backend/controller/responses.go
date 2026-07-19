@@ -120,12 +120,12 @@ func RelayResponses(c *gin.Context) {
 	}
 
 	// 7. Select channels
-	usingGroup, err := service.ResolveUsingGroup(user.Group, token.Group)
+	usingGroup, err := service.ResolveUsingGroupFull(user.Group, user.ExtraGroups, token.Group)
 	if err != nil {
 		sendResponsesError(c, http.StatusForbidden, "invalid_request_error", err.Error())
 		return
 	}
-	if !middleware.GroupRateLimitMiddleware(service.ResolveBillingGroup(user.Group, token.Group)) {
+	if !middleware.GroupRateLimitMiddleware(service.ResolveBillingGroupFull(user.Group, user.ExtraGroups, token.Group)) {
 		sendResponsesError(c, http.StatusTooManyRequests, "rate_limit_error", fmt.Sprintf("分组 %s 请求过于频繁", usingGroup))
 		return
 	}

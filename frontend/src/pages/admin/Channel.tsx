@@ -4,6 +4,7 @@ import LoadingRows from '../../components/LoadingRows';
 import BatchChannelActions from '../../components/BatchChannelActions';
 import ChannelTestDialog from '../../components/ChannelTestDialog';
 import ChannelContextMenu, { createChannelContextMenuItems } from '../../components/ChannelContextMenu';
+import FetchModelsDialog from '../../components/FetchModelsDialog';
 import {
   Chip,
   Tooltip,
@@ -65,8 +66,16 @@ export default function ChannelManagement() {
   const [multiKeyActionLoading, setMultiKeyActionLoading] = useState<string | null>(null);
   const [multiKeyEditorText, setMultiKeyEditorText] = useState('');
   const [batchOpLoading, setBatchOpLoading] = useState<string | null>(null);
-  const [modelSourceMode, setModelSourceMode] = useState<'manual' | 'sync'>('manual');
   const [newModelInput, setNewModelInput] = useState('');
+  // 🌸 从上游拉取模型的小窗状态～拉回来先弹窗让主人挑
+  const { isOpen: isFetchDialogOpen, onOpen: onFetchDialogOpen, onOpenChange: onFetchDialogOpenChange } = useDisclosure();
+  const [fetchedModelList, setFetchedModelList] = useState<string[]>([]);
+  // 弹窗要展示的上下文：渠道名 / 供应商分组名 / 当前已有模型（区分新旧用）/ 目标渠道ID(右键场景直接落库)
+  const [fetchDialogCtx, setFetchDialogCtx] = useState<{ channelName: string; vendorLabel: string; existingModels: string[]; channelId?: number }>({
+    channelName: '',
+    vendorLabel: '模型',
+    existingModels: [],
+  });
   const [submitting, setSubmitting] = useState(false);
   const { isOpen: isPromptOpen, onOpen: onPromptOpen, onOpenChange: onPromptOpenChange } = useDisclosure();
   const [promptConfig, setPromptConfig] = useState<PromptDialogConfig>({ title: '' });
@@ -360,7 +369,6 @@ export default function ChannelManagement() {
       custom_config_id: channel.custom_config_id || 0,
     });
     setModelMapping(parseMapping(channel.model_mapping));
-    setModelSourceMode('manual');
     setNewModelInput('');
     onOpen();
   };
@@ -381,7 +389,6 @@ export default function ChannelManagement() {
       custom_config_id: 0,
     });
     setModelMapping([]);
-    setModelSourceMode('manual');
     setNewModelInput('');
     onOpen();
   };
@@ -649,6 +656,19 @@ export default function ChannelManagement() {
     }
   };
 
+  // 🎀 供应商分组名～从渠道 type 映射成好看的标签(如 OpenAI)
+  const vendorLabelOfType = (type?: number | string) => {
+    const key = String(type ?? formData.type ?? '1');
+    return CHANNEL_TYPES.find((t) => t.key === key)?.label || '模型';
+  };
+
+  // 🌟 统一打开挑选弹窗：塞入拉回来的模型 + 上下文
+  const openFetchDialog = (models: string[], ctx: { channelName: string; vendorLabel: string; existingModels: string[]; channelId?: number }) => {
+    setFetchedModelList(models);
+    setFetchDialogCtx(ctx);
+    onFetchDialogOpen();
+  };
+
   const handleFetchModels = async (channelId: number) => {
     setFetchingModels(channelId);
     try {
@@ -668,14 +688,24 @@ export default function ChannelManagement() {
       if (isFailed) {
         toast.error(data.message || data.msg || '获取模型失败');
       } else if (models.length > 0) {
-        const modelStr = models.join(',');
-        setFormData(prev => ({ ...prev, models: modelStr }));
-        toast.success(`已拉取 ${models.length} 个上游模型`);
+        // 🌸 不再直接覆盖表单啦，弹窗让主人挑一挑～
+        const ch = channels.find((c) => c.id === channelId);
+        // 编辑抽屉里优先用表单里的 models 当基准，否则用列表里查到的渠道
+        const inDrawer = isOpen && editingChannel?.id === channelId;
+        const baseModels = (inDrawer ? formData.models : ch?.models) || '';
+        openFetchDialog(models, {
+          channelName: ch?.name || editingChannel?.name || `渠道 #${channelId}`,
+          vendorLabel: vendorLabelOfType(ch?.type),
+          existingModels: baseModels.split(',').map((m) => m.trim()).filter(Boolean),
+          // 抽屉里就写表单(保存时统一提交)，否则右键场景直接落库
+          channelId: inDrawer ? undefined : channelId,
+        });
       } else {
         toast.error('上游未返回任何模型');
       }
     } catch (error) {
       console.error('Fetch models error:', error);
+      toast.error('获取模型失败');
     } finally {
       setFetchingModels(null);
     }
@@ -705,9 +735,12 @@ export default function ChannelManagement() {
         ? data.data
         : (Array.isArray(data?.data?.models) ? data.data.models : []);
       if (isSuccess && Array.isArray(models) && models.length > 0) {
-        const modelStr = models.join(',');
-        setFormData(prev => ({ ...prev, models: modelStr }));
-        toast.success(`已同步 ${models.length} 个上游模型，可继续删改后保存`);
+        // 🌸 同样改成弹窗挑选，挑完再写回表单～
+        openFetchDialog(models, {
+          channelName: formData.name || '新渠道',
+          vendorLabel: vendorLabelOfType(formData.type),
+          existingModels: (formData.models || '').split(',').map((m) => m.trim()).filter(Boolean),
+        });
       } else if (!isSuccess) {
         toast.error(data.message || data.msg || '同步上游模型失败');
       } else {
@@ -718,6 +751,59 @@ export default function ChannelManagement() {
       toast.error('同步上游模型失败');
     } finally {
       setFetchingModels(null);
+    }
+  };
+
+  // 🌟 统一的"从上游获取"入口～不管新增还是编辑都走这里，再也不会点了没反应啦(๑•̀ㅂ•́)و
+  const handleFetchFromUpstream = () => {
+    if (editingChannel?.id) {
+      // 已存在的渠道：直接按 ID 拉
+      handleFetchModels(editingChannel.id);
+      return;
+    }
+    // 新增渠道：得先填好 base_url 或 key 才能拉上游
+    if (!formData.base_url?.trim() && !formData.key?.trim()) {
+      toast.warning('请先填写 API 地址或密钥再从上游获取哦～');
+      return;
+    }
+    handleFetchModelsByForm();
+  };
+
+  // 🎀 弹窗里挑好模型后写回～
+  //   · 抽屉场景(channelId 为空)：写回表单，等主人点保存统一提交
+  //   · 右键场景(带 channelId)：直接 PUT 落库，省得再开抽屉
+  const handleApplyFetchedModels = async (selected: string[]) => {
+    const merged = Array.from(new Set(selected.map((m) => m.trim()).filter(Boolean)));
+    const targetId = fetchDialogCtx.channelId;
+
+    if (!targetId) {
+      setFormData((prev) => ({ ...prev, models: merged.join(',') }));
+      toast.success(`已写入 ${merged.length} 个模型～`);
+      return;
+    }
+
+    // 右键场景：直接更新目标渠道
+    const ch = channels.find((c) => c.id === targetId);
+    if (!ch) {
+      toast.error('找不到目标渠道 (´;ω;`)');
+      return;
+    }
+    try {
+      const res = await fetch('/api/channel', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ...ch, models: merged.join(',') }),
+      });
+      const data = await res.json();
+      if (data.code === 0) {
+        toast.success(`已为「${ch.name}」保存 ${merged.length} 个模型～`);
+        fetchChannels();
+      } else {
+        toast.error(data.msg || '保存模型失败');
+      }
+    } catch (error) {
+      console.error('Apply fetched models error:', error);
+      toast.error('保存模型失败');
     }
   };
 
@@ -1617,46 +1703,18 @@ export default function ChannelManagement() {
                         {/* 快捷操作 - 始终显示 */}
                         <div className="space-y-2">
                           <span className="text-small font-medium text-default-700">快捷操作</span>
-                          <p className="text-xs text-default-500">使用预设按钮上快速添加未包含的模型列表。</p>
+                          <p className="text-xs text-default-500">从上游拉取模型后会弹窗让你挑选，再写回列表。</p>
                           <div className="flex flex-wrap gap-2">
                             <Button
                               type="button"
                               size="sm"
                               variant="bordered"
+                              color="secondary"
                               startContent={<Download size={14} />}
-                              onPress={() => {
-                                if (editingChannel?.id) {
-                                  handleFetchModels(editingChannel.id);
-                                }
-                              }}
+                              isLoading={fetchingModels !== null}
+                              onPress={handleFetchFromUpstream}
                             >
-                              填入相关模型
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="bordered"
-                              startContent={<Plus size={14} />}
-                              onPress={() => {
-                                toast.info('请使用"同步上游模型"或"拉取模型"功能');
-                              }}
-                            >
-                              填充所有模型
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="bordered"
-                              startContent={<RefreshCw size={14} />}
-                              onPress={() => {
-                                if (editingChannel?.id) {
-                                  handleFetchModels(editingChannel.id);
-                                } else if (modelSourceMode === 'sync') {
-                                  handleFetchModelsByForm();
-                                }
-                              }}
-                            >
-                              从上游获取
+                              从上游拉取
                             </Button>
                             <Button
                               type="button"
@@ -2302,6 +2360,17 @@ export default function ChannelManagement() {
             : []
         }
         onClose={() => setContextMenu(null)}
+      />
+
+      {/* 🌸 从上游拉取模型的挑选弹窗～ */}
+      <FetchModelsDialog
+        isOpen={isFetchDialogOpen}
+        onClose={() => onFetchDialogOpenChange(false)}
+        channelName={fetchDialogCtx.channelName}
+        vendorLabel={fetchDialogCtx.vendorLabel}
+        fetchedModels={fetchedModelList}
+        existingModels={fetchDialogCtx.existingModels}
+        onSave={handleApplyFetchedModels}
       />
     </div>
   );
