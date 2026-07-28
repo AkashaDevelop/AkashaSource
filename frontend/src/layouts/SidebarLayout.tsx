@@ -263,9 +263,9 @@ export default function SidebarLayout({ navGroups, logoContent, userCard, header
   );
 
   return (
-    <div className="flex min-h-screen w-full" style={{ background: 'var(--bg-base)' }}>
+    <div className="flex h-screen w-full overflow-hidden" style={{ background: 'var(--bg-base)' }}>
       {/* 桌面端侧边栏 */}
-      <div className="hidden md:flex flex-col flex-shrink-0 w-60 min-h-screen">
+      <div className="hidden md:flex flex-col flex-shrink-0 w-60 h-screen">
         {sidebar}
       </div>
 
