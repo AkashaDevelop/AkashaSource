@@ -1,15 +1,12 @@
 package qingyuan
 
-import (
-)
-
 // detectContextWindowRisks 检测上下文窗口末期注入风险
 // 设计文档 4.9 & 6.6: 上下文窗口末期注入
 func detectContextWindowRisks(segments []textSegment, totalTokenEstimate int, maxContext int) []Finding {
 	findings := []Finding{}
 
 	if maxContext <= 0 {
-		maxContext = 128000 // 默认上下文长度
+		maxContext = defaultContextWindow // 认不出模型时的保守取值，见 context_limit.go
 	}
 
 	// 计算上下文使用率
@@ -107,9 +104,44 @@ func isCJK(r rune) bool {
 		(r >= 0xac00 && r <= 0xd7af)
 }
 
+// contextWindowWeight 计算"位置 + 窗口占用"这一族的风险放大系数
+//
+// 之前这两个系数是**连乘**的：最后用户消息 ×1.5、上下文快满再 ×1.5，
+// 叠上信任等级的 ×1.6，一条 60 分的规则能被放大到 216 分，
+// 于是任何一条中等规则命中都必然越过 85 的拦截线——阈值形同虚设。
+//
+// 现在同族系数取最大值而不是连乘：既保留了"最新消息和满窗更值得警惕"的判断，
+// 又不会让放大倍数失控喵～
+func contextWindowWeight(seg textSegment, isLastUserMessage bool, contextUsageRatio float64) float64 {
+	weight := 1.0
+
+	// 最后一条用户消息：最新意图，注入往往藏在这里
+	if isLastUserMessage && seg.Role == "user" {
+		weight = 1.5
+	}
+
+	// 上下文接近占满：系统提示词有被挤出注意力范围的风险
+	if contextUsageRatio > 0.95 {
+		if weight < 1.5 {
+			weight = 1.5
+		}
+	} else if contextUsageRatio > 0.8 {
+		if weight < 1.2 {
+			weight = 1.2
+		}
+	}
+
+	return weight
+}
+
 // applyContextWindowWeighting 根据上下文位置调整风险分
 func applyContextWindowWeighting(findings []Finding, seg textSegment, isLastUserMessage bool, contextUsageRatio float64) []Finding {
 	if len(findings) == 0 {
+		return findings
+	}
+
+	weight := contextWindowWeight(seg, isLastUserMessage, contextUsageRatio)
+	if weight == 1.0 {
 		return findings
 	}
 
@@ -117,23 +149,11 @@ func applyContextWindowWeighting(findings []Finding, seg textSegment, isLastUser
 	copy(weighted, findings)
 
 	for i := range weighted {
-		originalScore := weighted[i].Score
-
-		// 最后用户消息加权 1.5x
-		if isLastUserMessage && seg.Role == "user" {
-			weighted[i].Score = int(float64(originalScore) * 1.5)
+		// 信息类小纸条不参与加权，它本来就不表示风险
+		if IsInformational(weighted[i]) {
+			continue
 		}
-
-		// 上下文接近满时加权
-		if contextUsageRatio > 0.8 {
-			multiplier := 1.2
-			if contextUsageRatio > 0.95 {
-				multiplier = 1.5
-			}
-			weighted[i].Score = int(float64(weighted[i].Score) * multiplier)
-		}
-
-		// 更新 severity
+		weighted[i].Score = clampScore(int(float64(weighted[i].Score) * weight))
 		weighted[i].Severity = severity(weighted[i].Score)
 	}
 

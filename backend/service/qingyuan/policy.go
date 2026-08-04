@@ -51,6 +51,10 @@ const (
 	AIReviewBoth = "both"
 )
 
+// defaultToolNameRegex 内置的工具名合法性正则
+// 管理员自定义的正则编译失败时，会回退到这一条（见 request.go 的 validateToolsAndMessages）
+const defaultToolNameRegex = "^[a-zA-Z0-9_-]{1,64}$"
+
 // TrustConfig 宸汐清源 · 信任边界配置～
 // 对应 2026 年"默认不信任非运营者内容"的架构原则：
 // 检索文档/工具输出/工具自我介绍命中攻击特征时，风险分要比普通文本放得更大声
@@ -162,7 +166,7 @@ func DefaultConfig() PolicyConfig {
 			ValidateToolSchema:         true,
 			ValidateToolChoice:         true,
 			ValidateAssistantToolCalls: true,
-			ToolNameRegex:              "^[a-zA-Z0-9_-]{1,64}$",
+			ToolNameRegex:              defaultToolNameRegex,
 			MaxTools:                   128,
 			MaxToolSchemaBytes:         65536,
 			MaxToolArgumentsBytes:      262144,
@@ -216,7 +220,7 @@ func MergeConfig(raw string) (PolicyConfig, error) {
 		cfg.Detection.MaxScanChars = 65536
 	}
 	if cfg.Tools.ToolNameRegex == "" {
-		cfg.Tools.ToolNameRegex = "^[a-zA-Z0-9_-]{1,64}$"
+		cfg.Tools.ToolNameRegex = defaultToolNameRegex
 	}
 	if cfg.Tools.MaxTools <= 0 {
 		cfg.Tools.MaxTools = 128
@@ -283,12 +287,18 @@ func ValidatePolicy(p *model.ContextSanitizationPolicy) error {
 		return errors.New("渠道模型策略必须指定渠道和模型")
 	}
 	if p.Config != "" {
-		if _, err := MergeConfig(p.Config); err != nil {
+		cfg, err := MergeConfig(p.Config)
+		if err != nil {
 			return err
 		}
-	}
-	if _, err := regexp.Compile(DefaultConfig().Tools.ToolNameRegex); err != nil {
-		return err
+		// ～2026.8.4 修正：以前这里校验的是 DefaultConfig() 里那条内置正则，
+		// 管理员自己填的那条压根没人管，写错了要等到线上请求时才静默失效喵～
+		if _, err := regexp.Compile(cfg.Tools.ToolNameRegex); err != nil {
+			return errors.New("工具名称正则表达式无效: " + err.Error())
+		}
+		if cfg.Risk.BlockThreshold > 0 && cfg.Risk.AnnotateThreshold > cfg.Risk.BlockThreshold {
+			return errors.New("标注阈值不能高于拦截阈值")
+		}
 	}
 	return nil
 }

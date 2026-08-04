@@ -7,8 +7,12 @@ package xuanjian
 
 import (
 	"log"
+	"sync"
 	"time"
 )
+
+// cleanupOnce 保证清理任务只启动一次（配置热更新会重复调用 Init 相关路径）
+var cleanupOnce sync.Once
 
 // Init 初始化宸汐玄鉴模块（从 DB options 加载配置）
 func Init() {
@@ -18,9 +22,17 @@ func Init() {
 	if err := SeedBuiltinRules(); err != nil {
 		log.Printf("[xuanjian] 播种内置规则失败: %v", err)
 	}
+	// 存量规则库校准（新装库不会触发，见 rules_recalibrate.go）
+	RecalibrateRules()
 	if err := ReloadRuleCache(); err != nil {
 		log.Printf("[xuanjian] 加载规则缓存失败: %v", err)
 	}
+
+	// ～2026.8.4 修正：清理任务以前挂在"模块已启用"分支的最后一行，
+	// 于是启动时是关闭状态、之后管理员在后台打开的话，清理协程永远不会起——
+	// 画像只进不出，内存一路涨到天上去 (⊙_⊙;)
+	// 现在无条件启动：模块没开时画像本来就是空的，多跑一个空转的 ticker 不花什么钱～
+	cleanupOnce.Do(func() { go startCleanup() })
 
 	cfg, enabled := GetConfig()
 	if !enabled || cfg.Mode == ModeOff {
@@ -29,9 +41,6 @@ func Init() {
 	}
 
 	log.Printf("[xuanjian] 宸汐玄鉴已启动，模式: %s", cfg.Mode)
-
-	// 启动后台画像清理任务
-	go startCleanup()
 }
 
 func startCleanup() {
@@ -39,6 +48,8 @@ func startCleanup() {
 	defer ticker.Stop()
 	for range ticker.C {
 		CleanupExpired()
+		cleanupNotifyThrottle()
+		cleanupReviewCache()
 	}
 }
 

@@ -14,19 +14,22 @@ type MessageSnapshot struct {
 
 // detectTextDilution 检测文本稀释攻击（长文本末尾藏恶意指令）
 func detectTextDilution(content string, policy ResolvedPolicy) []Finding {
-	if len(content) < 1000 { // 只检查长文本
+	// ～2026.8.4 修正：以前这里按 byte 下标切片，中文一刀砍在半个字上，
+	// 切出来的是坏掉的 UTF-8，后续 ToLower/Contains 全部失准喵～现在按 rune 切～
+	runes := []rune(content)
+	if len(runes) < 500 { // 只检查长文本
 		return nil
 	}
 
 	findings := []Finding{}
 
 	// 检查末尾 10% 是否包含高风险关键词
-	tailLen := len(content) / 10
+	tailLen := len(runes) / 10
 	if tailLen < 50 {
 		tailLen = 50
 	}
-	tail := content[len(content)-tailLen:]
-	head := content[:len(content)-tailLen]
+	tail := string(runes[len(runes)-tailLen:])
+	head := string(runes[:len(runes)-tailLen])
 
 	// 高风险关键词（从动态规则中提取）
 	highRiskCategories := []string{
@@ -66,6 +69,15 @@ func detectTextDilution(content string, policy ResolvedPolicy) []Finding {
 }
 
 // detectCrossMessageInjection 检测跨消息分段注入
+//
+// 2026.8.4 校准：这条规则原来是"任意一条消息出现触发词 + 任意另一条出现目标词"就算命中，
+// 而触发词收了「忽略/忘记」、目标词收了「规则/策略/指南」——
+// 于是"忘记我刚才说的"配上后面某句"这个规则怎么写"，正常对话直接吃 65 分 (；一_一)
+//
+// 现在收紧三处：
+//  1. 触发词只留明确的指令性动词，去掉「忘记」这种日常口语
+//  2. 目标词必须明确指向"系统层指令"，去掉「规则/策略/指南」这类泛指
+//  3. 两条消息必须**相邻或接近**（间隔 ≤2 条），真正的分段注入不会隔几十轮
 func detectCrossMessageInjection(messages []MessageSnapshot, policy ResolvedPolicy) []Finding {
 	if len(messages) < 2 {
 		return nil
@@ -73,18 +85,18 @@ func detectCrossMessageInjection(messages []MessageSnapshot, policy ResolvedPoli
 
 	findings := []Finding{}
 
-	// 检测模式：前面消息出现"触发词"，后续消息出现"目标词"
+	// 触发词：明确要求"停止服从"的指令性动词
 	triggerKeywords := []string{
-		"ignore", "disregard", "forget", "bypass", "override",
-		"忽略", "无视", "忘记", "绕过", "覆盖",
+		"ignore", "disregard", "bypass", "override", "circumvent",
+		"忽略", "无视", "绕过", "覆盖", "撤销",
 	}
+	// 目标词：明确指向系统层指令，不能是「规则」这种泛指
 	targetKeywords := []string{
-		"previous instructions", "system prompt", "rules", "guidelines", "policy",
-		"之前的指令", "系统提示", "规则", "指南", "策略",
+		"previous instructions", "prior instructions", "system prompt",
+		"system message", "safety guidelines", "content policy",
+		"之前的指令", "上述指令", "系统提示", "系统提示词", "安全准则", "安全限制",
 	}
 
-	hasTrigger := false
-	hasTarget := false
 	triggerIndex := -1
 	targetIndex := -1
 
@@ -92,10 +104,9 @@ func detectCrossMessageInjection(messages []MessageSnapshot, policy ResolvedPoli
 		lower := strings.ToLower(msg.Content)
 
 		// 检查触发词
-		if !hasTrigger {
+		if triggerIndex < 0 {
 			for _, kw := range triggerKeywords {
 				if strings.Contains(lower, strings.ToLower(kw)) {
-					hasTrigger = true
 					triggerIndex = i
 					break
 				}
@@ -103,10 +114,9 @@ func detectCrossMessageInjection(messages []MessageSnapshot, policy ResolvedPoli
 		}
 
 		// 检查目标词
-		if !hasTarget {
+		if targetIndex < 0 {
 			for _, tgt := range targetKeywords {
 				if strings.Contains(lower, strings.ToLower(tgt)) {
-					hasTarget = true
 					targetIndex = i
 					break
 				}
@@ -114,16 +124,22 @@ func detectCrossMessageInjection(messages []MessageSnapshot, policy ResolvedPoli
 		}
 	}
 
-	// 分段注入：触发词和目标词出现在不同消息中
-	if hasTrigger && hasTarget && triggerIndex != targetIndex {
-		findings = append(findings, Finding{
-			Type:     "segmented_injection_cross_message",
-			Severity: "high",
-			Score:    65,
-			Path:     "message_sequence",
-			Evidence: "跨消息分段注入：触发词与目标词分离出现",
-			Action:   "monitor",
-		})
+	// 分段注入：触发词和目标词出现在**不同但相邻**的消息中
+	if triggerIndex >= 0 && targetIndex >= 0 && triggerIndex != targetIndex {
+		gap := triggerIndex - targetIndex
+		if gap < 0 {
+			gap = -gap
+		}
+		if gap <= 2 {
+			findings = append(findings, Finding{
+				Type:     "segmented_injection_cross_message",
+				Severity: severity(65),
+				Score:    65,
+				Path:     "message_sequence",
+				Evidence: "跨消息分段注入：触发词与目标词分离出现于相邻消息",
+				Action:   "monitor",
+			})
+		}
 	}
 
 	return findings

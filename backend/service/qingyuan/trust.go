@@ -78,7 +78,11 @@ func applyTrustWeighting(findings []Finding, level TrustLevel, cfg TrustConfig) 
 	weighted := make([]Finding, len(findings))
 	copy(weighted, findings)
 	for i := range weighted {
-		weighted[i].Score = int(float64(weighted[i].Score) * multiplier)
+		// 信息类小纸条不参与加权（见 finding_kind.go），它本来就不表示风险
+		if IsInformational(weighted[i]) {
+			continue
+		}
+		weighted[i].Score = clampScore(int(float64(weighted[i].Score) * multiplier))
 		weighted[i].Severity = severity(weighted[i].Score)
 	}
 	return weighted

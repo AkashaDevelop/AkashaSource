@@ -8,6 +8,7 @@ package xuanjian
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"strings"
 	"sync"
@@ -149,6 +150,12 @@ func (p *TokenProfile) Update(rec RequestRecord, windowMinutes int) {
 	windowDur := time.Duration(windowMinutes) * time.Minute
 
 	// 窗口重置
+	//
+	// ～2026.8.4 修正：以前这里漏掉了 JailbreakAttempts 和 SessionMessages，
+	// 于是 detect_jailbreak.go 里那句"5min 内累计破限尝试 > 5 次"根本不成立——
+	// 它统计的其实是**整个进程生命周期**的累计值，只有 token 闲置一小时被清理才归零。
+	// 结果就是：一个活跃用户偶尔踩中 5 次规则之后，persistent_jailbreak 告警会一直响，
+	// 永远消不掉，管理员看到的是一条永不停歇的假警报 (´ﾟдﾟ`)
 	if now.Sub(p.WindowStart) > windowDur {
 		p.WindowStart = now
 		p.RequestCount = 0
@@ -157,6 +164,8 @@ func (p *TokenProfile) Update(rec RequestRecord, windowMinutes int) {
 		p.ShortPromptCount = 0
 		p.ModelSet = make(map[string]int)
 		p.IPCIDRSet = make(map[string]int)
+		p.JailbreakAttempts = 0
+		p.SessionMessages = 0
 	}
 
 	p.RequestCount++
@@ -228,7 +237,7 @@ func (p *UserProfile) Update(tokenID int, ip string, windowMinutes int) {
 	}
 }
 
-// StdDev 计算时序间隔标准差（用于机器人检测）
+// StdDev 计算时序间隔标准差（用于机器人检测），样本不足返回 -1
 func (p *TokenProfile) StdDev() float64 {
 	if len(p.IntervalBuffer) < 5 {
 		return -1 // 数据不足
@@ -244,8 +253,7 @@ func (p *TokenProfile) StdDev() float64 {
 		variance += d * d
 	}
 	variance /= float64(len(p.IntervalBuffer))
-	// 简单整数平方根近似
-	return sqrtApprox(variance)
+	return math.Sqrt(variance)
 }
 
 // QYScoreRising 判断 qingyuan 风险分是否在单调递增（Crescendo 检测）
@@ -267,39 +275,22 @@ func extractCIDR(ipStr string) string {
 	if ipStr == "" {
 		return ""
 	}
-	// 去掉端口
-	if strings.Contains(ipStr, ":") && !strings.HasPrefix(ipStr, "[") {
-		parts := strings.Split(ipStr, ":")
-		if len(parts) == 2 {
-			ipStr = parts[0]
-		}
+	// 优先按 host:port 拆分，能同时正确处理 "1.2.3.4:8080" 和 "[::1]:8080"
+	if host, _, err := net.SplitHostPort(ipStr); err == nil {
+		ipStr = host
 	}
+	ipStr = strings.Trim(ipStr, "[]")
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return ipStr
 	}
-	if ip.To4() != nil {
+	if v4 := ip.To4(); v4 != nil {
 		// IPv4 取前三段
-		parts := strings.Split(ip.String(), ".")
-		if len(parts) == 4 {
-			return fmt.Sprintf("%s.%s.%s.0/24", parts[0], parts[1], parts[2])
-		}
+		return fmt.Sprintf("%d.%d.%d.0/24", v4[0], v4[1], v4[2])
 	}
 	// IPv6 取前 /48
 	mask := net.CIDRMask(48, 128)
-	ip = ip.Mask(mask)
-	return ip.String() + "/48"
-}
-
-func sqrtApprox(x float64) float64 {
-	if x <= 0 {
-		return 0
-	}
-	z := x / 2
-	for i := 0; i < 20; i++ {
-		z = z - (z*z-x)/(2*z)
-	}
-	return z
+	return ip.Mask(mask).String() + "/48"
 }
 
 // ResetTokenProfile 手动清除某 token 画像（管理员怀疑误判时使用）

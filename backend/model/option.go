@@ -215,6 +215,8 @@ func InitOptions() {
 	common.DB.AutoMigrate(&XuanJianRule{})
 	common.DB.AutoMigrate(&Ability{})
 	SeedQingyuanRules()
+	// 存量库的规则谱校准（新装库不会触发，见 qingyuan_rule_recalibrate.go）
+	RecalibrateQingyuanRules()
 
 	// Load options from DB
 	var options []Option

@@ -23,10 +23,11 @@ import (
 // 处置模型（2026 重构）：
 //   - Action 决定"处置什么"（throttle/rpm_limit/suspend/billing_penalty/disable/ban_ip/ban_user/notify/warn）
 //   - mode 是"破坏性动作的阀门"：
-//       monitor — 全部只记录，绝不动手
-//       protect — 放行非破坏性、可自愈的处置（throttle/rpm_limit/suspend/billing_penalty/notify）
-//       strict  — 额外允许破坏性处置（disable_token/ban_ip/ban_user）落地
-//   - M4（bioweapon_chem）无视 mode 直接出大招，这条没商量余地。
+//     monitor — 全部只记录 + 通知，绝不动手
+//     protect — 放行非破坏性、可自愈的处置（throttle/rpm_limit/suspend/billing_penalty/notify）
+//     strict  — 额外允许破坏性处置（disable_token/ban_ip/ban_user）落地
+//   - M4（bioweapon_chem）在 protect/strict 下无视规则 Action 直接出大招；
+//     monitor 下仍然只告警——见下方说明。
 func Enforce(findings []Finding, rec RequestRecord, cfg XJConfig, mode string) {
 	if len(findings) == 0 {
 		return
@@ -35,10 +36,20 @@ func Enforce(findings []Finding, rec RequestRecord, cfg XJConfig, mode string) {
 		// 异步记录所有 Finding 事件
 		RecordEventAsync(rec.TokenID, rec.UserID, f.Score, rec.TokenName, rec.IP, rec.Model, f)
 
-		// M4 bioweapon_chem：无论模式，直接 disable_token + notify
+		// M4 bioweapon_chem：最高优先级，protect 及以上直接 disable_token + notify
+		//
+		// ～2026.8.4 修正：这条以前是"无论模式"直接封号，连 monitor 都不放过。
+		// 可 monitor 的语义就是"我只想先看看，别动我的用户"——管理员刚接入、
+		// 正在观察误报率的时候被系统自作主张封了客户的 token，那是要出事故的 (๑•́ ₃ •̀๑)
+		// 现在 monitor 下改为"最高优先级告警但不处置"，通知里会写清楚为什么没动手，
+		// 管理员看到后可以自己决定是手动封禁还是切到 protect 模式。
 		if f.Type == "bioweapon_chem" {
-			applyDisableToken(rec, f, "CRITICAL: 生化武器/化学武器内容")
-			go notifyAdmin(rec, f, "CRITICAL: bioweapon/chemical weapon content generation detected")
+			if mode == ModeMonitor {
+				go notifyAdmin(rec, f, "CRITICAL: 检测到生化武器内容，但当前为监控模式未自动处置，请人工确认")
+			} else {
+				applyDisableToken(rec, f, "CRITICAL: 生化武器/化学武器内容")
+				go notifyAdmin(rec, f, "CRITICAL: bioweapon/chemical weapon content generation detected")
+			}
 			continue
 		}
 
@@ -119,34 +130,26 @@ func Enforce(findings []Finding, rec RequestRecord, cfg XJConfig, mode string) {
 	}
 }
 
-// ── 处置力度取值（带默认值兜底，防止配置为 0 时行为异常）─────────────────────
+// ── 处置力度取值 ──────────────────────────────────────────────────────
+//
+// 兜底逻辑统一收敛到 XJConfig.normalize()（policy.go），配置一加载就补齐，
+// 这里只做取值。之前每个函数各自兜一遍默认值，同一个"默认 30 分钟"
+// 在两个文件里各写一份，改的时候极容易漏掉一处喵～
 
 func throttleFactor(cfg XJConfig) float64 {
-	if cfg.ThrottleFactor > 0 && cfg.ThrottleFactor < 1.0 {
-		return cfg.ThrottleFactor
-	}
-	return 0.3
+	return cfg.ThrottleFactor
 }
 
 func penaltyRPM(cfg XJConfig) int {
-	if cfg.PenaltyRPM > 0 {
-		return cfg.PenaltyRPM
-	}
-	return 5
+	return cfg.PenaltyRPM
 }
 
 func suspendDuration(cfg XJConfig) int {
-	if cfg.SuspendDurationMinutes > 0 {
-		return cfg.SuspendDurationMinutes
-	}
-	return 30
+	return cfg.SuspendDurationMinutes
 }
 
 func billingPenaltyFactor(cfg XJConfig) float64 {
-	if cfg.BillingPenaltyFactor > 1.0 {
-		return cfg.BillingPenaltyFactor
-	}
-	return 3.0
+	return cfg.BillingPenaltyFactor
 }
 
 // applySanction 落一条制裁记录（玄鉴自动来源），失败只记录日志不影响主流程
@@ -216,6 +219,10 @@ func executeBanUser(userID int) {
 
 func notifyAdmin(rec RequestRecord, f Finding, extra string) {
 	if common.DB == nil {
+		return
+	}
+	// 同一 (token, 类型) 组合在冷却期内只发一次，别把管理员的收件箱冲垮了（见 notify_throttle.go）
+	if !allowNotify(rec.TokenID, f.Type) {
 		return
 	}
 	msg := "[宸汐玄鉴] 检测到风险行为\n" +

@@ -452,7 +452,7 @@ export default function XuanJian() {
           <div className="p-4 rounded-xl space-y-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>
             <div className="text-sm font-semibold">处置力度配置（规则 Action 命中时的参数）</div>
             <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              规则的处置动作（限速/低RPM/停用/计费惩罚/封IP）命中时按这里的参数执行。时长填 0 表示永久。
+              规则的处置动作（限速/低RPM/停用/计费惩罚/封IP）命中时按这里的参数执行。时长填 -1 表示永久；填 0 会被视为未配置并自动补回默认值。
             </div>
             <div className="grid grid-cols-2 gap-4">
               <Input type="number" step="0.1" label="限速降速倍率（0~1，如 0.3=降到30%）" value={String(config.throttle_factor)} onValueChange={v => setConfig({ ...config, throttle_factor: parseFloat(v) || 0.3 })} />
@@ -460,8 +460,8 @@ export default function XuanJian() {
               <Input type="number" label="固定低 RPM 惩罚值" value={String(config.penalty_rpm)} onValueChange={v => setConfig({ ...config, penalty_rpm: parseInt(v) || 5 })} />
               <Input type="number" label="短暂停用 Token 时长（分钟）" value={String(config.suspend_duration_minutes)} onValueChange={v => setConfig({ ...config, suspend_duration_minutes: parseInt(v) || 30 })} />
               <Input type="number" step="0.5" label="计费惩罚倍率（如 3=3倍收费）" value={String(config.billing_penalty_factor)} onValueChange={v => setConfig({ ...config, billing_penalty_factor: parseFloat(v) || 3 })} />
-              <Input type="number" label="计费惩罚持续（分钟，0=永久）" value={String(config.billing_penalty_duration_minutes)} onValueChange={v => setConfig({ ...config, billing_penalty_duration_minutes: parseInt(v) || 0 })} />
-              <Input type="number" label="封禁 IP 时长（分钟，0=永久）" value={String(config.ban_ip_duration_minutes)} onValueChange={v => setConfig({ ...config, ban_ip_duration_minutes: parseInt(v) || 0 })} />
+              <Input type="number" label="计费惩罚持续（分钟，-1=永久）" value={String(config.billing_penalty_duration_minutes)} onValueChange={v => setConfig({ ...config, billing_penalty_duration_minutes: parseInt(v) || 60 })} />
+              <Input type="number" label="封禁 IP 时长（分钟，-1=永久）" value={String(config.ban_ip_duration_minutes)} onValueChange={v => setConfig({ ...config, ban_ip_duration_minutes: parseInt(v) || 1440 })} />
             </div>
           </div>
         </div>

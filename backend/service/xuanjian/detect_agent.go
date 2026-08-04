@@ -33,12 +33,12 @@ func DetectAgent(rec RequestRecord, p *TokenProfile, cfg XJConfig) []Finding {
 		})
 	}
 
-	// ── 重试风暴（30s 内 > 10 条相似请求）────────────────────────────────
+	// ── 重试风暴（窗口内大量近似请求）────────────────────────────────────
 	if !rec.PromptHash.IsZero() {
 		p.mu.Lock()
 		similarCount := countSimilarPrompts(p.PromptHashes, rec.PromptHash, minHashSim)
 		p.mu.Unlock()
-		if similarCount >= 10 {
+		if similarCount >= cfg.RetryStormMinHits {
 			findings = append(findings, Finding{
 				Type:     "retry_storm",
 				Group:    string(GroupAgentAbuse),
@@ -49,16 +49,27 @@ func DetectAgent(rec RequestRecord, p *TokenProfile, cfg XJConfig) []Finding {
 		}
 	}
 
-	// ── 自动化机器人：interval 标准差 < 100ms（没有人类的停顿节奏）─────────
+	// ── 自动化机器人：请求节奏过于规整 ──────────────────────────────────
+	//
+	// ～2026.8.4 修正：这条原来的门槛是"标准差 < 100ms"，对一个 **API 网关** 来说
+	// 简直是误伤机器——这里的客户端本来就全是程序！SDK 重试、定时任务、批处理脚本，
+	// 哪个不是规规矩矩按固定节奏发请求？按原逻辑，一个老老实实用 cron 跑日报的用户
+	// 会被稳稳扣上"自动化机器人"的帽子 (´･ω･`)
+	//
+	// 现在三个条件同时满足才算数：节奏极其规整（默认 <30ms）+ 请求量确实很大
+	// （默认 >100 次）+ 样本足够（StdDev 内部要求至少 5 个间隔）。
+	// 而且分数降到 45，定位为"辅助信号"——它本身不说明恶意，只有和别的命中
+	// 凑在一起时才有参考价值。
 	p.mu.Lock()
 	stddev := p.StdDev()
+	reqCount := p.RequestCount
 	p.mu.Unlock()
-	if stddev >= 0 && stddev < 100 {
+	if stddev >= 0 && stddev < cfg.BotStdDevMs && reqCount > cfg.BotMinRequests {
 		findings = append(findings, Finding{
 			Type:     "automated_bot",
 			Group:    string(GroupAgentAbuse),
-			Score:    65,
-			Evidence: "request interval std_dev=" + floatStr(stddev) + "ms (<100ms threshold)",
+			Score:    45,
+			Evidence: "interval std_dev=" + floatStr(stddev) + "ms over " + intStr(reqCount) + " requests",
 			Action:   "warn",
 		})
 	}
@@ -102,13 +113,19 @@ func hasReActPattern(text string) bool {
 }
 
 // hasCmdInjectionKeyword 检测 shell 命令注入特征
+//
+// ～2026.8.4 校准：原来这里收了 "whoami"、"; id"、"ls -la /"、"cat /etc" 这些裸词。
+// 单独看它们全是 Linux 日常用语，而且 Contains 匹配下 "; id" 连 "; identity" 都会中。
+// 不过这个函数有个保护伞——调用方要求必须同时具备 ReAct/agent 结构，
+// 所以这里可以保留稍宽一点的特征，但那些"一个单词就中"的还是得请走。
 func hasCmdInjectionKeyword(text string) bool {
 	lower := strings.ToLower(text)
 	for _, kw := range []string{
-		"; id", "$(id)", "`id`", "&& id",
-		"cat /etc", "ls -la /",
-		"; cat /", "&& ls", "| nc ",
-		"whoami",
+		"$(id)", "`id`", "&& id ", "; id ",
+		"cat /etc/passwd", "cat /etc/shadow",
+		"bash -i >& /dev/tcp", "nc -e /bin/sh", "| nc -e",
+		"; rm -rf /", "&& rm -rf /",
+		"/bin/sh -c", "powershell -enc",
 	} {
 		if strings.Contains(lower, kw) {
 			return true

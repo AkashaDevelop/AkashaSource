@@ -76,6 +76,9 @@ func getReReviewPrompt(cfg XJConfig) string {
 
 // PreReview AI 预审：在请求转发前审核用户消息
 // 返回 Pass=true 才允许继续转发
+//
+// 这是整条链路上唯一同步阻塞的环节，所以先查一遍审核记忆匣：
+// 同样的文本刚审过就直接复用结论，省掉一次网络往返和一份 token 钱（见 review_cache.go）
 func PreReview(messages []interface{}, prompt string, cfg XJConfig) AIReviewResult {
 	if cfg.AIReviewMode != AIReviewPre && cfg.AIReviewMode != AIReviewBoth {
 		return AIReviewResult{Pass: true, Skipped: true, Stage: "pre"}
@@ -86,8 +89,14 @@ func PreReview(messages []interface{}, prompt string, cfg XJConfig) AIReviewResu
 		return AIReviewResult{Pass: true, Skipped: true, Stage: "pre"}
 	}
 
+	if cached, ok := lookupReviewCache("pre", text); ok {
+		return cached
+	}
+
 	systemPrompt := getPreReviewPrompt(cfg)
-	return fromCommonResult(aireview.Call(cfg.AIReviewChannelID, cfg.AIReviewModel, systemPrompt, text, cfg.AIReviewTimeoutSec, cfg.AIReviewBlockScore, "pre"))
+	result := fromCommonResult(aireview.Call(cfg.AIReviewChannelID, cfg.AIReviewModel, systemPrompt, text, cfg.AIReviewTimeoutSec, cfg.AIReviewBlockScore, "pre"))
+	storeReviewCache("pre", text, result)
+	return result
 }
 
 // ReReview AI 复审：规则引擎命中后，用 AI 复确认是否为真实风险
@@ -115,18 +124,47 @@ func ReReview(messages []interface{}, prompt string, findings []Finding, cfg XJC
 	systemPrompt := getReReviewPrompt(cfg)
 	userContent := fmt.Sprintf("规则引擎命中：\n%s\n\n用户消息：\n%s", ruleSummary, text)
 
-	return fromCommonResult(aireview.Call(cfg.AIReviewChannelID, cfg.AIReviewModel, systemPrompt, userContent, cfg.AIReviewTimeoutSec, cfg.AIReviewBlockScore, "re"))
+	if cached, ok := lookupReviewCache("re", userContent); ok {
+		return cached
+	}
+
+	result := fromCommonResult(aireview.Call(cfg.AIReviewChannelID, cfg.AIReviewModel, systemPrompt, userContent, cfg.AIReviewTimeoutSec, cfg.AIReviewBlockScore, "re"))
+	storeReviewCache("re", userContent, result)
+	return result
 }
 
 // RulePreCheck 规则引擎初审：对用户消息执行关键词规则匹配
 // 返回命中的 Finding 列表，空列表表示初审通过
+//
+// ～2026.8.4 修正：以前这里用 GetActiveRules() 拿的是**全部**规则，
+// 完全无视管理员在配置里关掉的检测分组开关——
+// 管理员明明关了"越狱检测"，AI 复审的初筛却还在偷偷用越狱规则扫描，
+// 关掉的开关等于没关喵 (￣ヘ￣)
 func RulePreCheck(messages []interface{}, prompt string, cfg XJConfig) []Finding {
-	rules := GetActiveRules()
 	text := extractReviewText(messages, prompt, cfg.AIReviewMaxTextChars)
 	if text == "" {
 		return nil
 	}
-	return MatchRules(text, true, 0, rules)
+	return MatchRules(text, true, 0, activeRulesByConfig(cfg))
+}
+
+// activeRulesByConfig 按当前配置里开启的检测分组挑选规则
+func activeRulesByConfig(cfg XJConfig) []KeywordRule {
+	var rules []KeywordRule
+	if cfg.EnableJailbreakDetection {
+		rules = append(rules, GetActiveRulesByGroup(GroupJailbreak)...)
+	}
+	if cfg.EnableLLMAbuse {
+		rules = append(rules, GetActiveRulesByGroup(GroupMalwareGen)...)
+		rules = append(rules, GetActiveRulesByGroup(GroupReverseEng)...)
+	}
+	if cfg.EnableAgentDetection {
+		rules = append(rules, GetActiveRulesByGroup(GroupAgentAbuse)...)
+	}
+	if cfg.EnableAbuseDetection {
+		rules = append(rules, GetActiveRulesByGroup(GroupLLMJacking)...)
+	}
+	return rules
 }
 
 // extractReviewText 从 messages 数组和 prompt 中提取待审核文本

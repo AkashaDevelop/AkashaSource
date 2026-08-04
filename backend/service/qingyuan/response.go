@@ -129,11 +129,28 @@ func ApplyOpenAIResponse(ctx context.Context, body []byte, rc ResponseContext, p
 	return result, nil
 }
 
+// adSuffixPatterns 上游广告尾巴的兜底特征词
+//
+// 2026.8.4 校准：原来这里塞了「由 / 提供 / 访问 / 注册」这种超高频中文词，
+// 一段正常的「--- 参考资料：本文由 XX 提供，可访问 xxx 了解更多」就能刷到高分，
+// 被 strip_known_suffix 一剪，用户的正文引用块就没了 (´；ω；`)
+//
+// 现在只保留"广告味"足够独特的短语：单个词不足以定罪，必须是明确的推广话术～
+var adSuffixPatterns = []string{
+	"powered by",
+	"本站由", "本服务由", "技术支持由",
+	"充值优惠", "限时优惠", "折扣充值",
+	"邀请码", "推荐码", "优惠码",
+	"api 中转", "api中转", "中转站",
+	"扫码加群", "加微信", "联系客服",
+	"免费试用", "免费额度",
+}
+
 func detectAndStripSuffixAd(content string, policy ResolvedPolicy) (string, []Finding) {
 	trimmed := strings.TrimRight(content, " \t\r\n")
 	lower := strings.ToLower(trimmed)
 	patterns := append([]string{}, policy.Config.Response.KnownAdPatterns...)
-	patterns = append(patterns, "powered by", "由", "提供", "充值", "优惠", "邀请码", "推荐码", "api 中转", "访问", "注册")
+	patterns = append(patterns, adSuffixPatterns...)
 	lastBreak := strings.LastIndex(trimmed, "\n---")
 	if lastBreak < 0 {
 		lastBreak = strings.LastIndex(trimmed, "\n——")
@@ -158,16 +175,20 @@ func detectAndStripSuffixAd(content string, policy ResolvedPolicy) (string, []Fi
 			break
 		}
 	}
-	if strings.Contains(lowerSuffix, "http://") || strings.Contains(lowerSuffix, "https://") {
-		score += 25
-	}
-	if strings.Contains(lowerSuffix, "ref=") || strings.Contains(lowerSuffix, "utm_") || strings.Contains(lowerSuffix, "invite") || strings.Contains(lowerSuffix, "promo") {
-		score += 25
+	// 光有链接不算广告——技术回答里贴文档链接太常见了，
+	// 必须先命中推广话术，链接才作为佐证加分喵～
+	if score > 0 {
+		if strings.Contains(lowerSuffix, "http://") || strings.Contains(lowerSuffix, "https://") {
+			score += 25
+		}
+		if strings.Contains(lowerSuffix, "ref=") || strings.Contains(lowerSuffix, "utm_") || strings.Contains(lowerSuffix, "invite") || strings.Contains(lowerSuffix, "promo") {
+			score += 25
+		}
 	}
 	if score < policy.Config.Response.AdConfidenceThreshold {
 		return content, nil
 	}
-	finding := Finding{Type: "upstream_ad", Severity: severity(score), Score: score, Path: "choices.message.content.suffix", Evidence: BuildSnippet(matched, 80), Action: policy.Config.Response.AdPolicy}
+	finding := Finding{Type: "upstream_ad", Severity: severity(score), Score: clampScore(score), Path: "choices.message.content.suffix", Evidence: BuildSnippet(matched, 80), Action: policy.Config.Response.AdPolicy}
 	return strings.TrimRight(trimmed[:lastBreak], " \t\r\n"), []Finding{finding}
 }
 

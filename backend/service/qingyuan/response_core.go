@@ -6,13 +6,28 @@ package qingyuan
 // 序列化成各自协议格式、怎么写回客户端，都交给调用方自己决定～
 func analyzeResponseText(content string, toolCalls []ToolCall, rc ResponseContext, policy ResolvedPolicy) (cleanedContent string, blocked bool, blockMsg string, findings []Finding) {
 	cleanedContent = content
-	if content == "" || shouldPreserveAsCode(content) || rc.UserRequestedAds {
+	if content == "" {
 		return content, false, "", nil
 	}
 
+	// ～2026.8.4 安全修正：这两个开关以前是直接 return 整个函数的，于是——
+	//   · 用户请求里带一句"帮我写个文案" → UserRequestedAds=true
+	//   · 模型回了一段 JSON 或代码块     → shouldPreserveAsCode=true
+	// 任意一条成立，响应侧的**全部**防护（工具调用校验、注入检测、thinking 校验）
+	// 就一起被关掉了。这是个只要一句话就能打开的后门，绝对不能留 (╬ Ò﹏Ó)
+	//
+	// 它们本来的职责只是"别乱剪用户的正文"，所以现在只让它们影响广告清理，
+	// 检测该跑的一步都不许少～
+	skipAdStrip := rc.UserRequestedAds || shouldPreserveAsCode(content)
+
 	// 广告检测与清理
-	cleaned, adFindings := detectAndStripSuffixAd(content, policy)
-	findings = append(findings, adFindings...)
+	if !skipAdStrip {
+		cleaned, adFindings := detectAndStripSuffixAd(content, policy)
+		findings = append(findings, adFindings...)
+		if cleaned != content && policy.Config.Response.AdPolicy == "strip_known_suffix" {
+			cleanedContent = cleaned
+		}
+	}
 
 	// 响应工具调用校验
 	if policy.Config.Response.ValidateOutputToolCalls && len(toolCalls) > 0 {
@@ -42,10 +57,6 @@ func analyzeResponseText(content string, toolCalls []ToolCall, rc ResponseContex
 	// Thinking 内容校验
 	if policy.Config.Response.DetectThinkingAttacks {
 		findings = append(findings, validateThinkingResponse(content, policy)...)
-	}
-
-	if cleaned != content && policy.Config.Response.AdPolicy == "strip_known_suffix" {
-		cleanedContent = cleaned
 	}
 
 	return cleanedContent, blocked, blockMsg, findings

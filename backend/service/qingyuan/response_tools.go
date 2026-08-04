@@ -177,6 +177,12 @@ func detectResponseInjection(content string, policy ResolvedPolicy) []Finding {
 	lower := normalizeForMatch(content)
 
 	// 设计文档 8.1: 响应中的提示词注入检测
+	//
+	// 2026.8.4 校准：命令执行诱导那一组原本收了「执行以下代码 / execute the following」，
+	// 可编程助手正常回答里"请执行以下命令安装依赖"是最标准的表达，
+	// 于是每一次技术问答都被记一条 80 分的告警，事件表里全是噪音，
+	// 真正的攻击反而被淹没了 (´-ω-`)
+	// 现在只保留"明确指向本机 shell 且带诱导语气"的长短语～
 	injectionPatterns := []struct {
 		typ   string
 		score int
@@ -202,7 +208,6 @@ func detectResponseInjection(content string, policy ResolvedPolicy) []Finding {
 				"use our api instead",
 				"migrate to our service",
 				"切换到我们的平台",
-				"使用我们的服务",
 				"迁移到我们这里",
 			},
 		},
@@ -211,11 +216,13 @@ func detectResponseInjection(content string, policy ResolvedPolicy) []Finding {
 			80,
 			[]string{
 				"run this command in your terminal",
-				"execute the following",
 				"copy and paste this to shell",
+				"paste this into your terminal",
+				"curl -s | bash",
+				"curl -fssl | sh",
 				"在终端运行以下命令",
-				"执行以下代码",
 				"复制到命令行执行",
+				"粘贴到终端执行",
 			},
 		},
 	}
