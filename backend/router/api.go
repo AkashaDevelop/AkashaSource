@@ -15,9 +15,6 @@ func SetApiRouter(router *gin.Engine) {
 	router.Use(middleware.RequestIDMiddleware())
 	// ～数据库还没接通之前，先把需要查表的接口都挡在门外，只留初始化向导能走～
 	router.Use(middleware.RequireDatabaseReady())
-	// ↓↓↓ REMOVABLE：系统授权门禁，整体移除时删掉这一行 + middleware/system_license.go 即可 ↓↓↓
-	router.Use(middleware.RequireSystemLicensed())
-	// ↑↑↑ REMOVABLE ↑↑↑
 
 	// Relay Route (OpenAI Compatible)
 	router.POST("/v1/chat/completions", middleware.RateLimitMiddleware(), controller.Relay)
@@ -116,9 +113,6 @@ func SetApiRouter(router *gin.Engine) {
 	router.GET("/oauth/telegram/callback", oauth.TelegramCallback)
 	router.GET("/oauth/wechat", oauth.WechatLogin)
 	router.GET("/oauth/wechat/callback", oauth.WechatCallback)
-	// ↓↓↓ REMOVABLE：系统授权门禁的 Device Flow 路由，整体移除时删掉这块即可 ↓↓↓
-	// Device Flow 无需回调地址，发起和轮询都在 rootGroup 下（需登录态）
-	// ↑↑↑ REMOVABLE ↑↑↑
 	router.POST("/api/payment/notify", controller.PaymentNotify)
 	router.GET("/api/payment/notify", controller.PaymentNotify)
 
@@ -527,12 +521,6 @@ func SetApiRouter(router *gin.Engine) {
 			// 系统设置
 			rootGroup.GET("/option", controller.GetOptions)
 			rootGroup.PUT("/option", controller.UpdateOption)
-			// ↓↓↓ REMOVABLE：系统授权门禁的登录态接口，整体移除时删掉这两行即可 ↓↓↓
-			rootGroup.GET("/system-license/status", controller.GetLicenseStatus)
-			rootGroup.POST("/system-license/unbind", controller.UnbindLicense)
-			rootGroup.POST("/system-license/device-code", middleware.CriticalRateLimitMiddleware(), controller.StartDeviceFlow)
-			rootGroup.POST("/system-license/poll", middleware.CriticalRateLimitMiddleware(), controller.PollDeviceFlow)
-			// ↑↑↑ REMOVABLE ↑↑↑
 			rootGroup.GET("/option/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			rootGroup.DELETE("/option/channel_affinity_cache", controller.ClearChannelAffinityCache)
 

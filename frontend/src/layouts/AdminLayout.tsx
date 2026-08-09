@@ -1,9 +1,9 @@
 import { Outlet, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   LayoutDashboard, Server, Settings, Users, Gift, ScrollText, Layers, Box,
   Crown, Ticket, ListTodo,
-  ArrowLeft, CreditCard, Shield, Sparkles, ShieldAlert, Download,
+  ArrowLeft, CreditCard, Shield, Sparkles, Download,
 } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 import { useSystemStore } from '../store/system';
@@ -47,26 +47,10 @@ const navGroups: NavGroup[] = [
 ];
 
 export default function AdminLayout() {
-  const { user, token } = useAuthStore();
+  const { user } = useAuthStore();
   const navigate = useNavigate();
-  const isRoot = (user?.role ?? 0) >= 100;
   const { updateInfo } = useSystemStore();
   const [updateDismissed, setUpdateDismissed] = useState(false);
-
-  // ↓↓↓ REMOVABLE：系统授权门禁的提示横幅，整体移除时删掉这个 state + effect + JSX 块即可 ↓↓↓
-  const [licenseWarning, setLicenseWarning] = useState(false);
-  useEffect(() => {
-    if (!isRoot) return;
-    fetch('/api/system-license/status', { headers: { Authorization: `Bearer ${token}` } })
-      .then(res => res.json())
-      .then(data => {
-        if (data.code === 0 && data.data?.feature_enabled && !data.data?.authorized) {
-          setLicenseWarning(true);
-        }
-      })
-      .catch(() => {});
-  }, [isRoot, token]);
-  // ↑↑↑ REMOVABLE ↑↑↑
 
   const { logoContent, userCard, headerMenu } = useLayoutCommon({
     defaultInitial: 'A',
@@ -94,19 +78,6 @@ export default function AdminLayout() {
       userCard={userCard}
       headerMenu={headerMenu}
     >
-      {/* ↓↓↓ REMOVABLE：系统授权门禁的提示横幅 ↓↓↓ */}
-      {licenseWarning && (
-        <div
-          onClick={() => navigate('/admin/security')}
-          className="flex items-center gap-2 mb-4 px-4 py-2.5 rounded-xl cursor-pointer"
-          style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: 'var(--accent-star)' }}
-        >
-          <ShieldAlert size={16} className="flex-shrink-0" />
-          <span className="text-sm">系统未完成 GitHub 组织授权，功能已受限，点击前往「安全中心 -{'>'} 系统授权」完成授权</span>
-        </div>
-      )}
-      {/* ↑↑↑ REMOVABLE ↑↑↑ */}
-
       {/* 版本更新提示横幅 */}
       {showUpdateBanner && (
         <div

@@ -16,14 +16,7 @@ func GetOptions(c *gin.Context) {
 		common.Fail(c, common.CodeServerError, "获取配置失败")
 		return
 	}
-	// 过滤授权门禁内部键，防止泄露 HMAC 签名等敏感状态
-	var filtered []model.Option
-	for _, opt := range options {
-		if !strings.HasPrefix(opt.Key, "system_license_") {
-			filtered = append(filtered, opt)
-		}
-	}
-	common.OK(c, filtered)
+	common.OK(c, options)
 }
 
 func GetOptionSchema(c *gin.Context) {
@@ -137,11 +130,6 @@ func UpdateOption(c *gin.Context) {
 		return
 	}
 	for _, option := range options {
-		// 禁止通过 API 修改授权门禁内部状态
-		if strings.HasPrefix(option.Key, "system_license_") {
-			common.Failf(c, common.CodeForbidden, "无权修改此配置项: %s", option.Key)
-			return
-		}
 		if err := common.DB.Save(&option).Error; err != nil {
 			common.Failf(c, common.CodeServerError, "配置更新失败: %s", option.Key)
 			return

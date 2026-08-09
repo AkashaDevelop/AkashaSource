@@ -12,7 +12,6 @@ import (
 	"STfreApi/model"
 	"STfreApi/service"
 	"STfreApi/service/cxsec"
-	"STfreApi/service/license"
 	"STfreApi/service/qingyuan"
 	"STfreApi/service/sanction"
 	"STfreApi/service/xuanjian"
@@ -67,9 +66,5 @@ func RunPostDBInit() {
 		// 唤醒「宸汐玄鉴」行为风控结界～(｡•ᴗ•｡)
 		log.Printf("初始化宸汐玄鉴模块...")
 		xuanjian.Init()
-
-		// ↓↓↓ REMOVABLE：系统授权门禁的周期复核任务，整体移除时删掉这三行即可 ↓↓↓
-		license.StartRevalidateTask()
-		// ↑↑↑ REMOVABLE ↑↑↑
 	})
 }

@@ -205,11 +205,6 @@ var routeActionMap = map[string]string{
 	// OAuth 绑定
 	"POST:/api/user/oauth/bind/:provider":   "oauth.bind",
 	"DELETE:/api/user/oauth/unbind/:provider": "oauth.unbind",
-
-	// 授权门禁
-	"POST:/api/system-license/unbind":      "license.unbind",
-	"POST:/api/system-license/device-code": "license.device_flow",
-	"POST:/api/system-license/poll":        "license.poll",
 }
 
 // mapRouteToAction 根据 method + 路由模板查找语义动作
