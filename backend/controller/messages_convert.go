@@ -353,6 +353,7 @@ func streamOpenAI2Claude(c *gin.Context, resp *http.Response, modelName string, 
 	}
 
 	completionText := ""
+	blocked := false
 	if core != nil {
 		released, fullText, findings := core.Finalize(rc.RequestTools)
 		for _, r := range released {
@@ -360,10 +361,11 @@ func streamOpenAI2Claude(c *gin.Context, resp *http.Response, modelName string, 
 		}
 		c.Writer.Flush()
 		completionText = fullText
+		blocked = core.Blocked()
 		qingyuan.RecordResponseFindings(rc, policy, findings, false)
 	}
 
-	if finishReason != "" {
+	if finishReason != "" && !blocked {
 		writeClaudeSSE(c, "content_block_stop", map[string]interface{}{
 			"type": "content_block_stop", "index": 0,
 		})

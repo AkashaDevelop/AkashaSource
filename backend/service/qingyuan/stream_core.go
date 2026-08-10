@@ -19,6 +19,8 @@ type TailBufferCore struct {
 	policy       ResolvedPolicy
 	bufferSize   int
 	delayEnabled bool
+	blocked      bool
+	findings     []Finding
 	aggregated   strings.Builder
 	pending      []pendingChunk
 	pendingLen   int
@@ -30,10 +32,11 @@ func NewTailBufferCore(policy ResolvedPolicy) *TailBufferCore {
 	if policy.Config.Response.StreamTailBufferSize > 0 {
 		bufferSize = policy.Config.Response.StreamTailBufferSize
 	}
-	delayEnabled := policy.Config.Response.DetectAds &&
-		policy.Config.Response.AdPolicy == "strip_known_suffix" &&
-		policy.Policy != nil &&
+	protecting := policy.Policy != nil &&
 		(policy.Policy.Mode == ModeProtect || policy.Policy.Mode == ModeStrict)
+	delayEnabled := protecting &&
+		((policy.Config.Response.DetectAds && policy.Config.Response.AdPolicy == "strip_known_suffix") ||
+			policy.Config.Response.DetectPromptInjection)
 
 	return &TailBufferCore{
 		policy:       policy,
@@ -44,6 +47,10 @@ func NewTailBufferCore(policy ResolvedPolicy) *TailBufferCore {
 
 // Feed 喂入一段文本增量和它对应的"待发送单元"，返回现在可以安全放行的单元列表（可能为空，表示先攒着）
 func (t *TailBufferCore) Feed(deltaText string, emit any) []any {
+	if t.blocked {
+		return nil
+	}
+
 	t.aggregated.WriteString(deltaText)
 
 	if !t.delayEnabled {
@@ -53,9 +60,16 @@ func (t *TailBufferCore) Feed(deltaText string, emit any) []any {
 	t.pending = append(t.pending, pendingChunk{emit: emit, contentLen: len(deltaText)})
 	t.pendingLen += len(deltaText)
 
+	if t.policy.Config.Response.DetectPromptInjection && t.shouldBlockStream(t.aggregated.String()) {
+		return nil
+	}
+
 	var released []any
 	for t.pendingLen > t.bufferSize && len(t.pending) > 0 {
 		front := t.pending[0]
+		if front.contentLen == 0 {
+			break
+		}
 		t.pending = t.pending[1:]
 		t.pendingLen -= front.contentLen
 		released = append(released, front.emit)
@@ -68,21 +82,45 @@ func (t *TailBufferCore) Feed(deltaText string, emit any) []any {
 func (t *TailBufferCore) Finalize(requestTools []interface{}) (toRelease []any, fullText string, findings []Finding) {
 	fullText = t.aggregated.String()
 	if fullText == "" {
-		return t.releaseTail(0), fullText, nil
+		return t.releaseTail(0), fullText, t.findings
+	}
+	if t.blocked {
+		findings = append(findings, t.findings...)
+		findings = append(findings, detectStreamToolCallInjection(fullText, requestTools)...)
+		return nil, fullText, findings
 	}
 
+	findings = append(findings, t.findings...)
 	if t.policy.Config.Response.DetectAds {
 		cleaned, adFindings := detectAndStripSuffixAd(fullText, t.policy)
 		findings = append(findings, adFindings...)
 		if len(adFindings) > 0 && t.delayEnabled {
 			findings = append(findings, detectStreamToolCallInjection(fullText, requestTools)...)
-			findings = append(findings, detectResponseInjection(fullText, t.policy)...)
 			return t.releaseTail(len(fullText) - len(cleaned)), fullText, findings
 		}
 	}
 	findings = append(findings, detectStreamToolCallInjection(fullText, requestTools)...)
 	findings = append(findings, detectResponseInjection(fullText, t.policy)...)
 	return t.releaseTail(0), fullText, findings
+}
+
+func (t *TailBufferCore) shouldBlockStream(fullText string) bool {
+	findings := detectResponseInjection(fullText, t.policy)
+	for _, finding := range findings {
+		if finding.Action == "block" || finding.Score >= t.policy.Config.Risk.BlockThreshold {
+			t.blocked = true
+			t.findings = append(t.findings, findings...)
+			t.pending = nil
+			t.pendingLen = 0
+			return true
+		}
+	}
+	return false
+}
+
+// Blocked 告诉协议层：这条流已经被核心拦住啦，后续收尾帧也别再补刀喵～
+func (t *TailBufferCore) Blocked() bool {
+	return t.blocked
 }
 
 // releaseTail 放行 pending 队列，stripLen>0 时从队尾丢弃刚好覆盖这个长度的单元（即广告尾巴本身）

@@ -52,8 +52,10 @@ func (sp *StreamProcessor) ProcessChunk(chunk []byte) ([]byte, error) {
 
 		dataContent := strings.TrimPrefix(line, "data: ")
 		if dataContent == "[DONE]" {
-			immediate.WriteString(line)
-			immediate.WriteString("\n")
+			raw := []byte(line + "\n")
+			for _, released := range sp.core.Feed("", raw) {
+				immediate.Write(released.([]byte))
+			}
 			continue
 		}
 

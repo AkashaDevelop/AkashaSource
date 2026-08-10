@@ -170,11 +170,45 @@ func detectToolCallsInText(content string, policy ResolvedPolicy) []Finding {
 	return findings
 }
 
+func detectShellDataExfiltration(lower string) []Finding {
+	if !hasAny(lower, []string{"curl ", "wget ", "http://", "https://"}) {
+		return nil
+	}
+	if !hasAny(lower, []string{"--data-binary", "--data-raw", "-d @", "-f @", "--form", "-x post", "-xpost", "webhook", "requestbin", "pastebin"}) {
+		return nil
+	}
+	if !hasAny(lower, []string{".ssh", "id_rsa", ".aws", "aws/credentials", "authorized_keys", ".env", "bash_history", "docker/config", "kube/config", "/etc/passwd", "/etc/hostname", "secret", "token", "credential", "api_key"}) {
+		return nil
+	}
+	if !hasAny(lower, []string{" cat ", "find ", "xargs", "tar ", "base64", "$(", "`", "|", ";", "&&"}) {
+		return nil
+	}
+
+	return []Finding{{
+		Type:     "response_shell_data_exfiltration",
+		Severity: "critical",
+		Score:    95,
+		Path:     "choices.message.content",
+		Evidence: BuildSnippet("shell data exfiltration command", 80),
+		Action:   "block",
+	}}
+}
+
+func hasAny(text string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // detectResponseInjection 检测响应中的注入攻击
 func detectResponseInjection(content string, policy ResolvedPolicy) []Finding {
 	findings := []Finding{}
 
 	lower := normalizeForMatch(content)
+	findings = append(findings, detectShellDataExfiltration(lower)...)
 
 	// 设计文档 8.1: 响应中的提示词注入检测
 	//

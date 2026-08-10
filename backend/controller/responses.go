@@ -462,6 +462,7 @@ func streamChatToResponses(c *gin.Context, resp *http.Response, responseID, mode
 	}
 
 	completionText := ""
+	blocked := false
 	if core != nil {
 		released, fullText, findings := core.Finalize(rc.RequestTools)
 		for _, r := range released {
@@ -469,10 +470,11 @@ func streamChatToResponses(c *gin.Context, resp *http.Response, responseID, mode
 		}
 		c.Writer.Flush()
 		completionText = fullText
+		blocked = core.Blocked()
 		qingyuan.RecordResponseFindings(rc, policy, findings, false)
 	}
 
-	if finishReason != "" {
+	if finishReason != "" && !blocked {
 		writeResponsesSSE(c, "response.output_text.done", gin.H{
 			"output_index":  0,
 			"content_index": 0,

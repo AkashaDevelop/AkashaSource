@@ -51,7 +51,15 @@ func analyzeResponseText(content string, toolCalls []ToolCall, rc ResponseContex
 
 	// 响应注入检测
 	if policy.Config.Response.DetectPromptInjection {
-		findings = append(findings, detectResponseInjection(content, policy)...)
+		injectionFindings := detectResponseInjection(content, policy)
+		findings = append(findings, injectionFindings...)
+		for _, f := range injectionFindings {
+			if f.Action == "block" || f.Score >= policy.Config.Risk.BlockThreshold {
+				blocked = true
+				blockMsg = "响应包含高风险注入内容"
+				break
+			}
+		}
 	}
 
 	// Thinking 内容校验
